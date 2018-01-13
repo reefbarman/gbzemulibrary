@@ -191,8 +191,8 @@ namespace GBZEmuLibrary
             //TODO need to determine best way to handle overflow
             if (_currentByte * 2 < _buffer.Length - 1)
             {
-                _buffer[_currentByte * 2]     = (byte)(leftChannel);
-                _buffer[_currentByte * 2 + 1] = (byte)(rightChannel);
+                _buffer[_currentByte * 2]     = leftChannel;
+                _buffer[_currentByte * 2 + 1] = rightChannel;
 
                 _currentByte++;
             }

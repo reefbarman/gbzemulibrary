@@ -1,5 +1,33 @@
 ﻿namespace GBZEmuLibrary
 {
+    public static class Sound
+    {
+        public const int SAMPLE_RATE = 44100;
+    }
+
+    public enum JoypadButtons
+    {
+        Right,
+        Left,
+        Up,
+        Down,
+        A,
+        B,
+        Select,
+        Start,
+        Count
+    }
+
+    public static class Display
+    {
+        public static Color[] DefaultPalette { get; } = {
+            new Color(224, 248, 208),
+            new Color(136, 192, 112),
+            new Color(52, 104, 86),
+            new Color(8, 24, 32)
+        };
+    }
+
     internal class GameBoySchema
     {
         public const int TARGET_FRAMERATE     = 60;
@@ -64,11 +92,6 @@
         public const int MBC_MODE_LOC = 0x147;
     }
 
-    public class Sound
-    {
-        public const int SAMPLE_RATE = 44100;
-    }
-
     internal class APUSchema
     {
         public const int CHANNEL_LEFT  = 1;
@@ -92,18 +115,5 @@
         public const int VIN_VOL_CONTROL = 0xFF24;
         public const int STEREO_SELECT   = 0xFF25;
         public const int SOUND_ENABLED   = 0xFF26;
-    }
-
-    public enum JoypadButtons
-    {
-        Right,
-        Left,
-        Up,
-        Down,
-        A,
-        B,
-        Select,
-        Start,
-        Count
     }
 }

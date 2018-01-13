@@ -84,24 +84,22 @@ namespace GBZEmuLibrary
             }
 
             _sequenceTimer = (_sequenceTimer + 1) % 8;
+
+            if (Inited)
+            {
+                _frequencyCount++;
+
+                if (_frequencyCount > _frequency * (_dutyState ? _dutyCycle : 1 - _dutyCycle))
+                {
+                    _frequencyCount = 0;
+                    _dutyState      = !_dutyState;
+                }
+            }
         }
 
         public byte GetCurrentSample()
         {
-            byte sample = 0;
-
-            _frequencyCount++;
-
-            if (_frequencyCount > _frequency * (_dutyState ? _dutyCycle : 1 - _dutyCycle))
-            {
-                _frequencyCount = 0;
-
-                sample = (byte)(_dutyState ? _volume : -_volume);
-
-                _dutyState = !_dutyState;
-            }
-
-            return sample;
+            return (byte)(_dutyState ? _volume : -_volume);
         }
 
         public void SetSweep(byte data)

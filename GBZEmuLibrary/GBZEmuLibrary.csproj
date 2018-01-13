@@ -46,7 +46,7 @@
     <Compile Include="Core\APU\SquareWaveGenerator.cs" />
     <Compile Include="Core\BIOS.cs" />
     <Compile Include="Core\Cartridge.cs" />
-    <Compile Include="Core\Color.cs" />
+    <Compile Include="Core\GPU\Color.cs" />
     <Compile Include="Core\CPU\CPU.cs" />
     <Compile Include="Core\CPU\CPU.Arithmetic.cs" />
     <Compile Include="Core\CPU\CPU.Helpers.cs" />
@@ -58,7 +58,7 @@
     <Compile Include="Core\CPU\InterruptHandler.cs" />
     <Compile Include="Core\CPU\Types.cs" />
     <Compile Include="Core\DivideRegister.cs" />
-    <Compile Include="Core\GPU.cs" />
+    <Compile Include="Core\GPU\GPU.cs" />
     <Compile Include="Core\Helpers.cs" />
     <Compile Include="Core\Joypad.cs" />
     <Compile Include="Core\MessageBus.cs" />

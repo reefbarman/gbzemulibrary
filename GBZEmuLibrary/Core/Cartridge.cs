@@ -19,8 +19,8 @@ namespace GBZEmuLibrary
         // Cart Info
         private MBCMode _bankingMode = MBCMode.NO_MBC;
 
-        private int _romBank = 1;
-        private int _ramBank = 0;
+        private byte _romBank = 1;
+        private int _ramBank;
 
         private bool _ramEnabled;
         private bool _romBankingEnabled = true;
@@ -51,6 +51,13 @@ namespace GBZEmuLibrary
                     case 0x08:
                     case 0x09:
                         _bankingMode = MBCMode.NO_MBC;
+                        break;
+                    case 0x0F:
+                    case 0x10:
+                    case 0x11:
+                    case 0x12:
+                    case 0x13:
+                        _bankingMode = MBCMode.MBC3;
                         break;
                     default:
                         throw new NotImplementedException($"Unsupported MBC Mode: {_cartMemory[CartridgeSchema.MBC_MODE_LOC]}");
@@ -83,66 +90,95 @@ namespace GBZEmuLibrary
 
         public void WriteByte(byte data, int address)
         {
-            if (_bankingMode == MBCMode.MBC3)
-            {
-                throw new NotImplementedException();
-            }
-
             if (address < MemorySchema.ROM_END)
             {
                 //TODO determine how to get rid of magic numbers
                 if (address < 0x2000)
                 {
-                    if (_bankingMode == MBCMode.MBC1 || _bankingMode == MBCMode.MBC2)
+                    switch (_bankingMode)
                     {
-                        if (_bankingMode == MBCMode.MBC2 && Helpers.TestBit((ushort)address, 4)) //TODO remove magic number (but 4 is a special bit that has to be set for mbc2 ram writing mode)
-                        {
-                            return;
-                        }
+                        case MBCMode.MBC1:
+                        case MBCMode.MBC2:
+                        case MBCMode.MBC3:
+                            if (_bankingMode == MBCMode.MBC2 && Helpers.TestBit((ushort)address, 4)) //TODO remove magic number (but 4 is a special bit that has to be set for mbc2 ram writing mode)
+                            {
+                                return;
+                            }
 
-                        switch (data & 0xF)
-                        {
-                            case 0xA:
-                                _ramEnabled = true;
-                                break;
-                            case 0x0:
-                                _ramEnabled = false;
-                                break;
-                        }
+                            switch (Helpers.GetBits(data, 4))
+                            {
+                                case 0xA:
+                                    _ramEnabled = true;
+                                    break;
+                                case 0x0:
+                                    _ramEnabled = false;
+                                    break;
+                            }
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
                     }
                 }
                 else if (address < 0x4000)
                 {
-                    if (_bankingMode == MBCMode.MBC1 || _bankingMode == MBCMode.MBC2)
+                    switch (_bankingMode)
                     {
-                        if (_bankingMode == MBCMode.MBC2)
-                        {
-                            SetROMBank(data & 0xF);
-                            return;
-                        }
+                        case MBCMode.NO_MBC: //TODO figure out why NO_MBC is writing data
+                            break;
+                        case MBCMode.MBC1:
+                            //Override the lower 5 bits of the ROM Bank
+                            var newBank = _romBank;
 
-                        SetROMBank((_romBank & 224) | (data & 31));
+                            Helpers.ResetLowBits(ref newBank, 5);
+                            newBank |= Helpers.GetBits(data, 5);
+
+                            SetROMBank(newBank);
+                            break;
+                        case MBCMode.MBC2:
+                            SetROMBank(Helpers.GetBits(data, 4));
+                            break;
+                        case MBCMode.MBC3:
+                            SetROMBank(Helpers.GetBits(data, 7));
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
                     }
                 }
                 else if (address < 0x6000)
                 {
-                    if (_bankingMode == MBCMode.MBC1)
+                    switch (_bankingMode)
                     {
-                        if (_romBankingEnabled)
-                        {
-                            SetROMBank((_romBank & 31) | (data & 224));
-                        }
-                        else
-                        {
-                            _ramBank = data & 0x3;
-                        }
+                        case MBCMode.MBC1:
+                            if (_romBankingEnabled)
+                            {
+                                //Override the bits 5-6 of the romBank
+                                var newBank = _romBank;
+
+                                Helpers.ResetHighBits(ref newBank, 3);
+                                Helpers.ResetLowBits(ref data, 5);
+
+                                newBank |= data;
+
+                                SetROMBank(newBank);
+                            }
+                            else
+                            {
+                                _ramBank = Helpers.GetBits(data, 2);
+                            }
+                            break;
+                        case MBCMode.MBC3:
+                            //TODO RTC register select
+                            _ramBank = Helpers.GetBits(data, 2);
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException();
                     }
                 }
                 else if (address < 0x8000)
                 {
                     if (_bankingMode == MBCMode.MBC1)
                     {
-                        _romBankingEnabled = (data & 0x1) == 0 ? true : false;
+                        _romBankingEnabled = !Helpers.TestBit(data, 1);
                         _ramBank = _romBankingEnabled ? 0 : _ramBank;
                     }
                 }
@@ -153,9 +189,23 @@ namespace GBZEmuLibrary
             }
         }
 
-        private void SetROMBank(int bank)
+        private void SetROMBank(byte bank)
         {
-            _romBank = bank == 0 ? 1 : bank;
+            _romBank = bank;
+
+            switch (_romBank)
+            {
+                case 0x0:
+                case 0x20:
+                case 0x40:
+                case 0x60:
+                    if (_bankingMode == MBCMode.MBC1 || _romBank == 0)
+                    {
+                        _romBank++;
+                    }
+
+                    break;
+            }
         }
     }
 }

@@ -54,7 +54,7 @@ namespace GBZEmuLibrary
             _clocksThisFrame -= CLOCKS_PER_CYCLE;
         }
 
-        public Color[,] GetScreenData()
+        public int[,] GetScreenData()
         {
             return _gpu.GetScreenData();
         }

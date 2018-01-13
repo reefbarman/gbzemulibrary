@@ -76,7 +76,7 @@ namespace GBZEmuLibrary
 
         private const int WINDOW_X_OFFSET = 7;
 
-        private const int MAX_SPRITES = 40;
+        private const int TILE_SIZE = 16;
 
         private const int SEARCHING_SPRITES_ATTRIBUTES_BOUNDS    = SCALINE_DRAW_CLOCKS - 80;
         private const int TRANSFERRING_DATA_TO_LCD_DRIVER_BOUNDS = SEARCHING_SPRITES_ATTRIBUTES_BOUNDS - 172;
@@ -88,15 +88,8 @@ namespace GBZEmuLibrary
         private int _scanlineCounter = SCALINE_DRAW_CLOCKS;
 
         // TODO make below configurable
-        private Color[] _palette = new[]
-        {
-            new Color(224, 248, 208),
-            new Color(136, 192, 112),
-            new Color(52, 104, 86),
-            new Color(8, 24, 32)
-        };
 
-        private Color[,] _screenData = new Color[HORIZONTAL_RESOLUTION, VERTICAL_RESOLUTION];
+        private int[,] _screenData = new int[HORIZONTAL_RESOLUTION, VERTICAL_RESOLUTION];
 
         public void Update(int cycles)
         {
@@ -169,7 +162,7 @@ namespace GBZEmuLibrary
             }
         }
 
-        public Color[,] GetScreenData()
+        public int[,] GetScreenData()
         {
             return _screenData;
         }
@@ -228,57 +221,70 @@ namespace GBZEmuLibrary
 
         private void DrawScanLine()
         {
-            var control = _gpuRegisters[(int)Registers.LCDControl];
+            var control  = _gpuRegisters[(int)Registers.LCDControl];
+            var scanline = _gpuRegisters[(int)Registers.Scanline];
 
             if (Helpers.TestBit(control, (int)LCDControlBits.BGDisplayEnabled))
             {
-                RenderTiles();
+                RenderBackground(control, scanline);
+            }
+
+            if (Helpers.TestBit(control, (int)LCDControlBits.WindowDisplayEnabled))
+            {
+                RenderWindow(control, scanline);
             }
 
             if (Helpers.TestBit(control, (int)LCDControlBits.SpriteDisplayEnabled))
             {
-                RenderSprites();
+                RenderSprites(control, scanline);
             }
         }
 
-        private void RenderTiles()
+        private void RenderBackground(byte control, byte scanline)
         {
-            var control = _gpuRegisters[(int)Registers.LCDControl];
-            var scanline = _gpuRegisters[(int)Registers.Scanline];
-
-            var windowY = _gpuRegisters[(int)Registers.WindowY];
-            var windowX = _gpuRegisters[(int)Registers.WindowX] - WINDOW_X_OFFSET;
-            var scrollY = _gpuRegisters[(int)Registers.ScrollY];
             var scrollX = _gpuRegisters[(int)Registers.ScrollX];
+            var scrollY = _gpuRegisters[(int)Registers.ScrollY];
 
-            var usingWindow = Helpers.TestBit(control, (int)LCDControlBits.WindowDisplayEnabled) && windowY < scanline;
+            RenderTiles(control, scanline, scrollX, (scrollY + scanline) % MAX_SCROLL_AMOUNT);
+        }
 
+        private void RenderWindow(byte control, byte scanline)
+        {
+            var windowX = _gpuRegisters[(int)Registers.WindowX] - WINDOW_X_OFFSET;
+            var windowY = _gpuRegisters[(int)Registers.WindowY];
+
+            if (windowY <= scanline)
+            {
+                RenderTiles(control, scanline, windowX, scanline - windowY, true);
+            }
+        } 
+
+        private void RenderTiles(byte control, byte scanline, int xPos, int yPos, bool window = false)
+        {
             var tileData = Helpers.TestBit(control, (int)LCDControlBits.BGWindowTileDataSelect) ? MemorySchema.TILE_DATA_UNSIGNED_START : MemorySchema.TILE_DATA_SIGNED_START;
+            var backgroundMemory = Helpers.TestBit(control, window ? (int)LCDControlBits.WindowTileMapSelect : (int)LCDControlBits.BGTileMapSelect) ? MemorySchema.BACKGROUND_LAYOUT_1_START : MemorySchema.BACKGROUND_LAYOUT_0_START;
 
-            var backgroundMemory = Helpers.TestBit(control, usingWindow ? (int)LCDControlBits.WindowTileMapSelect : (int)LCDControlBits.BGTileMapSelect) ? MemorySchema.BACKGROUND_LAYOUT_1_START : MemorySchema.BACKGROUND_LAYOUT_0_START;
-
-            var yPos = usingWindow ? (scanline - windowY) : (scrollY + scanline) % MAX_SCROLL_AMOUNT;
+            var signed = tileData == MemorySchema.TILE_DATA_SIGNED_START;
 
             //TODO get rid of below magic numbers
             var tileRow = ((byte)(yPos / 8)) * 32;
+            var offset = signed ? 128 : 0;
 
             for (var pixel = 0; pixel < HORIZONTAL_RESOLUTION; pixel++)
             {
-                var xPos = usingWindow && pixel > windowX ? (pixel - windowX) : (pixel + scrollX) % MAX_SCROLL_AMOUNT;
+                var x = window && pixel > xPos ? (pixel - xPos) : (pixel + xPos) % MAX_SCROLL_AMOUNT;
 
-                var tileCol = xPos / 8;
-
-                var signed = tileData == MemorySchema.TILE_DATA_SIGNED_START;
+                var tileCol = x / 8;
                 var data = ReadByte(backgroundMemory + tileRow + tileCol);
                 var tileNum = signed ? (int)(sbyte)data : data;
 
-                var tileLoc = tileData + (signed ? (tileNum + 128) * 16 : tileNum * 16);
+                var tileLoc = tileData + ((tileNum + offset) * TILE_SIZE);
 
                 var line = (yPos % 8) * 2;
                 var data1 = ReadByte(tileLoc + line);
                 var data2 = ReadByte(tileLoc + line + 1);
 
-                var colorBit = ((xPos % 8) - 7) * -1;
+                var colorBit = ((x % 8) - 7) * -1;
 
                 var colorNum = (Helpers.GetBit(data2, colorBit) << 1) | Helpers.GetBit(data1, colorBit);
 
@@ -289,26 +295,19 @@ namespace GBZEmuLibrary
                     continue;
                 }
 
-                _screenData[pixel, scanline] = _palette[colorIndex];
+                _screenData[pixel, scanline] = colorIndex;
             }
         }
 
-        private void RenderSprites()
+        private void RenderSprites(byte control, byte scanline)
         {
-            var control = _gpuRegisters[(int)Registers.LCDControl];
-            var scanline = _gpuRegisters[(int)Registers.Scanline];
-
-            if (scanline == 113)
-            {
-                Helpers.NoOp();
-            }
-
             var use8x16 = Helpers.TestBit(control, (int)LCDControlBits.SpriteSize);
             var ySize = use8x16 ? 16 : 8;
 
+            const int tableStart = MemorySchema.SPRITE_ATTRIBUTE_TABLE_START;
+
             for (var i = (HORIZONTAL_RESOLUTION - 4); i >= 0; i -= 4)
             {
-                const int tableStart = MemorySchema.SPRITE_ATTRIBUTE_TABLE_START;
                 var y = ReadByte(tableStart + i) - 16;
                 var x = ReadByte(tableStart + i + 1) - 8;
 
@@ -317,7 +316,7 @@ namespace GBZEmuLibrary
                     var tileIndex = ReadByte(tableStart + i + 2);
                     if (use8x16)
                     {
-                        tileIndex &= 0xFE;
+                        tileIndex &= 0xFE; //TODO replace with helpers?
                     }
 
                     var attributes = ReadByte(tableStart + i + 3);
@@ -330,11 +329,11 @@ namespace GBZEmuLibrary
                     }
 
                     var tileLineOffset = tilePixelRow * 2;
-                    var tileAddress = (MemorySchema.TILE_DATA_UNSIGNED_START + tileIndex * 16); //16 bits per tile
+                    var tileAddress = MemorySchema.TILE_DATA_UNSIGNED_START + (tileIndex * TILE_SIZE);
 
                     var data1 = ReadByte(tileAddress + tileLineOffset);
                     var data2 = ReadByte(tileAddress + tileLineOffset + 1);
-                    var paletteAddress = (Helpers.TestBit(attributes, (int)SpriteAttributesBits.PaletteNum) ? (int)Registers.SpritePalette1 : (int)Registers.SpritePalette0);
+                    var paletteAddress = Helpers.TestBit(attributes, (int)SpriteAttributesBits.PaletteNum) ? (int)Registers.SpritePalette1 : (int)Registers.SpritePalette0;
 
                     for (var column = 0; column < 8; column++)
                     {
@@ -353,80 +352,23 @@ namespace GBZEmuLibrary
                             colorValue |= (byte)((data1 >> (7 - tilePixelColumn)) & 1);
                             colorValue |= (byte)(((data2 >> (7 - tilePixelColumn)) & 1) << 1);
 
-                            var colorIndex = GetColorIndex(colorValue, MemorySchema.GPU_REGISTERS_START | paletteAddress);
-
-                            if (colorIndex == 0)
+                            if (colorValue == 0)
                             {
                                 continue;
                             }
 
-                            _screenData[spriteX, scanline] = _palette[colorIndex];
+                            var colorIndex = GetColorIndex(colorValue, MemorySchema.GPU_REGISTERS_START | paletteAddress);
+
+                            if (Helpers.TestBit(attributes, (int)SpriteAttributesBits.SpriteToBGPriority) && _screenData[spriteX, scanline] != 0)
+                            {
+                                continue;
+                            }
+
+                            _screenData[spriteX, scanline] = colorIndex;
                         }
                     }
                 }
             }
-
-            /*var control = _gpuRegisters[(int)Registers.LCDControl];
-            var scanline = _gpuRegisters[(int)Registers.Scanline];
-
-            var use8x16 = Helpers.TestBit(control, (int)LCDControlBits.SpriteSize);
-
-            for (var sprite = 0; sprite < MAX_SPRITES; sprite++)
-            {
-                var index = sprite * 4;
-
-                const int tableStart = MemorySchema.SPRITE_ATTRIBUTE_TABLE_START;
-
-                var yPos = ReadByte(tableStart | index) - 16;
-                var xPos = ReadByte(tableStart | (index + 1)) - 8;
-
-                var tileLoc = ReadByte(tableStart | (index + 2));
-                var attributes = ReadByte(tableStart | (index + 3));
-
-                var yFlip = Helpers.TestBit(attributes, (int)SpriteAttributesBits.YFlip);
-                var xFlip = Helpers.TestBit(attributes, (int)SpriteAttributesBits.XFlip);
-
-                var ySize = use8x16 ? 16 : 8;
-
-                if (scanline >= yPos && scanline < (yPos + ySize))
-                {
-                    var line = scanline - yPos;
-
-                    if (yFlip)
-                    {
-                        line = (line - ySize) * -1;
-                    }
-
-                    line *= 2;
-
-                    var dataAddress = MemorySchema.TILE_DATA_UNSIGNED_START + (tileLoc * 16) + line;
-                    var data1 = ReadByte(dataAddress);
-                    var data2 = ReadByte(dataAddress + 1);
-
-                    for (var tilePixel = 7; tilePixel >= 0; tilePixel--)
-                    {
-                        var colorBit = tilePixel;
-
-                        if (xFlip)
-                        {
-                            colorBit = (colorBit - 7) * -1;
-                        }
-
-                        var colorNum = (Helpers.GetBit(data2, colorBit) << 1) | Helpers.GetBit(data1, colorBit);
-
-                        var colorIndex = GetColorIndex((byte)colorNum, MemorySchema.GPU_REGISTERS_START | (Helpers.TestBit(attributes, (int)SpriteAttributesBits.PaletteNum) ? (int)Registers.SpritePalette1 : (int)Registers.SpritePalette0));
-
-                        var pixel = xPos + (-tilePixel + 7);
-
-                        if (colorIndex == 0 || scanline >= VERTICAL_RESOLUTION || pixel < 0 || pixel >= HORIZONTAL_RESOLUTION || Helpers.TestBit(attributes, (int)SpriteAttributesBits.SpriteToBGPriority))
-                        {
-                            continue;
-                        }
-
-                        _screenData[pixel, scanline] = _palette[colorIndex];
-                    }
-                }
-            }*/
         }
 
         private void SetStatusRegister(LCDStatus status)

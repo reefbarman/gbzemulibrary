@@ -39,9 +39,19 @@ namespace GBZEmuLibrary
             return (data & (((1 << numBits) - 1) << startBit)) >> startBit;
         }
 
-        public static int GetBits(byte data, int numBits)
+        public static byte GetBits(byte data, int numBits)
         {
-            return data & ((1 << numBits) - 1);
+            return (byte)(data & ((1 << numBits) - 1));
+        }
+
+        public static void ResetLowBits(ref byte data, int numBits)
+        {
+            data &= (byte)((byte.MaxValue + 1) - Math.Pow(2, numBits));
+        }
+
+        public static void ResetHighBits(ref byte data, int numBits)
+        {
+            data &= (byte)(Math.Pow(2, 8 - numBits) - 1);
         }
 
         public static void NoOp()
