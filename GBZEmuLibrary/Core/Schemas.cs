@@ -90,6 +90,8 @@
 
         // Cart ROM Header Schema
         public const int MBC_MODE_LOC = 0x147;
+        public const int ROM_BANK_NUM_LOC = 0x148;
+        public const int RAM_BANK_NUM_LOC = 0x149;
     }
 
     internal class APUSchema

@@ -49,7 +49,17 @@ namespace GBZEmuLibrary
             data &= (byte)((byte.MaxValue + 1) - Math.Pow(2, numBits));
         }
 
+        public static void ResetLowBits(ref int data, int numBits)
+        {
+            data &= (byte)((byte.MaxValue + 1) - Math.Pow(2, numBits));
+        }
+
         public static void ResetHighBits(ref byte data, int numBits)
+        {
+            data &= (byte)(Math.Pow(2, 8 - numBits) - 1);
+        }
+
+        public static void ResetHighBits(ref int data, int numBits)
         {
             data &= (byte)(Math.Pow(2, 8 - numBits) - 1);
         }
