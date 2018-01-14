@@ -25,6 +25,8 @@ namespace GBZEmuLibrary
         private bool _ramEnabled;
         private bool _romBankingEnabled = true;
 
+        private int _cartLength = 0;
+
         public bool LoadFile(string file)
         {
             //TODO check file exists
@@ -32,7 +34,9 @@ namespace GBZEmuLibrary
             try
             {
                 var cart = File.ReadAllBytes(Path.Combine(Directory.GetCurrentDirectory(), file));
-                Array.Copy(cart, _cartMemory, cart.Length);
+                _cartLength = cart.Length;
+
+                Array.Copy(cart, _cartMemory, _cartLength);
 
                 switch (_cartMemory[CartridgeSchema.MBC_MODE_LOC])
                 {
@@ -77,12 +81,18 @@ namespace GBZEmuLibrary
         {
             if (address < MemorySchema.ROM_END)
             {
-                return address >= CartridgeSchema.ROM_BANK_SIZE ? _cartMemory[(address - CartridgeSchema.ROM_BANK_SIZE) + (_romBank * CartridgeSchema.ROM_BANK_SIZE)] : _cartMemory[address];
+                if (address >= CartridgeSchema.ROM_BANK_SIZE)
+                {
+                    address = (address - CartridgeSchema.ROM_BANK_SIZE) + (_romBank * CartridgeSchema.ROM_BANK_SIZE);
+                    address %= _cartLength; //TODO determine if this is correct
+                }
+
+                return _cartMemory[address];
             }
 
             if (address >= MemorySchema.EXTERNAL_RAM_START && address < MemorySchema.EXTERNAL_RAM_END)
             {
-                return _externalRAM[(address - MemorySchema.EXTERNAL_RAM_START) + (_ramBank * CartridgeSchema.RAM_BANK_SIZE)];
+                return _ramEnabled ? _externalRAM[(address - MemorySchema.EXTERNAL_RAM_START) + (_ramBank * CartridgeSchema.RAM_BANK_SIZE)] : (byte)0xFF;
             }
 
             throw new IndexOutOfRangeException();
@@ -105,15 +115,7 @@ namespace GBZEmuLibrary
                                 return;
                             }
 
-                            switch (Helpers.GetBits(data, 4))
-                            {
-                                case 0xA:
-                                    _ramEnabled = true;
-                                    break;
-                                case 0x0:
-                                    _ramEnabled = false;
-                                    break;
-                            }
+                            _ramEnabled = Helpers.GetBits(data, 4) == 0x0A;
                             break;
                         default:
                             throw new ArgumentOutOfRangeException();
@@ -155,9 +157,7 @@ namespace GBZEmuLibrary
                                 var newBank = _romBank;
 
                                 Helpers.ResetHighBits(ref newBank, 3);
-                                Helpers.ResetLowBits(ref data, 5);
-
-                                newBank |= data;
+                                newBank |= (byte)(data << 5);
 
                                 SetROMBank(newBank);
                             }
