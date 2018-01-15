@@ -188,8 +188,6 @@ namespace GBZEmuLibrary
 
                             _ramEnabled = Helpers.GetBits(data, 4) == 0x0A;
                             break;
-                        default:
-                            throw new ArgumentOutOfRangeException();
                     }
                 }
                 else if (address < 0x4000)
@@ -241,8 +239,6 @@ namespace GBZEmuLibrary
                             //TODO RTC register select
                             _ramBank = Helpers.GetBits(data, 2) % _numRamBanks;
                             break;
-                        default:
-                            throw new ArgumentOutOfRangeException();
                     }
                 }
                 else if (address < 0x8000)

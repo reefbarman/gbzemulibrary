@@ -1,7 +1,4 @@
 ﻿using System;
-using System.Drawing;
-using System.Runtime.ExceptionServices;
-using System.Security.Policy;
 
 namespace GBZEmuLibrary
 {
@@ -67,9 +64,6 @@ namespace GBZEmuLibrary
             SpriteToBGPriority
         }
 
-        public const int HORIZONTAL_RESOLUTION = 160;
-        public const int VERTICAL_RESOLUTION   = 144;
-
         private const int SCALINE_DRAW_CLOCKS   = 456;
         private const int MAX_SCANLINES         = 153;
         private const int MAX_SCROLL_AMOUNT     = 256;
@@ -89,7 +83,7 @@ namespace GBZEmuLibrary
 
         // TODO make below configurable
 
-        private readonly int[,] _screenData = new int[HORIZONTAL_RESOLUTION, VERTICAL_RESOLUTION];
+        private readonly int[,] _screenData = new int[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
 
         public void Update(int cycles)
         {
@@ -118,12 +112,12 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            if (currentLine == VERTICAL_RESOLUTION)
+            if (currentLine == Display.VERTICAL_RESOLUTION)
             {
                 MessageBus.Instance.RequestInterrupt(Interrupts.VBlank);
             }
 
-            if (currentLine < VERTICAL_RESOLUTION)
+            if (currentLine < Display.VERTICAL_RESOLUTION)
             {
                 DrawScanLine();
             }
@@ -181,7 +175,7 @@ namespace GBZEmuLibrary
             var mode = LCDStatus.HBlank;
             var requestInterrupt = false;
 
-            if (currentLine >= VERTICAL_RESOLUTION)
+            if (currentLine >= Display.VERTICAL_RESOLUTION)
             {
                 mode = LCDStatus.VBlank;
                 SetStatusRegister(mode);
@@ -270,7 +264,7 @@ namespace GBZEmuLibrary
             var tileRow = ((byte)(yPos / 8)) * 32;
             var offset = signed ? 128 : 0;
 
-            for (var pixel = 0; pixel < HORIZONTAL_RESOLUTION; pixel++)
+            for (var pixel = 0; pixel < Display.HORIZONTAL_RESOLUTION; pixel++)
             {
                 var x = pixel + xPos;
 
@@ -318,7 +312,7 @@ namespace GBZEmuLibrary
 
             const int tableStart = MemorySchema.SPRITE_ATTRIBUTE_TABLE_START;
 
-            for (var i = (HORIZONTAL_RESOLUTION - 4); i >= 0; i -= 4)
+            for (var i = (Display.HORIZONTAL_RESOLUTION - 4); i >= 0; i -= 4)
             {
                 var y = ReadByte(tableStart + i) - 16;
                 var x = ReadByte(tableStart + i + 1) - 8;
@@ -351,7 +345,7 @@ namespace GBZEmuLibrary
                     {
                         var spriteX = x + column;
 
-                        if (spriteX >= 0 && spriteX < HORIZONTAL_RESOLUTION && scanline < VERTICAL_RESOLUTION)
+                        if (spriteX >= 0 && spriteX < Display.HORIZONTAL_RESOLUTION && scanline < Display.VERTICAL_RESOLUTION)
                         {
                             var tilePixelColumn = column;
 

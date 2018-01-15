@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Drawing;
 
 namespace GBZEmuLibrary
 {
@@ -61,12 +60,12 @@ namespace GBZEmuLibrary
 
         public int GetScreenWidth()
         {
-            return GPU.HORIZONTAL_RESOLUTION;
+            return Display.HORIZONTAL_RESOLUTION;
         }
 
         public int GetScreenHeight()
         {
-            return GPU.VERTICAL_RESOLUTION;
+            return Display.VERTICAL_RESOLUTION;
         }
 
         public void ButtonDown(JoypadButtons button)

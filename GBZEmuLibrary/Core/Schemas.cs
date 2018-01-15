@@ -20,6 +20,9 @@
 
     public static class Display
     {
+        public const int HORIZONTAL_RESOLUTION = 160;
+        public const int VERTICAL_RESOLUTION = 144;
+
         public static Color[] DefaultPalette { get; } = {
             new Color(224, 248, 208),
             new Color(136, 192, 112),
