@@ -21,9 +21,10 @@
     public static class Display
     {
         public const int HORIZONTAL_RESOLUTION = 160;
-        public const int VERTICAL_RESOLUTION = 144;
+        public const int VERTICAL_RESOLUTION   = 144;
 
-        public static Color[] DefaultPalette { get; } = {
+        public static Color[] DefaultPalette { get; } =
+        {
             new Color(224, 248, 208),
             new Color(136, 192, 112),
             new Color(52, 104, 86),
@@ -92,7 +93,7 @@
         public const int RAM_BANK_SIZE = 0x2000;
 
         // Cart ROM Header Schema
-        public const int MBC_MODE_LOC = 0x147;
+        public const int MBC_MODE_LOC     = 0x147;
         public const int ROM_BANK_NUM_LOC = 0x148;
         public const int RAM_BANK_NUM_LOC = 0x149;
     }
@@ -116,17 +117,34 @@
         public const int SQUARE_2_FREQUENCY_LSB    = 0xFF18;
         public const int SQUARE_2_FREQUENCY_MSB    = 0xFF19;
 
+        public const int WAVE_3_DAC           = 0xFF1A;
+        public const int WAVE_3_LENGTH_LOAD   = 0xFF1B;
+        public const int WAVE_3_VOLUME        = 0xFF1C;
+        public const int WAVE_3_FREQUENCY_LSB = 0xFF1D;
+        public const int WAVE_3_FREQUENCY_MSB = 0xFF1E;
+
         public const int VIN_VOL_CONTROL = 0xFF24;
         public const int STEREO_SELECT   = 0xFF25;
         public const int SOUND_ENABLED   = 0xFF26;
 
+        public const int WAVE_TABLE_START = 0xFF30;
+        public const int WAVE_TABLE_END   = 0xFF40;
+
         public const int FRAME_SEQUENCER_UPDATE_THRESHOLD = GameBoySchema.MAX_DMG_CLOCK_CYCLES / FRAME_SEQUENCER_RATE;
 
-        public static readonly int[][] DUTY_WAVE_FORM = {
-            new[] { 0, 0, 0, 0, 0, 0, 0, 1},
-            new[] { 1, 0, 0, 0, 0, 0, 0, 1},
-            new[] { 1, 0, 0, 0, 0, 1, 1, 1},
-            new[] { 0, 1, 1, 1, 1, 1, 1, 0},
+        public static readonly int[][] DUTY_WAVE_FORM =
+        {
+            new[] {0, 0, 0, 0, 0, 0, 0, 1},
+            new[] {1, 0, 0, 0, 0, 0, 0, 1},
+            new[] {1, 0, 0, 0, 0, 1, 1, 1},
+            new[] {0, 1, 1, 1, 1, 1, 1, 0},
         };
+    }
+
+    internal class MathSchema
+    {
+        public const int MAX_11_BIT_VALUE = 2048; //2^11
+        public const int MAX_6_BIT_VALUE  = 64;   //2^6
+        public const int MAX_4_BIT_VALUE  = 16;   //2^4
     }
 }

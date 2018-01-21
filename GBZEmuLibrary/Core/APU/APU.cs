@@ -8,11 +8,12 @@ namespace GBZEmuLibrary
 
         private readonly SquareWaveGenerator _channel1;
         private readonly SquareWaveGenerator _channel2;
+        private readonly WaveGenerator       _channel3;
 
         private bool _powered;
 
         private readonly float _maxCyclesPerSample;
-        private float _cycleCounter;
+        private          float _cycleCounter;
 
         private readonly byte[] _buffer = new byte[((Sound.SAMPLE_RATE / GameBoySchema.TARGET_FRAMERATE) * 2) + 2];
 
@@ -27,6 +28,7 @@ namespace GBZEmuLibrary
 
             _channel1 = new SquareWaveGenerator();
             _channel2 = new SquareWaveGenerator();
+            _channel3 = new WaveGenerator();
         }
 
         public byte[] GetSoundSamples()
@@ -71,19 +73,19 @@ namespace GBZEmuLibrary
                     break;
                 case APUSchema.SQUARE_1_DUTY_LENGTH_LOAD:
                     // Register Format DDLL LLLL Duty, Length load (64-L)
-                    _channel1.SetLength(data);
+                    _channel1.SetLength(Helpers.GetBits(data, 6));
                     _channel1.SetDutyCycle(data);
                     break;
                 case APUSchema.SQUARE_1_VOLUME_ENVELOPE:
                     // Register Format VVVV APPP Starting volume, Envelope add mode, period
                     _channel1.SetEnvelope(data);
-                    _channel1.ToggleDAC(data);
+                    _channel1.ToggleDAC(Helpers.GetBitsIsolated(data, 3, 5) != 0);
                     break;
                 case APUSchema.SQUARE_1_FREQUENCY_LSB:
                     // Register Format FFFF FFFF Frequency LSB
 
                     freqLowerBits = data;
-                    freqHighBits = Helpers.GetBits(ReadByte(APUSchema.SQUARE_1_FREQUENCY_MSB), 3) << 8;
+                    freqHighBits  = Helpers.GetBits(ReadByte(APUSchema.SQUARE_1_FREQUENCY_MSB), 3) << 8;
 
                     _channel1.SetFrequency(freqHighBits + freqLowerBits);
                     break;
@@ -102,17 +104,18 @@ namespace GBZEmuLibrary
                     {
                         _channel1.HandleTrigger();
                     }
+
                     break;
 
                 case APUSchema.SQUARE_2_DUTY_LENGTH_LOAD:
                     // Register Format DDLL LLLL Duty, Length load (64-L)
-                    _channel2.SetLength(data);
+                    _channel2.SetLength(Helpers.GetBits(data, 6));
                     _channel2.SetDutyCycle(data);
                     break;
                 case APUSchema.SQUARE_2_VOLUME_ENVELOPE:
                     // Register Format VVVV APPP Starting volume, Envelope add mode, period
                     _channel2.SetEnvelope(data);
-                    _channel2.ToggleDAC(data);
+                    _channel2.ToggleDAC(Helpers.GetBitsIsolated(data, 3, 5) != 0);
                     break;
                 case APUSchema.SQUARE_2_FREQUENCY_LSB:
                     // Register Format FFFF FFFF Frequency LSB
@@ -133,16 +136,59 @@ namespace GBZEmuLibrary
                     _channel2.ToggleLength(Helpers.TestBit(data, 6));
 
                     //Trigger Enabled
-                    if (Helpers.TestBit(data, 7)) 
+                    if (Helpers.TestBit(data, 7))
                     {
                         _channel2.HandleTrigger();
                     }
+
+                    break;
+
+                case APUSchema.WAVE_3_DAC:
+                    // Register Format E--- ---- DAC power
+                    _channel3.ToggleDAC(Helpers.TestBit(data, 7));
+                    break;
+
+                case APUSchema.WAVE_3_LENGTH_LOAD:
+                    // Register Formate LLLL LLLL Length load (256-L)
+                    _channel3.SetLength(data);
+                    break;
+
+                case APUSchema.WAVE_3_VOLUME:
+                    // Register Format -VV- ---- Volume code (00=0%, 01=100%, 10=50%, 11=25%)
+                    _channel3.SetVolume(data);
+                    break;
+
+                case APUSchema.WAVE_3_FREQUENCY_LSB:
+                    // Register Format FFFF FFFF Frequency LSB
+
+                    freqLowerBits = data;
+                    freqHighBits  = Helpers.GetBits(ReadByte(APUSchema.WAVE_3_FREQUENCY_MSB), 3) << 8;
+
+                    _channel3.SetFrequency(freqHighBits + freqLowerBits);
+                    break;
+
+                case APUSchema.WAVE_3_FREQUENCY_MSB:
+                    // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB
+
+                    freqLowerBits = ReadByte(APUSchema.WAVE_3_FREQUENCY_LSB);
+                    freqHighBits  = Helpers.GetBits(data, 3) << 8;
+
+                    _channel3.SetFrequency(freqHighBits + freqLowerBits);
+
+                    _channel3.ToggleLength(Helpers.TestBit(data, 6));
+
+                    //Trigger Enabled
+                    if (Helpers.TestBit(data, 7))
+                    {
+                        _channel3.HandleTrigger();
+                    }
+
                     break;
 
                 case APUSchema.VIN_VOL_CONTROL:
                     // Register Format ALLL BRRR Vin L enable, Left vol, Vin R enable, Right vol
                     _rightChannelVolume = Helpers.GetBits(data, 3);
-                    _leftChannelVolume = Helpers.GetBits((byte)(data >> 4), 3);
+                    _leftChannelVolume  = Helpers.GetBits((byte)(data >> 4), 3);
 
                     break;
 
@@ -155,6 +201,11 @@ namespace GBZEmuLibrary
                 case APUSchema.SOUND_ENABLED:
                     HandlePowerToggle(Helpers.TestBit(data, 7));
                     break;
+            }
+
+            if (address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END)
+            {
+                _channel3.WriteByte(data, address);
             }
 
             _memory[address - MemorySchema.APU_REGISTERS_START] = data;
@@ -172,9 +223,10 @@ namespace GBZEmuLibrary
             {
                 return;
             }
-            
+
             _channel1.Update(cycles);
             _channel2.Update(cycles);
+            _channel3.Update(cycles);
 
             _cycleCounter += cycles;
 
@@ -186,15 +238,16 @@ namespace GBZEmuLibrary
 
             _cycleCounter -= _maxCyclesPerSample;
 
-            var leftChannel = 0;
+            var leftChannel  = 0;
             var rightChannel = 0;
 
             _channel1.GetCurrentSample(ref leftChannel, ref rightChannel);
             _channel2.GetCurrentSample(ref leftChannel, ref rightChannel);
+            _channel3.GetCurrentSample(ref leftChannel, ref rightChannel);
 
             if (_currentByte * 2 < _buffer.Length - 1)
             {
-                _buffer[_currentByte * 2] = (byte)((leftChannel * (1 + _leftChannelVolume)) / 8);
+                _buffer[_currentByte * 2]     = (byte)((leftChannel * (1 + _leftChannelVolume)) / 8);
                 _buffer[_currentByte * 2 + 1] = (byte)((rightChannel * (1 + _rightChannelVolume)) / 8);
 
                 _currentByte++;
@@ -205,6 +258,7 @@ namespace GBZEmuLibrary
         {
             _channel1.ChannelState = GetChannelState(val, 1);
             _channel2.ChannelState = GetChannelState(val, 2);
+            _channel3.ChannelState = GetChannelState(val, 3);
         }
 
         private int GetChannelState(byte val, int channel)
@@ -212,7 +266,7 @@ namespace GBZEmuLibrary
             var channelState = 0;
 
             // Testing bits 0-3 
-            if (Helpers.TestBit(val, channel - 1)) 
+            if (Helpers.TestBit(val, channel - 1))
             {
                 channelState |= APUSchema.CHANNEL_RIGHT;
             }
@@ -232,14 +286,16 @@ namespace GBZEmuLibrary
             {
                 _channel1.Reset();
                 _channel2.Reset();
+                _channel3.Reset();
 
-                _leftChannelVolume = 0;
+                _leftChannelVolume  = 0;
                 _rightChannelVolume = 0;
             }
             else if (newState && !_powered)
             {
                 _channel1.Init();
                 _channel2.Init();
+                _channel3.Init();
             }
 
             _powered = newState;

@@ -42,8 +42,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Core\APU\APU.cs" />
-    <Compile Include="Core\APU\IGenerator.cs" />
+    <Compile Include="Core\APU\Generator.cs" />
     <Compile Include="Core\APU\SquareWaveGenerator.cs" />
+    <Compile Include="Core\APU\WaveGenerator.cs" />
     <Compile Include="Core\BIOS.cs" />
     <Compile Include="Core\Cartridge.cs" />
     <Compile Include="Core\GPU\Color.cs" />
