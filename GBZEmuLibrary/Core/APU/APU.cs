@@ -223,8 +223,6 @@ namespace GBZEmuLibrary
                 channelState |= APUSchema.CHANNEL_LEFT;
             }
 
-            channelState = 3; //Hack for Mono
-
             return channelState;
         }
 
