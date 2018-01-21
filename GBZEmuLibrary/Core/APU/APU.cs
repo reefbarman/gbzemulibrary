@@ -4,33 +4,33 @@ namespace GBZEmuLibrary
 {
     internal class APU
     {
-        private const int FRAME_SEQUENCER_UPDATE_THRESHOLD = Sound.SAMPLE_RATE / APUSchema.FRAME_SEQUENCER_RATE;
-
         private readonly byte[] _memory = new byte[MemorySchema.APU_REGISTERS_END - MemorySchema.APU_REGISTERS_START];
 
         private readonly SquareWaveGenerator _channel1;
+        private readonly SquareWaveGenerator _channel2;
 
-        private bool _powered = true;
+        private bool _powered;
 
-        private readonly int _maxCyclesPerSample;
-        private int _cycleCounter;
+        private readonly float _maxCyclesPerSample;
+        private float _cycleCounter;
 
-        private int _frameSequenceTimer;
+        private readonly byte[] _buffer = new byte[((Sound.SAMPLE_RATE / GameBoySchema.TARGET_FRAMERATE) * 2) + 2];
 
-        private byte[] _buffer = new byte[(Sound.SAMPLE_RATE / GameBoySchema.TARGET_FRAMERATE) * 2];
+        private int _currentByte;
 
-        private int _currentByte = 0;
+        private byte _leftChannelVolume;
+        private byte _rightChannelVolume;
 
         public APU()
         {
-            _maxCyclesPerSample = GameBoySchema.MAX_DMG_CLOCK_CYCLES / Sound.SAMPLE_RATE;
+            _maxCyclesPerSample = GameBoySchema.MAX_DMG_CLOCK_CYCLES / (float)Sound.SAMPLE_RATE;
 
             _channel1 = new SquareWaveGenerator();
+            _channel2 = new SquareWaveGenerator();
         }
 
         public byte[] GetSoundSamples()
         {
-            //TODO may need to reset buffer
             _currentByte = 0;
             return _buffer;
         }
@@ -59,6 +59,8 @@ namespace GBZEmuLibrary
 
         public void WriteByte(byte data, int address)
         {
+            //TODO ignore writes if disabled
+
             int freqLowerBits, freqHighBits;
 
             switch (address)
@@ -75,6 +77,7 @@ namespace GBZEmuLibrary
                 case APUSchema.SQUARE_1_VOLUME_ENVELOPE:
                     // Register Format VVVV APPP Starting volume, Envelope add mode, period
                     _channel1.SetEnvelope(data);
+                    _channel1.ToggleDAC(data);
                     break;
                 case APUSchema.SQUARE_1_FREQUENCY_LSB:
                     // Register Format FFFF FFFF Frequency LSB
@@ -92,37 +95,54 @@ namespace GBZEmuLibrary
 
                     _channel1.SetFrequency(freqHighBits + freqLowerBits);
 
-                    if (!Helpers.TestBit(data, 6))
-                    {
-                        _channel1.SetLength(0);
-                    }
+                    _channel1.ToggleLength(Helpers.TestBit(data, 6));
 
                     //Trigger Enabled
                     if (Helpers.TestBit(data, 7))
                     {
-                        _channel1.Inited = true;
-
-                        //TODO handle trigger
-                        if (_channel1.Length == 0)
-                        {
-                            _channel1.SetLength(64);
-                        }
-
-                        _channel1.SetVolume(_channel1.InitialVolume);
+                        _channel1.HandleTrigger();
                     }
                     break;
 
                 case APUSchema.SQUARE_2_DUTY_LENGTH_LOAD:
+                    // Register Format DDLL LLLL Duty, Length load (64-L)
+                    _channel2.SetLength(data);
+                    _channel2.SetDutyCycle(data);
                     break;
                 case APUSchema.SQUARE_2_VOLUME_ENVELOPE:
+                    // Register Format VVVV APPP Starting volume, Envelope add mode, period
+                    _channel2.SetEnvelope(data);
+                    _channel2.ToggleDAC(data);
                     break;
                 case APUSchema.SQUARE_2_FREQUENCY_LSB:
+                    // Register Format FFFF FFFF Frequency LSB
+
+                    freqLowerBits = data;
+                    freqHighBits  = Helpers.GetBits(ReadByte(APUSchema.SQUARE_2_FREQUENCY_MSB), 3) << 8;
+
+                    _channel2.SetFrequency(freqHighBits + freqLowerBits);
                     break;
                 case APUSchema.SQUARE_2_FREQUENCY_MSB:
+                    // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB
+
+                    freqLowerBits = ReadByte(APUSchema.SQUARE_2_FREQUENCY_LSB);
+                    freqHighBits  = Helpers.GetBits(data, 3) << 8;
+
+                    _channel2.SetFrequency(freqHighBits + freqLowerBits);
+
+                    _channel2.ToggleLength(Helpers.TestBit(data, 6));
+
+                    //Trigger Enabled
+                    if (Helpers.TestBit(data, 7)) 
+                    {
+                        _channel2.HandleTrigger();
+                    }
                     break;
 
                 case APUSchema.VIN_VOL_CONTROL:
                     // Register Format ALLL BRRR Vin L enable, Left vol, Vin R enable, Right vol
+                    _rightChannelVolume = Helpers.GetBits(data, 3);
+                    _leftChannelVolume = Helpers.GetBits((byte)(data >> 4), 3);
 
                     break;
 
@@ -135,7 +155,7 @@ namespace GBZEmuLibrary
                 case APUSchema.SOUND_ENABLED:
                     HandlePowerToggle(Helpers.TestBit(data, 7));
                     break;
-    }
+            }
 
             _memory[address - MemorySchema.APU_REGISTERS_START] = data;
         }
@@ -152,6 +172,9 @@ namespace GBZEmuLibrary
             {
                 return;
             }
+            
+            _channel1.Update(cycles);
+            _channel2.Update(cycles);
 
             _cycleCounter += cycles;
 
@@ -163,36 +186,16 @@ namespace GBZEmuLibrary
 
             _cycleCounter -= _maxCyclesPerSample;
 
-            _frameSequenceTimer++;
+            var leftChannel = 0;
+            var rightChannel = 0;
 
-            if (_frameSequenceTimer >= FRAME_SEQUENCER_UPDATE_THRESHOLD)
-            {
-                _channel1.Update();
-            }
+            _channel1.GetCurrentSample(ref leftChannel, ref rightChannel);
+            _channel2.GetCurrentSample(ref leftChannel, ref rightChannel);
 
-            byte leftChannel = 0;
-            byte rightChannel = 0;
-
-            if (_channel1.Enabled)
-            {
-                var sample = _channel1.GetCurrentSample();
-
-                if ((_channel1.ChannelState & APUSchema.CHANNEL_LEFT) != 0)
-                {
-                    leftChannel += sample;
-                }
-
-                if ((_channel1.ChannelState & APUSchema.CHANNEL_RIGHT) != 0)
-                {
-                    rightChannel += sample;
-                }
-            }
-
-            //TODO need to determine best way to handle overflow
             if (_currentByte * 2 < _buffer.Length - 1)
             {
-                _buffer[_currentByte * 2]     = leftChannel;
-                _buffer[_currentByte * 2 + 1] = rightChannel;
+                _buffer[_currentByte * 2] = (byte)((leftChannel * (1 + _leftChannelVolume)) / 8);
+                _buffer[_currentByte * 2 + 1] = (byte)((rightChannel * (1 + _rightChannelVolume)) / 8);
 
                 _currentByte++;
             }
@@ -201,6 +204,7 @@ namespace GBZEmuLibrary
         private void StereoSelect(byte val)
         {
             _channel1.ChannelState = GetChannelState(val, 1);
+            _channel2.ChannelState = GetChannelState(val, 2);
         }
 
         private int GetChannelState(byte val, int channel)
@@ -219,6 +223,8 @@ namespace GBZEmuLibrary
                 channelState |= APUSchema.CHANNEL_LEFT;
             }
 
+            channelState = 3; //Hack for Mono
+
             return channelState;
         }
 
@@ -226,12 +232,19 @@ namespace GBZEmuLibrary
         {
             if (!newState && _powered)
             {
-                //Reset registers (except length counters on DMG)
+                _channel1.Reset();
+                _channel2.Reset();
+
+                _leftChannelVolume = 0;
+                _rightChannelVolume = 0;
             }
             else if (newState && !_powered)
             {
-                //Reset frame sequencer
+                _channel1.Init();
+                _channel2.Init();
             }
+
+            _powered = newState;
         }
     }
 }

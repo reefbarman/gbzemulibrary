@@ -2,7 +2,7 @@
 {
     public static class Sound
     {
-        public const int SAMPLE_RATE = 44100;
+        public const int SAMPLE_RATE = 44100; //TODO allow this to be configurable
     }
 
     public enum JoypadButtons
@@ -101,7 +101,6 @@
     {
         public const int CHANNEL_LEFT  = 1;
         public const int CHANNEL_RIGHT = 2;
-        public const int CHANNEL_MONO  = 4;
 
         public const int FRAME_SEQUENCER_RATE = 512;
         public const int LENGTH_RATE          = 256;
@@ -120,5 +119,14 @@
         public const int VIN_VOL_CONTROL = 0xFF24;
         public const int STEREO_SELECT   = 0xFF25;
         public const int SOUND_ENABLED   = 0xFF26;
+
+        public const int FRAME_SEQUENCER_UPDATE_THRESHOLD = GameBoySchema.MAX_DMG_CLOCK_CYCLES / FRAME_SEQUENCER_RATE;
+
+        public static readonly int[][] DUTY_WAVE_FORM = {
+            new[] { 0, 0, 0, 0, 0, 0, 0, 1},
+            new[] { 1, 0, 0, 0, 0, 0, 0, 1},
+            new[] { 1, 0, 0, 0, 0, 1, 1, 1},
+            new[] { 0, 1, 1, 1, 1, 1, 1, 0},
+        };
     }
 }
