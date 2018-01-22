@@ -4,7 +4,7 @@ namespace GBZEmuLibrary
 {
     // Ref 1 - https://emu-docs.org/Game%20Boy/gb_sound.txt
     // Ref 2 - http://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware
-    internal class SquareWaveGenerator : Generator
+    internal class SquareWaveGenerator : EnvelopeGenerator
     {
         private int  _initialSweepPeriod;
         private int  _sweepPeriod;
@@ -15,12 +15,6 @@ namespace GBZEmuLibrary
 
         private int _dutyCycle;
         private int _wavePos;
-
-        private int  _initialVolume;
-        private int  _volume;
-        private int  _envelopePeriod;
-        private int  _initialEnvelopePeriod;
-        private bool _addEnvelope;
 
         private int _shadowFrequency;
 
@@ -54,18 +48,6 @@ namespace GBZEmuLibrary
         {
             // Val Format DD-- ----
             _dutyCycle = Helpers.GetBitsIsolated(data, 6, 2);
-        }
-
-        public void SetEnvelope(byte data)
-        {
-            // Val Format VVVV APPP
-            _initialEnvelopePeriod = Helpers.GetBits(data, 3);
-            _envelopePeriod        = _initialEnvelopePeriod;
-
-            _addEnvelope = Helpers.TestBit(data, 3);
-
-            _initialVolume = Helpers.GetBitsIsolated(data, 4, 4);
-            _volume = _initialVolume;
         }
 
         public override void Init()
@@ -122,7 +104,7 @@ namespace GBZEmuLibrary
 
         protected override int GetSample()
         {
-            return (APUSchema.DUTY_WAVE_FORM[_dutyCycle][_wavePos] * 15) & _volume;
+            return (APUSchema.DUTY_WAVE_FORM[_dutyCycle][_wavePos] * (MathSchema.MAX_4_BIT_VALUE - 1)) & _volume;
         }
 
         protected override void UpdateSweep()
@@ -146,26 +128,6 @@ namespace GBZEmuLibrary
                             SetFrequency(sweepFreq);
                             CalculateNewFrequency();
                         }
-                    }
-                }
-            }
-        }
-
-        protected override void UpdateEnvelop()
-        {
-            if (_envelopePeriod > 0)
-            {
-                _envelopePeriod--;
-
-                if (_envelopePeriod == 0)
-                {
-                    //The volume envelope and sweep timers treat a period of 0 as 8.
-                    _envelopePeriod = _initialEnvelopePeriod == 0 ? 8 : _initialEnvelopePeriod;
-
-                    if (_initialEnvelopePeriod > 0)
-                    {
-                        _volume += _addEnvelope ? 1 : -1;
-                        _volume =  Math.Min(Math.Max(_volume, 0), MathSchema.MAX_4_BIT_VALUE - 1);
                     }
                 }
             }

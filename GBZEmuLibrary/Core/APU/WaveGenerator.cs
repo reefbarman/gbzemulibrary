@@ -14,7 +14,9 @@ namespace GBZEmuLibrary
         private int    _wavePos;
         private byte   _currentSample;
 
-        public WaveGenerator() : base(byte.MaxValue) { }
+        public WaveGenerator() : base(byte.MaxValue)
+        {
+        }
 
         public void SetVolume(byte data)
         {

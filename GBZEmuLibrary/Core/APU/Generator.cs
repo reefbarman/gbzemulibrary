@@ -41,7 +41,7 @@ namespace GBZEmuLibrary
             _frequency         = 0;
         }
 
-        public void GetCurrentSample(ref int leftChannel, ref int rightChannel)
+        public virtual void GetCurrentSample(ref int leftChannel, ref int rightChannel)
         {
             if (_enabled)
             {

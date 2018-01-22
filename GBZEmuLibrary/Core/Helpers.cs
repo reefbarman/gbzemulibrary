@@ -17,6 +17,11 @@ namespace GBZEmuLibrary
             return (reg & (1 << bit)) != 0;
         }
 
+        public static bool TestBit(int reg, int bit)
+        {
+            return (reg & (1 << bit)) != 0;
+        }
+
         public static void SetBit(ref byte reg, int bit, bool val)
         {
             if (val)
@@ -26,6 +31,18 @@ namespace GBZEmuLibrary
             else
             {
                 reg &= (byte)~(1 << bit);
+            }
+        }
+
+        public static void SetBit(ref int reg, int bit, bool val)
+        {
+            if (val)
+            {
+                reg |= 1 << bit;
+            }
+            else
+            {
+                reg &= ~(1 << bit);
             }
         }
 
@@ -39,9 +56,19 @@ namespace GBZEmuLibrary
             return (data & (((1 << numBits) - 1) << startBit)) >> startBit;
         }
 
+        public static int GetBitsIsolated(int data, int startBit, int numBits)
+        {
+            return (data & (((1 << numBits) - 1) << startBit)) >> startBit;
+        }
+
         public static byte GetBits(byte data, int numBits)
         {
             return (byte)(data & ((1 << numBits) - 1));
+        }
+
+        public static int GetBits(int data, int numBits)
+        {
+            return data & ((1 << numBits) - 1);
         }
 
         public static void ResetLowBits(ref byte data, int numBits)
@@ -66,7 +93,6 @@ namespace GBZEmuLibrary
 
         public static void NoOp()
         {
-
         }
     }
 }

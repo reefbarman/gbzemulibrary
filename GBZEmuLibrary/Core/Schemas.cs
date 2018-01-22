@@ -1,4 +1,6 @@
-﻿namespace GBZEmuLibrary
+﻿using System.Security.AccessControl;
+
+namespace GBZEmuLibrary
 {
     public static class Sound
     {
@@ -122,6 +124,11 @@
         public const int WAVE_3_VOLUME        = 0xFF1C;
         public const int WAVE_3_FREQUENCY_LSB = 0xFF1D;
         public const int WAVE_3_FREQUENCY_MSB = 0xFF1E;
+
+        public const int NOISE_4_LENGTH_LOAD         = 0xFF20;
+        public const int NOISE_4_VOLUME_ENVELOPE     = 0xFF21;
+        public const int NOISE_4_CLOCK_WIDTH_DIVISOR = 0xFF22;
+        public const int NOISE_4_TRIGGER             = 0xFF23;
 
         public const int VIN_VOL_CONTROL = 0xFF24;
         public const int STEREO_SELECT   = 0xFF25;

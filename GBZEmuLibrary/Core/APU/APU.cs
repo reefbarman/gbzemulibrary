@@ -9,6 +9,7 @@ namespace GBZEmuLibrary
         private readonly SquareWaveGenerator _channel1;
         private readonly SquareWaveGenerator _channel2;
         private readonly WaveGenerator       _channel3;
+        private readonly NoiseGenerator      _channel4;
 
         private bool _powered;
 
@@ -29,6 +30,7 @@ namespace GBZEmuLibrary
             _channel1 = new SquareWaveGenerator();
             _channel2 = new SquareWaveGenerator();
             _channel3 = new WaveGenerator();
+            _channel4 = new NoiseGenerator();
         }
 
         public byte[] GetSoundSamples()
@@ -99,7 +101,6 @@ namespace GBZEmuLibrary
 
                     _channel1.ToggleLength(Helpers.TestBit(data, 6));
 
-                    //Trigger Enabled
                     if (Helpers.TestBit(data, 7))
                     {
                         _channel1.HandleTrigger();
@@ -135,7 +136,6 @@ namespace GBZEmuLibrary
 
                     _channel2.ToggleLength(Helpers.TestBit(data, 6));
 
-                    //Trigger Enabled
                     if (Helpers.TestBit(data, 7))
                     {
                         _channel2.HandleTrigger();
@@ -149,7 +149,7 @@ namespace GBZEmuLibrary
                     break;
 
                 case APUSchema.WAVE_3_LENGTH_LOAD:
-                    // Register Formate LLLL LLLL Length load (256-L)
+                    // Register Format LLLL LLLL Length load (256-L)
                     _channel3.SetLength(data);
                     break;
 
@@ -181,6 +181,36 @@ namespace GBZEmuLibrary
                     if (Helpers.TestBit(data, 7))
                     {
                         _channel3.HandleTrigger();
+                    }
+
+                    break;
+
+                case APUSchema.NOISE_4_LENGTH_LOAD:
+                    // Register Format --LL LLLL Duty, Length load (64-L)
+                    _channel4.SetLength(Helpers.GetBits(data, 6));
+                    break;
+
+                case APUSchema.NOISE_4_VOLUME_ENVELOPE:
+                    // Register Format VVVV APPP Starting volume, Envelope add mode, period
+                    _channel4.SetEnvelope(data);
+                    _channel4.ToggleDAC(Helpers.GetBitsIsolated(data, 3, 5) != 0);
+                    break;
+
+                case APUSchema.NOISE_4_CLOCK_WIDTH_DIVISOR:
+                    // Register Format SSSS WDDD Clock shift, Width mode of LFSR, Divisor code
+                    _channel4.SetDivRatio(data);
+                    _channel4.SetWidthMode(data);
+                    _channel4.SetClockShift(data);
+                    break;
+
+                case APUSchema.NOISE_4_TRIGGER:
+                    // Register Format TL-- ---- Trigger, Length enable
+                    _channel4.ToggleLength(Helpers.TestBit(data, 6));
+
+                    //Trigger Enabled
+                    if (Helpers.TestBit(data, 7))
+                    {
+                        _channel4.HandleTrigger();
                     }
 
                     break;
@@ -227,6 +257,7 @@ namespace GBZEmuLibrary
             _channel1.Update(cycles);
             _channel2.Update(cycles);
             _channel3.Update(cycles);
+            _channel4.Update(cycles);
 
             _cycleCounter += cycles;
 
@@ -244,6 +275,7 @@ namespace GBZEmuLibrary
             _channel1.GetCurrentSample(ref leftChannel, ref rightChannel);
             _channel2.GetCurrentSample(ref leftChannel, ref rightChannel);
             _channel3.GetCurrentSample(ref leftChannel, ref rightChannel);
+            _channel4.GetCurrentSample(ref leftChannel, ref rightChannel);
 
             if (_currentByte * 2 < _buffer.Length - 1)
             {
@@ -259,6 +291,7 @@ namespace GBZEmuLibrary
             _channel1.ChannelState = GetChannelState(val, 1);
             _channel2.ChannelState = GetChannelState(val, 2);
             _channel3.ChannelState = GetChannelState(val, 3);
+            _channel4.ChannelState = GetChannelState(val, 4);
         }
 
         private int GetChannelState(byte val, int channel)
@@ -287,6 +320,7 @@ namespace GBZEmuLibrary
                 _channel1.Reset();
                 _channel2.Reset();
                 _channel3.Reset();
+                _channel4.Reset();
 
                 _leftChannelVolume  = 0;
                 _rightChannelVolume = 0;
@@ -296,6 +330,7 @@ namespace GBZEmuLibrary
                 _channel1.Init();
                 _channel2.Init();
                 _channel3.Init();
+                _channel4.Init();
             }
 
             _powered = newState;

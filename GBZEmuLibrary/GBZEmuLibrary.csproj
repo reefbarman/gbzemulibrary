@@ -42,7 +42,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Core\APU\APU.cs" />
+    <Compile Include="Core\APU\EnvelopeGenerator.cs" />
     <Compile Include="Core\APU\Generator.cs" />
+    <Compile Include="Core\APU\NoiseGenerator.cs" />
     <Compile Include="Core\APU\SquareWaveGenerator.cs" />
     <Compile Include="Core\APU\WaveGenerator.cs" />
     <Compile Include="Core\BIOS.cs" />
