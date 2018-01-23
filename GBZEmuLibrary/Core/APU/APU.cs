@@ -16,8 +16,14 @@ namespace GBZEmuLibrary
         private readonly float _maxCyclesPerSample;
         private          float _cycleCounter;
 
-        private readonly byte[] _buffer = new byte[((Sound.SAMPLE_RATE / GameBoySchema.TARGET_FRAMERATE) * 2) + 2];
+        //Using double buffering
+        private readonly byte[][] _buffer =
+        {
+            new byte[((Sound.SAMPLE_RATE / GameBoySchema.TARGET_FRAMERATE) * 2) + 2],
+            new byte[((Sound.SAMPLE_RATE / GameBoySchema.TARGET_FRAMERATE) * 2) + 2],
+        };
 
+        private int _currentBuffer;
         private int _currentByte;
 
         private byte _leftChannelVolume;
@@ -36,7 +42,13 @@ namespace GBZEmuLibrary
         public byte[] GetSoundSamples()
         {
             _currentByte = 0;
-            return _buffer;
+
+            var outSamples = _buffer[_currentBuffer];
+            _currentBuffer = (_currentBuffer + 1) % _buffer.Length;
+
+            Array.Clear(_buffer[_currentBuffer], 0, _buffer[_currentBuffer].Length);
+
+            return outSamples;
         }
 
         public void Reset()
@@ -277,10 +289,10 @@ namespace GBZEmuLibrary
             _channel3.GetCurrentSample(ref leftChannel, ref rightChannel);
             _channel4.GetCurrentSample(ref leftChannel, ref rightChannel);
 
-            if (_currentByte * 2 < _buffer.Length - 1)
+            if (_currentByte * 2 < _buffer[_currentBuffer].Length - 1)
             {
-                _buffer[_currentByte * 2]     = (byte)((leftChannel * (1 + _leftChannelVolume)) / 8);
-                _buffer[_currentByte * 2 + 1] = (byte)((rightChannel * (1 + _rightChannelVolume)) / 8);
+                _buffer[_currentBuffer][_currentByte * 2]     = (byte)((leftChannel * (1 + _leftChannelVolume)) / 8);
+                _buffer[_currentBuffer][_currentByte * 2 + 1] = (byte)((rightChannel * (1 + _rightChannelVolume)) / 8);
 
                 _currentByte++;
             }
