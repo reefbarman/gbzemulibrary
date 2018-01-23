@@ -4,8 +4,9 @@ namespace GBZEmuLibrary
 {
     internal abstract class Generator
     {
-        public int ChannelState { get; set; }
-        public bool Enabled { get; set; } = true;
+        public int  ChannelState { get; set; }
+        public bool Enabled      { get; set; } = true;
+        public bool Status => _enabled && _dacEnabled;
 
         protected bool _dacEnabled;
         protected bool _enabled;

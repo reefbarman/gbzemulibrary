@@ -122,6 +122,7 @@ namespace GBZEmuLibrary
         public const int SQUARE_1_FREQUENCY_LSB    = 0xFF13;
         public const int SQUARE_1_FREQUENCY_MSB    = 0xFF14;
 
+        public const int SQUARE_2_UNUSED           = 0xFF15;
         public const int SQUARE_2_DUTY_LENGTH_LOAD = 0xFF16;
         public const int SQUARE_2_VOLUME_ENVELOPE  = 0xFF17;
         public const int SQUARE_2_FREQUENCY_LSB    = 0xFF18;
@@ -133,6 +134,7 @@ namespace GBZEmuLibrary
         public const int WAVE_3_FREQUENCY_LSB = 0xFF1D;
         public const int WAVE_3_FREQUENCY_MSB = 0xFF1E;
 
+        public const int NOISE_4_UNUSED              = 0xFF1F;
         public const int NOISE_4_LENGTH_LOAD         = 0xFF20;
         public const int NOISE_4_VOLUME_ENVELOPE     = 0xFF21;
         public const int NOISE_4_CLOCK_WIDTH_DIVISOR = 0xFF22;
@@ -142,7 +144,10 @@ namespace GBZEmuLibrary
         public const int STEREO_SELECT   = 0xFF25;
         public const int SOUND_ENABLED   = 0xFF26;
 
-        public const int WAVE_TABLE_START = 0xFF30;
+        public const int UNUSED_START = 0xFF27;
+        public const int UNUSED_END = 0xFF30;
+
+        public const int WAVE_TABLE_START = UNUSED_END;
         public const int WAVE_TABLE_END   = 0xFF40;
 
         public const int FRAME_SEQUENCER_UPDATE_THRESHOLD = GameBoySchema.MAX_DMG_CLOCK_CYCLES / FRAME_SEQUENCER_RATE;

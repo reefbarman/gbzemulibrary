@@ -18,6 +18,17 @@ namespace GBZEmuLibrary
         {
         }
 
+        public byte ReadByte(int address)
+        {
+            if (address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END)
+            {
+                int index = (address - APUSchema.WAVE_TABLE_START);
+                return (byte)((_waveTable[index * 2] << 4) | _waveTable[(index * 2) + 1]);
+            }
+
+            throw new IndexOutOfRangeException();
+        }
+
         public void SetVolume(byte data)
         {
             // Val Format -VV- ----
