@@ -39,6 +39,25 @@ namespace GBZEmuLibrary
             _channel4 = new NoiseGenerator();
         }
 
+        public void ToggleChannel(Sound.Channel channel, bool enabled)
+        {
+            switch (channel)
+            {
+                case Sound.Channel.Channel1:
+                    _channel1.Enabled = enabled;
+                    break;
+                case Sound.Channel.Channel2:
+                    _channel2.Enabled = enabled;
+                    break;
+                case Sound.Channel.Channel3:
+                    _channel3.Enabled = enabled;
+                    break;
+                case Sound.Channel.Channel4:
+                    _channel4.Enabled = enabled;
+                    break;
+            }
+        }
+
         public byte[] GetSoundSamples()
         {
             _currentByte = 0;
@@ -300,24 +319,24 @@ namespace GBZEmuLibrary
 
         private void StereoSelect(byte val)
         {
-            _channel1.ChannelState = GetChannelState(val, 1);
-            _channel2.ChannelState = GetChannelState(val, 2);
-            _channel3.ChannelState = GetChannelState(val, 3);
-            _channel4.ChannelState = GetChannelState(val, 4);
+            _channel1.ChannelState = GetChannelState(val, Sound.Channel.Channel1);
+            _channel2.ChannelState = GetChannelState(val, Sound.Channel.Channel2);
+            _channel3.ChannelState = GetChannelState(val, Sound.Channel.Channel3);
+            _channel4.ChannelState = GetChannelState(val, Sound.Channel.Channel4);
         }
 
-        private int GetChannelState(byte val, int channel)
+        private int GetChannelState(byte val, Sound.Channel channel)
         {
             var channelState = 0;
 
             // Testing bits 0-3 
-            if (Helpers.TestBit(val, channel - 1))
+            if (Helpers.TestBit(val, (int)channel - 1))
             {
                 channelState |= APUSchema.CHANNEL_RIGHT;
             }
 
             // Testing bits 4-7
-            if (Helpers.TestBit(val, channel + 3))
+            if (Helpers.TestBit(val, (int)channel + 3))
             {
                 channelState |= APUSchema.CHANNEL_LEFT;
             }

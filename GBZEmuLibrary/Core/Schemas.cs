@@ -5,6 +5,14 @@ namespace GBZEmuLibrary
     public static class Sound
     {
         public const int SAMPLE_RATE = 44100; //TODO allow this to be configurable
+
+        public enum Channel
+        {
+            Channel1 = 1,
+            Channel2 = 2,
+            Channel3 = 3,
+            Channel4 = 4,
+        }
     }
 
     public enum JoypadButtons

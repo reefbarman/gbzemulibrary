@@ -58,16 +58,6 @@ namespace GBZEmuLibrary
             return _gpu.GetScreenData();
         }
 
-        public int GetScreenWidth()
-        {
-            return Display.HORIZONTAL_RESOLUTION;
-        }
-
-        public int GetScreenHeight()
-        {
-            return Display.VERTICAL_RESOLUTION;
-        }
-
         public void ButtonDown(JoypadButtons button)
         {
             _joypad.ButtonDown(button);
@@ -81,6 +71,11 @@ namespace GBZEmuLibrary
         public byte[] GetSoundSamples()
         {
             return _apu.GetSoundSamples();
+        }
+
+        public void ToggleChannel(Sound.Channel channel, bool enabled)
+        {
+            _apu.ToggleChannel(channel, enabled);
         }
 
         private void UpdateSystems(int cycles)

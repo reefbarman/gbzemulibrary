@@ -5,6 +5,7 @@ namespace GBZEmuLibrary
     internal abstract class Generator
     {
         public int ChannelState { get; set; }
+        public bool Enabled { get; set; } = true;
 
         protected bool _dacEnabled;
         protected bool _enabled;
@@ -43,7 +44,7 @@ namespace GBZEmuLibrary
 
         public virtual void GetCurrentSample(ref int leftChannel, ref int rightChannel)
         {
-            if (_enabled)
+            if (_enabled && Enabled)
             {
                 var sample = GetSample();
 
