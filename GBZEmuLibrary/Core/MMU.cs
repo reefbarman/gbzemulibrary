@@ -9,7 +9,6 @@ namespace GBZEmuLibrary
         public Action OnBiosExited         = null;
         public bool   InBIOS { get; set; } = true;
 
-        private readonly BIOS           _bios;
         private readonly Cartridge      _cartridge;
         private readonly GPU            _gpu;
         private readonly Timer          _timer;
@@ -27,8 +26,6 @@ namespace GBZEmuLibrary
             _divideRegister = divideRegister;
             _joypad = joypad;
             _apu = apu;
-
-            _bios = new BIOS();
         }
 
         public string DumpMemString()
@@ -120,7 +117,7 @@ namespace GBZEmuLibrary
                 {
                     if (address < MemorySchema.BIOS_END)
                     {
-                        return _bios.Raw[address];
+                        return BIOS.Bytes[address];
                     }
                 }
 

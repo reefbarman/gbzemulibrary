@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 
 namespace GBZEmuLibrary
 {
@@ -52,9 +53,8 @@ namespace GBZEmuLibrary
 
         public override void Init()
         {
-            _wavePos            = 0;
-            _frameSequenceTimer = 0;
-            _sequenceTimer      = 0;
+            base.Init();
+            _wavePos = 0;
         }
 
         public override void Reset()

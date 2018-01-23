@@ -14,19 +14,14 @@ namespace GBZEmuLibrary
         private int    _wavePos;
         private byte   _currentSample;
 
-        public WaveGenerator() : base(byte.MaxValue)
+        public WaveGenerator() : base(byte.MaxValue + 1)
         {
         }
 
         public byte ReadByte(int address)
         {
-            if (address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END)
-            {
-                int index = (address - APUSchema.WAVE_TABLE_START);
-                return (byte)((_waveTable[index * 2] << 4) | _waveTable[(index * 2) + 1]);
-            }
-
-            throw new IndexOutOfRangeException();
+            int index = (address - APUSchema.WAVE_TABLE_START);
+            return (byte)((_waveTable[index * 2] << 4) | _waveTable[(index * 2) + 1]);
         }
 
         public void SetVolume(byte data)
@@ -53,6 +48,7 @@ namespace GBZEmuLibrary
 
         public override void Init()
         {
+            base.Init();
             _wavePos       = 0;
             _currentSample = 0;
         }
@@ -73,7 +69,7 @@ namespace GBZEmuLibrary
                 /* If a channel is triggered when the frame sequencer's next step is one that doesn't clock the length counter 
                  * and the length counter is now enabled and length is being set to 64(256 for wave channel) because it was 
                  * previously zero, it is set to 63 instead(255 for wave channel). */
-                _totalLength = _lengthEnabled && (_sequenceTimer % 2 != 0) ? byte.MaxValue - 1 : byte.MaxValue;
+                _totalLength = _lengthEnabled && (_sequenceTimer % 2 != 0) ? byte.MaxValue : byte.MaxValue + 1;
             }
 
             SetFreqTimer(_originalFrequency);

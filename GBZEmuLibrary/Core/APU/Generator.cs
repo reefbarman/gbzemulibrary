@@ -6,7 +6,7 @@ namespace GBZEmuLibrary
     {
         public int  ChannelState { get; set; }
         public bool Enabled      { get; set; } = true;
-        public bool Status => _enabled && _dacEnabled;
+        public bool Status       => _enabled && _dacEnabled;
 
         protected bool _dacEnabled;
         protected bool _enabled;
@@ -27,9 +27,14 @@ namespace GBZEmuLibrary
             _maxLength = maxLength;
         }
 
-        public abstract    void Init();
         public abstract    void HandleTrigger();
         protected abstract int  GetSample();
+
+        public virtual void Init()
+        {
+            _frameSequenceTimer = 0;
+            _sequenceTimer      = 0;
+        }
 
         public virtual void Reset()
         {
@@ -61,36 +66,39 @@ namespace GBZEmuLibrary
             }
         }
 
-        public void Update(int cycles)
+        public void Update(bool powered, int cycles)
         {
             _frameSequenceTimer += cycles;
 
-            if (_frameSequenceTimer >= APUSchema.FRAME_SEQUENCER_UPDATE_THRESHOLD)
+            if (powered)
             {
-                _frameSequenceTimer -= APUSchema.FRAME_SEQUENCER_UPDATE_THRESHOLD;
-
-                //256Hz
-                if (_sequenceTimer % 2 == 0)
+                if (_frameSequenceTimer >= APUSchema.FRAME_SEQUENCER_UPDATE_THRESHOLD)
                 {
-                    UpdateLength();
+                    _frameSequenceTimer -= APUSchema.FRAME_SEQUENCER_UPDATE_THRESHOLD;
+
+                    //256Hz
+                    if (_sequenceTimer % 2 == 0)
+                    {
+                        UpdateLength();
+                    }
+
+                    //128Hz
+                    if ((_sequenceTimer + 2) % 4 == 0)
+                    {
+                        UpdateSweep();
+                    }
+
+                    //64Hz
+                    if (_sequenceTimer % 7 == 0)
+                    {
+                        UpdateEnvelop();
+                    }
+
+                    _sequenceTimer = (_sequenceTimer + 1) % 8;
                 }
 
-                //128Hz
-                if ((_sequenceTimer + 2) % 4 == 0)
-                {
-                    UpdateSweep();
-                }
-
-                //64Hz
-                if (_sequenceTimer % 7 == 0)
-                {
-                    UpdateEnvelop();
-                }
-
-                _sequenceTimer = (_sequenceTimer + 1) % 8;
+                UpdateFrequency(cycles);
             }
-
-            UpdateFrequency(cycles);
         }
 
         public void ToggleDAC(bool enabled)
@@ -106,18 +114,19 @@ namespace GBZEmuLibrary
 
         public void ToggleLength(bool enabled)
         {
+            var previousState = _lengthEnabled;
+            _lengthEnabled = enabled;
+
             /* Extra length clocking occurs when writing to NRx4 when the frame sequencer's next step is one
              * that doesn't clock the length counter. In this case, if the length counter was PREVIOUSLY disabled
              * and now enabled and the length counter is not zero, it is decremented. If this decrement makes it zero
              * and trigger is clear, the channel is disabled. On the CGB-02, the length counter only has to have been
              * disabled before; the current length enable state doesn't matter. This breaks at least one game
              * (Prehistorik Man), and was fixed on CGB-04 and CGB-05.*/
-            if (!_lengthEnabled && enabled && _sequenceTimer % 2 != 0)
+            if (!previousState && _lengthEnabled && _sequenceTimer % 2 != 0)
             {
                 UpdateLength();
             }
-
-            _lengthEnabled = enabled;
         }
 
         public void SetFrequency(int freq)
@@ -134,7 +143,7 @@ namespace GBZEmuLibrary
         {
         }
 
-        protected void UpdateLength()
+        protected virtual void UpdateLength()
         {
             if (_totalLength > 0 && _lengthEnabled)
             {

@@ -31,8 +31,14 @@ namespace GBZEmuLibrary
             _cpu.OnClockTick += UpdateSystems;
         }
 
-        public bool Start(string romFile, bool usingBios)
+        public bool Start(string romFile, bool usingBios, bool useShortBios = false)
         {
+            BIOS.UseShortBIOS = useShortBios;
+            if (useShortBios)
+            {
+                BIOS.Bytes[0x00FD] = 0x03; //TODO setup anim mode
+            }
+
             _cpu.Reset(usingBios);
 
             return _cartridge.LoadFile(romFile);

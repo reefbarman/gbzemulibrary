@@ -310,7 +310,8 @@ namespace GBZEmuLibrary
         {
             var lastByte = _memory[address - MemorySchema.APU_REGISTERS_START];
 
-            switch (address) {
+            switch (address)
+            {
                 case APUSchema.SQUARE_1_SWEEP_PERIOD:
                     return (byte)(0x80 | lastByte);
 
@@ -378,21 +379,21 @@ namespace GBZEmuLibrary
                     return (byte)(0x00 | lastByte);
 
                 case APUSchema.SOUND_ENABLED:
-                    return (byte)(0x70 | ((_powered ? (1 << 7) : 0)
+                    return (byte)(0x70 | (_powered ? (1 << 7) : 0)
                                        | (_unusedBits << 4) // unused bits
                                        | (_channel1.Status ? (1 << 0) : 0)
                                        | (_channel2.Status ? (1 << 1) : 0)
                                        | (_channel3.Status ? (1 << 2) : 0)
-                                       | (_channel4.Status ? (1 << 3) : 0)));
+                                       | (_channel4.Status ? (1 << 3) : 0));
 
-                    
+
                 default:
                     if (address >= APUSchema.UNUSED_START && address < APUSchema.UNUSED_END)
                     {
                         return 0xFF;
                     }
 
-                    if (address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END) 
+                    if (address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END)
                     {
                         return _channel3.ReadByte(address);
                     }
@@ -403,15 +404,10 @@ namespace GBZEmuLibrary
 
         public void Update(int cycles)
         {
-            if (!_powered)
-            {
-                return;
-            }
-
-            _channel1.Update(cycles);
-            _channel2.Update(cycles);
-            _channel3.Update(cycles);
-            _channel4.Update(cycles);
+            _channel1.Update(_powered, cycles);
+            _channel2.Update(_powered, cycles);
+            _channel3.Update(_powered, cycles);
+            _channel4.Update(_powered, cycles);
 
             _cycleCounter += cycles;
 
@@ -426,10 +422,13 @@ namespace GBZEmuLibrary
             var leftChannel  = 0;
             var rightChannel = 0;
 
-            _channel1.GetCurrentSample(ref leftChannel, ref rightChannel);
-            _channel2.GetCurrentSample(ref leftChannel, ref rightChannel);
-            _channel3.GetCurrentSample(ref leftChannel, ref rightChannel);
-            _channel4.GetCurrentSample(ref leftChannel, ref rightChannel);
+            if (_powered)
+            {
+                _channel1.GetCurrentSample(ref leftChannel, ref rightChannel);
+                _channel2.GetCurrentSample(ref leftChannel, ref rightChannel);
+                _channel3.GetCurrentSample(ref leftChannel, ref rightChannel);
+                _channel4.GetCurrentSample(ref leftChannel, ref rightChannel);
+            }
 
             if (_currentByte * 2 < _buffer[_currentBuffer].Length - 1)
             {
@@ -483,7 +482,7 @@ namespace GBZEmuLibrary
 
                 _leftChannelVolume  = 0;
                 _rightChannelVolume = 0;
-                
+
                 _leftVinEnabled  = false;
                 _rightVinEnabled = false;
             }

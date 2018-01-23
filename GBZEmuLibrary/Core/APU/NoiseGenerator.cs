@@ -26,10 +26,6 @@ namespace GBZEmuLibrary
             }
         }
 
-        public override void Init()
-        {
-        }
-
         public override void Reset()
         {
             base.Reset();
