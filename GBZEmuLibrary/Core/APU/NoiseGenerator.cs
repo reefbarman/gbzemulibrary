@@ -26,6 +26,37 @@ namespace GBZEmuLibrary
             }
         }
 
+        public override byte ReadByte(int address)
+        {
+            int register;
+
+            switch (address)
+            {
+                case APUSchema.NOISE_4_UNUSED:
+                    return 0xFF;
+
+                case APUSchema.NOISE_4_LENGTH_LOAD:
+                    return 0xFF;
+
+                case APUSchema.NOISE_4_VOLUME_ENVELOPE:
+                    // Register Format VVVV APPP Starting volume, Envelope add mode, period
+                    register = _initialEnvelopePeriod | (_addEnvelope ? 1 : 0) << 3 | _initialVolume << 4;
+                    return (byte)(0x00 | register);
+
+                case APUSchema.NOISE_4_CLOCK_WIDTH_DIVISOR:
+                    // Register Format SSSS WDDD Clock shift, Width mode of LFSR, Divisor code
+                    register = _divRatio | (_widthMode << 3) | (_clockShift << 4);
+                    return (byte)(0x00 | register);
+
+                case APUSchema.NOISE_4_TRIGGER:
+                    // Register Format TL-- ---- Trigger, Length enable (Only interested in length enabled)
+                    register = (_lengthEnabled ? 1 : 0) << 6;
+                    return (byte)(0xBF | register);
+            }
+
+            throw new IndexOutOfRangeException();
+        }
+
         public override void Reset()
         {
             base.Reset();
@@ -62,7 +93,7 @@ namespace GBZEmuLibrary
 
         public void SetWidthMode(byte data)
         {
-            _widthMode = Helpers.GetBitsIsolated(data, 4, 1);
+            _widthMode = Helpers.GetBitsIsolated(data, 3, 1);
         }
 
         public void SetClockShift(byte data)
@@ -155,6 +186,7 @@ namespace GBZEmuLibrary
             }
 
             _frequency = freq;
+            _frequencyCount = 0;
         }
 
         private int FilterSamples(Queue<int> samplesRight)

@@ -27,8 +27,10 @@ namespace GBZEmuLibrary
             _maxLength = maxLength;
         }
 
+        public abstract byte ReadByte(int address);
         public abstract    void HandleTrigger();
         protected abstract int  GetSample();
+        protected abstract void UpdateFrequency(int cycles);
 
         public virtual void Init()
         {
@@ -39,13 +41,12 @@ namespace GBZEmuLibrary
         public virtual void Reset()
         {
             ChannelState = 0;
-            _enabled     = false;
+            ToggleDAC(false);
 
-            _totalLength   = 0;
+            SetLength(0);
             _lengthEnabled = false;
 
-            _originalFrequency = 0;
-            _frequency         = 0;
+            SetFrequency(0);
         }
 
         public virtual void GetCurrentSample(ref int leftChannel, ref int rightChannel)
@@ -151,13 +152,10 @@ namespace GBZEmuLibrary
             }
         }
 
-        protected virtual void UpdateFrequency(int cycles)
-        {
-        }
-
         protected void SetFreqTimer(int freq)
         {
             _frequency = (MathSchema.MAX_11_BIT_VALUE - freq) * 4;
+            _frequencyCount = 0;
         }
     }
 }

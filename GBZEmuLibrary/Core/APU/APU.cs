@@ -103,7 +103,8 @@ namespace GBZEmuLibrary
 
         public void WriteByte(byte data, int address)
         {
-            if (!_powered && !(address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END) && address != APUSchema.SOUND_ENABLED)
+            //TODO CGB may not write to length counters when powered off
+            if (!_powered && !(address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END) && Array.IndexOf(APUSchema.REGISTERS_ALWAYS_WRITTEN, address) == -1)
             {
                 return;
             }
@@ -122,7 +123,11 @@ namespace GBZEmuLibrary
                 case APUSchema.SQUARE_1_DUTY_LENGTH_LOAD:
                     // Register Format DDLL LLLL Duty, Length load (64-L)
                     _channel1.SetLength(Helpers.GetBits(data, 6));
-                    _channel1.SetDutyCycle(data);
+
+                    if (_powered)
+                    {
+                        _channel1.SetDutyCycle(data);
+                    }
                     break;
 
                 case APUSchema.SQUARE_1_VOLUME_ENVELOPE:
@@ -160,7 +165,11 @@ namespace GBZEmuLibrary
                 case APUSchema.SQUARE_2_DUTY_LENGTH_LOAD:
                     // Register Format DDLL LLLL Duty, Length load (64-L)
                     _channel2.SetLength(Helpers.GetBits(data, 6));
-                    _channel2.SetDutyCycle(data);
+
+                    if (_powered)
+                    {
+                        _channel2.SetDutyCycle(data);
+                    }
                     break;
 
                 case APUSchema.SQUARE_2_VOLUME_ENVELOPE:
@@ -308,6 +317,95 @@ namespace GBZEmuLibrary
 
         public byte ReadByte(int address)
         {
+            var realByte = ReadByteInternal(address);
+            var lastByteORed = ReadByteLast(address);
+            var lastByte = _memory[address - MemorySchema.APU_REGISTERS_START];
+
+            if (realByte != lastByteORed)
+            {
+                Console.WriteLine($"Real: {Convert.ToString(realByte, 2)}, Last: {Convert.ToString(lastByte, 2)}");
+                Helpers.NoOp();
+            }
+
+            switch (address)
+            {
+                case APUSchema.SQUARE_1_SWEEP_PERIOD:
+                    return realByte;
+
+                case APUSchema.SQUARE_1_DUTY_LENGTH_LOAD:
+                    return realByte;
+
+                case APUSchema.SQUARE_1_VOLUME_ENVELOPE:
+                    return realByte;
+
+                case APUSchema.SQUARE_1_FREQUENCY_LSB:
+                    return lastByte;
+
+                case APUSchema.SQUARE_1_FREQUENCY_MSB:
+                    return realByte;
+
+                case APUSchema.SQUARE_2_UNUSED:
+                    return lastByteORed;
+
+                case APUSchema.SQUARE_2_DUTY_LENGTH_LOAD:
+                    return lastByteORed;
+
+                case APUSchema.SQUARE_2_VOLUME_ENVELOPE:
+                    return lastByteORed;
+
+                case APUSchema.SQUARE_2_FREQUENCY_LSB:
+                    return lastByte;
+
+                case APUSchema.SQUARE_2_FREQUENCY_MSB:
+                    return lastByteORed;
+
+                case APUSchema.WAVE_3_DAC:
+                    return lastByteORed;
+
+                case APUSchema.WAVE_3_LENGTH_LOAD:
+                    return lastByteORed;
+
+                case APUSchema.WAVE_3_VOLUME:
+                    return lastByteORed;
+
+                case APUSchema.WAVE_3_FREQUENCY_LSB:
+                    return lastByte;
+
+                case APUSchema.WAVE_3_FREQUENCY_MSB:
+                    return lastByteORed;
+
+                case APUSchema.NOISE_4_UNUSED:
+                    return lastByteORed;
+
+                case APUSchema.NOISE_4_LENGTH_LOAD:
+                    return lastByteORed;
+
+                case APUSchema.NOISE_4_VOLUME_ENVELOPE:
+                    return lastByteORed;
+
+                case APUSchema.NOISE_4_CLOCK_WIDTH_DIVISOR:
+                    return lastByteORed;
+
+                case APUSchema.NOISE_4_TRIGGER:
+                    return lastByteORed;
+
+                case APUSchema.VIN_VOL_CONTROL:
+                    return lastByteORed;
+
+                case APUSchema.STEREO_SELECT:
+                    return lastByteORed;
+
+                case APUSchema.SOUND_ENABLED:
+                    return lastByteORed;
+
+
+                default:
+                    return realByte;
+            }
+        }
+
+        private byte ReadByteLast(int address)
+        {
             var lastByte = _memory[address - MemorySchema.APU_REGISTERS_START];
 
             switch (address)
@@ -319,25 +417,25 @@ namespace GBZEmuLibrary
                     return (byte)(0x3F | lastByte);
 
                 case APUSchema.SQUARE_1_VOLUME_ENVELOPE:
-                    return (byte)(0x00 | lastByte);
+                    return lastByte;
 
                 case APUSchema.SQUARE_1_FREQUENCY_LSB:
-                    return (byte)(0xFF | lastByte);
+                    return 0xFF;
 
                 case APUSchema.SQUARE_1_FREQUENCY_MSB:
                     return (byte)(0xBF | lastByte);
 
                 case APUSchema.SQUARE_2_UNUSED:
-                    return (byte)(0xFF | lastByte);
+                    return 0xFF;
 
                 case APUSchema.SQUARE_2_DUTY_LENGTH_LOAD:
                     return (byte)(0x3F | lastByte);
 
                 case APUSchema.SQUARE_2_VOLUME_ENVELOPE:
-                    return (byte)(0x00 | lastByte);
+                    return lastByte;
 
                 case APUSchema.SQUARE_2_FREQUENCY_LSB:
-                    return (byte)(0xFF | lastByte);
+                    return 0xFF;
 
                 case APUSchema.SQUARE_2_FREQUENCY_MSB:
                     return (byte)(0xBF | lastByte);
@@ -346,37 +444,37 @@ namespace GBZEmuLibrary
                     return (byte)(0x7F | lastByte);
 
                 case APUSchema.WAVE_3_LENGTH_LOAD:
-                    return (byte)(0xFF | lastByte);
+                    return 0xFF;
 
                 case APUSchema.WAVE_3_VOLUME:
                     return (byte)(0x9F | lastByte);
 
                 case APUSchema.WAVE_3_FREQUENCY_LSB:
-                    return (byte)(0xFF | lastByte);
+                    return 0xFF;
 
                 case APUSchema.WAVE_3_FREQUENCY_MSB:
                     return (byte)(0xBF | lastByte);
 
                 case APUSchema.NOISE_4_UNUSED:
-                    return (byte)(0xFF | lastByte);
+                    return 0xFF;
 
                 case APUSchema.NOISE_4_LENGTH_LOAD:
-                    return (byte)(0xFF | lastByte);
+                    return 0xFF;
 
                 case APUSchema.NOISE_4_VOLUME_ENVELOPE:
-                    return (byte)(0x00 | lastByte);
+                    return lastByte;
 
                 case APUSchema.NOISE_4_CLOCK_WIDTH_DIVISOR:
-                    return (byte)(0x00 | lastByte);
+                    return lastByte;
 
                 case APUSchema.NOISE_4_TRIGGER:
                     return (byte)(0xBF | lastByte);
 
                 case APUSchema.VIN_VOL_CONTROL:
-                    return (byte)(0x00 | lastByte);
+                    return lastByte;
 
                 case APUSchema.STEREO_SELECT:
-                    return (byte)(0x00 | lastByte);
+                    return lastByte;
 
                 case APUSchema.SOUND_ENABLED:
                     return (byte)(0x70 | (_powered ? (1 << 7) : 0)
@@ -396,6 +494,73 @@ namespace GBZEmuLibrary
                     if (address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END)
                     {
                         return _channel3.ReadByte(address);
+                    }
+
+                    throw new IndexOutOfRangeException();
+            }
+        }
+
+        private byte ReadByteInternal(int address)
+        {
+            if (address >= APUSchema.SQUARE_1_SWEEP_PERIOD && address < APUSchema.SQUARE_2_UNUSED)
+            {
+                return _channel1.ReadByte(address);
+            }
+
+            if (address >= APUSchema.SQUARE_2_UNUSED && address < APUSchema.WAVE_3_DAC)
+            {
+                return _channel2.ReadByte(address);
+            }
+
+            if (address >= APUSchema.WAVE_3_DAC && address < APUSchema.NOISE_4_UNUSED || address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END)
+            {
+                return _channel3.ReadByte(address);
+            }
+
+            if (address >= APUSchema.NOISE_4_UNUSED && address < APUSchema.VIN_VOL_CONTROL)
+            {
+                return _channel4.ReadByte(address);
+            }
+
+            int register;
+
+            switch (address)
+            {
+                case APUSchema.VIN_VOL_CONTROL:
+                    // Register Format ALLL BRRR Vin L enable, Left vol, Vin R enable, Right vol
+                    register = _rightChannelVolume | ((_rightVinEnabled ? 1 : 0) << 3) | (_leftChannelVolume << 4) | ((_leftVinEnabled ? 1 : 0) << 7);
+                    return (byte)(0x00 | register);
+
+                case APUSchema.STEREO_SELECT:
+                    // Register Format 8 bits 
+                    // Lower 4 bits represent Right Channel for Channels 1-4
+                    // Higher 4 bits represent Left Channel for Channels 1-4
+                    register = ((_channel1.ChannelState & APUSchema.CHANNEL_RIGHT) != 0 ? 1 : 0)
+                               | (((_channel2.ChannelState & APUSchema.CHANNEL_RIGHT) != 0 ? 1 : 0) << 1)
+                               | (((_channel3.ChannelState & APUSchema.CHANNEL_RIGHT) != 0 ? 1 : 0) << 2)
+                               | (((_channel4.ChannelState & APUSchema.CHANNEL_RIGHT) != 0 ? 1 : 0) << 3)
+                               | (((_channel1.ChannelState & APUSchema.CHANNEL_LEFT) != 0 ? 1 : 0) << 4)
+                               | (((_channel2.ChannelState & APUSchema.CHANNEL_LEFT) != 0 ? 1 : 0) << 5)
+                               | (((_channel3.ChannelState & APUSchema.CHANNEL_LEFT) != 0 ? 1 : 0) << 6)
+                               | (((_channel4.ChannelState & APUSchema.CHANNEL_LEFT) != 0 ? 1 : 0) << 7);
+                    return (byte)(0x00 | register);
+
+                case APUSchema.SOUND_ENABLED:
+                    // Register Format P--- NW21 Power control/status, Channel length statuses
+                    register = (_powered ? (1 << 7) : 0)
+                               | (_unusedBits << 4) // unused bits
+                               | (_channel1.Status ? (1 << 0) : 0)
+                               | (_channel2.Status ? (1 << 1) : 0)
+                               | (_channel3.Status ? (1 << 2) : 0)
+                               | (_channel4.Status ? (1 << 3) : 0);
+
+                    return (byte)(0x70 | register);
+
+
+                default:
+                    if (address >= APUSchema.UNUSED_START && address < APUSchema.UNUSED_END)
+                    {
+                        return 0xFF;
                     }
 
                     throw new IndexOutOfRangeException();

@@ -14,6 +14,15 @@ namespace GBZEmuLibrary
         {
         }
 
+        public override void Reset()
+        {
+            base.Reset();
+
+            _initialVolume         = 0;
+            _initialEnvelopePeriod = 0;
+            _addEnvelope           = false;
+        }
+
         public void SetEnvelope(byte data)
         {
             // Val Format VVVV APPP

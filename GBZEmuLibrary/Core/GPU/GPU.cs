@@ -81,8 +81,6 @@ namespace GBZEmuLibrary
 
         private int _scanlineCounter = SCALINE_DRAW_CLOCKS;
 
-        // TODO make below configurable
-
         private readonly int[,] _screenData = new int[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
 
         public void Update(int cycles)
@@ -167,7 +165,8 @@ namespace GBZEmuLibrary
             {
                 _scanlineCounter = SCALINE_DRAW_CLOCKS - cycles;
                 _gpuRegisters[(int)Registers.Scanline] = 0;
-                SetStatusRegister(LCDStatus.VBlank);
+                SetStatusRegister(LCDStatus.HBlank);
+
                 return;
             }
 
@@ -202,7 +201,7 @@ namespace GBZEmuLibrary
             Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, coincidence);
 
             //Request interrupt if mode has changed or a coincidence has occurred
-            if ((requestInterrupt && (int)mode != (_gpuRegisters[(int)Registers.LCDStatus] & 0x3)) || (coincidence && Helpers.TestBit(_gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.CoincidenceInterruptEnabled)))
+            if ((requestInterrupt && mode != GetStatusMode()) || (coincidence && Helpers.TestBit(_gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.CoincidenceInterruptEnabled)))
             {
                 MessageBus.Instance.RequestInterrupt(Interrupts.LCD);
             }
@@ -399,6 +398,11 @@ namespace GBZEmuLibrary
 
             Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], 0, bit0);
             Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], 1, bit1);
+        }
+
+        private LCDStatus GetStatusMode()
+        {
+            return (LCDStatus)Helpers.GetBits(_gpuRegisters[(int)Registers.LCDStatus], 2);
         }
 
         private int GetColorIndex(byte colorNum, int paletteAddress)

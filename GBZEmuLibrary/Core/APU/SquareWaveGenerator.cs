@@ -23,34 +23,6 @@ namespace GBZEmuLibrary
         {
         }
 
-        public void SetSweep(byte data)
-        {
-            // Val Format -PPP NSSS
-            _shiftSweep = Helpers.GetBits(data, 3);
-
-            var newMode = Helpers.TestBit(data, 4);
-
-            /* Clearing the sweep negate mode bit in NR10 after at least one sweep calculation has been made
-             * using the negate mode since the last trigger causes the channel to be immediately disabled.
-             * This prevents you from having the sweep lower the frequency then raise the frequency without
-             * a trigger inbetween.*/
-            if (_sweepEnabled && _sweepNegated && _negateSweep && !newMode)
-            {
-                _enabled = false;
-            }
-
-            _negateSweep = newMode;
-
-            _initialSweepPeriod = Helpers.GetBitsIsolated(data, 4, 3);
-            _sweepPeriod        = _initialSweepPeriod;
-        }
-
-        public void SetDutyCycle(byte data)
-        {
-            // Val Format DD-- ----
-            _dutyCycle = Helpers.GetBitsIsolated(data, 6, 2);
-        }
-
         public override void Init()
         {
             base.Init();
@@ -63,16 +35,66 @@ namespace GBZEmuLibrary
 
             _initialSweepPeriod = 0;
             _shiftSweep         = 0;
-            _negateSweep        = false;
+            SetSweepMode(false);
 
             _dutyCycle = 0;
+        }
 
-            _initialVolume         = 0;
-            _envelopePeriod        = 0;
-            _initialEnvelopePeriod = 0;
-            _addEnvelope           = false;
+        public override byte ReadByte(int address)
+        {
+            int register;
 
-            _shadowFrequency = 0;
+            switch (address)
+            {
+                case APUSchema.SQUARE_1_SWEEP_PERIOD:
+                    // Register Format -PPP NSSS Sweep period, negate, shift
+                    register = _shiftSweep | ((_negateSweep ? 1 : 0) << 3) | (_initialSweepPeriod << 4);
+                    return (byte)(0x80 | register);
+                    
+                case APUSchema.SQUARE_1_DUTY_LENGTH_LOAD:
+                case APUSchema.SQUARE_2_DUTY_LENGTH_LOAD:
+                    // Register Format DDLL LLLL Duty, Length load (64-L) (Only first six bytes needed)
+                    register = _dutyCycle << 6;
+                    return (byte)(0x3F | register);
+
+                case APUSchema.SQUARE_1_VOLUME_ENVELOPE:
+                case APUSchema.SQUARE_2_VOLUME_ENVELOPE:
+                    // Register Format VVVV APPP Starting volume, Envelope add mode, period
+                    register = _initialEnvelopePeriod | (_addEnvelope ? 1 : 0) << 3 | _initialVolume << 4;
+                    return (byte)(0x00 | register);
+
+                case APUSchema.SQUARE_1_FREQUENCY_LSB:
+                case APUSchema.SQUARE_2_FREQUENCY_LSB:
+                    // Register Format FFFF FFFF Frequency LSB
+                    return 0xFF;
+
+                case APUSchema.SQUARE_1_FREQUENCY_MSB:
+                case APUSchema.SQUARE_2_FREQUENCY_MSB:
+                    // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB (Only interested in length enabled)
+                    register = (_lengthEnabled ? 1 : 0) << 6;
+                    return (byte)(0xBF | register);
+
+                case APUSchema.SQUARE_2_UNUSED:
+                    return 0xFF;
+            }
+
+            throw new IndexOutOfRangeException();
+        }
+
+        public void SetSweep(byte data)
+        {
+            // Val Format -PPP NSSS
+            _shiftSweep = Helpers.GetBits(data, 3);
+
+            SetSweepMode(Helpers.TestBit(data, 3));
+
+            _initialSweepPeriod = Helpers.GetBitsIsolated(data, 4, 3);
+        }
+
+        public void SetDutyCycle(byte data)
+        {
+            // Val Format DD-- ----
+            _dutyCycle = Helpers.GetBitsIsolated(data, 6, 2);
         }
 
         public override void HandleTrigger()
@@ -87,12 +109,13 @@ namespace GBZEmuLibrary
                 _totalLength = _lengthEnabled && (_sequenceTimer % 2 != 0) ? MathSchema.MAX_6_BIT_VALUE - 1 : MathSchema.MAX_6_BIT_VALUE;
             }
 
-            _sweepEnabled = (_shiftSweep != 0) || (_initialSweepPeriod != 0);
-
             SetFreqTimer(_originalFrequency);
             _shadowFrequency = _originalFrequency;
             _sweepPeriod     = _initialSweepPeriod == 0 ? 8 : _initialSweepPeriod;
             _sweepNegated    = false;
+
+            _sweepEnabled = (_shiftSweep != 0) || (_initialSweepPeriod != 0);
+
             if (_shiftSweep > 0)
             {
                 CalculateNewFrequency();
@@ -156,6 +179,20 @@ namespace GBZEmuLibrary
             }
 
             return sweepFreq;
+        }
+
+        private void SetSweepMode(bool newMode)
+        {
+            /* Clearing the sweep negate mode bit in NR10 after at least one sweep calculation has been made
+             * using the negate mode since the last trigger causes the channel to be immediately disabled.
+             * This prevents you from having the sweep lower the frequency then raise the frequency without
+             * a trigger inbetween.*/
+            if (_sweepEnabled && _sweepNegated && _negateSweep && !newMode)
+            {
+                _enabled = false;
+            }
+
+            _negateSweep = newMode;
         }
     }
 }

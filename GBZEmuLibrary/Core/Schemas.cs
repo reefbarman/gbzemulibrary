@@ -159,6 +159,11 @@ namespace GBZEmuLibrary
             new[] {1, 0, 0, 0, 0, 1, 1, 1},
             new[] {0, 1, 1, 1, 1, 1, 1, 0},
         };
+
+        public static readonly int[] REGISTERS_ALWAYS_WRITTEN =
+        {
+            SQUARE_1_DUTY_LENGTH_LOAD, SQUARE_2_DUTY_LENGTH_LOAD, WAVE_3_LENGTH_LOAD, NOISE_4_LENGTH_LOAD, SOUND_ENABLED
+        };
     }
 
     internal class MathSchema

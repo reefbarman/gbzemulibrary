@@ -18,9 +18,48 @@ namespace GBZEmuLibrary
         {
         }
 
-        public byte ReadByte(int address)
+        public void WriteByte(byte data, int address)
         {
-            int index = (address - APUSchema.WAVE_TABLE_START);
+            var index = address - APUSchema.WAVE_TABLE_START;
+
+            _waveTable[index * 2]     = (byte)Helpers.GetBitsIsolated(data, 4, 4);
+            _waveTable[index * 2 + 1] = Helpers.GetBits(data, 4);
+        }
+
+        public override byte ReadByte(int address)
+        {
+            if (address >= APUSchema.WAVE_3_DAC && address < APUSchema.NOISE_4_UNUSED)
+            {
+                int register;
+
+                switch (address)
+                {
+                    case APUSchema.WAVE_3_DAC:
+                        // Register Format E--- ---- DAC power
+                        register = (_dacEnabled ? 1 : 0) << 7;
+                        return (byte)(0x7F | register);
+
+                    case APUSchema.WAVE_3_LENGTH_LOAD:
+                        return 0xFF;
+
+                    case APUSchema.WAVE_3_VOLUME:
+                        // Register Format -VV- ---- Volume code (00=0%, 01=100%, 10=50%, 11=25%)
+                        register = _volumeLevel << 5;
+                        return (byte)(0x9F | register);
+
+                    case APUSchema.WAVE_3_FREQUENCY_LSB:
+                        return 0xFF;
+
+                    case APUSchema.WAVE_3_FREQUENCY_MSB: 
+                        // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB (Only interested in length enabled)
+                        register = (_lengthEnabled ? 1 : 0) << 6;
+                        return (byte)(0xBF | register);
+                }
+
+                throw new IndexOutOfRangeException();
+            }
+
+            var index = (address - APUSchema.WAVE_TABLE_START);
             return (byte)((_waveTable[index * 2] << 4) | _waveTable[(index * 2) + 1]);
         }
 
@@ -75,14 +114,6 @@ namespace GBZEmuLibrary
             SetFreqTimer(_originalFrequency);
 
             _wavePos = 0;
-        }
-
-        public void WriteByte(byte data, int address)
-        {
-            var index = address - APUSchema.WAVE_TABLE_START;
-
-            _waveTable[index * 2]     = (byte)Helpers.GetBitsIsolated(data, 4, 4);
-            _waveTable[index * 2 + 1] = Helpers.GetBits(data, 4);
         }
 
         protected override int GetSample()
