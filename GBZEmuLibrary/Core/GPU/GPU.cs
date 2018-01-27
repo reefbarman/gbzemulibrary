@@ -64,63 +64,65 @@ namespace GBZEmuLibrary
             SpriteToBGPriority
         }
 
-        private const int SCALINE_DRAW_CLOCKS   = 456;
-        private const int MAX_SCANLINES         = 153;
-        private const int MAX_SCROLL_AMOUNT     = 256;
+        private const int SCANLINE_DRAW_CLOCKS = 456; //TODO maybe use floats and get more accuracy as this should be more like 456.8 for 60FPS
+        private const int HBLANK_CLOCKS       = 204;
+        private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS = 80;
+        private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
+
+        private const int MAX_SCANLINES     = 154; //153;
+        private const int MAX_SCROLL_AMOUNT = 256;
 
         private const int WINDOW_X_OFFSET = 7;
 
         private const int TILE_SIZE = 16;
 
-        private const int SEARCHING_SPRITES_ATTRIBUTES_BOUNDS    = SCALINE_DRAW_CLOCKS - 80;
-        private const int TRANSFERRING_DATA_TO_LCD_DRIVER_BOUNDS = SEARCHING_SPRITES_ATTRIBUTES_BOUNDS - 172;
+        private readonly int[,] _screenData = new int[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
 
-        private readonly byte[] _videoRAM = new byte[MemorySchema.VIDEO_RAM_END - MemorySchema.VIDEO_RAM_START];
-        private readonly byte[] _gpuRegisters = new byte[MemorySchema.GPU_REGISTERS_END - MemorySchema.GPU_REGISTERS_START];
+        private readonly byte[] _videoRAM             = new byte[MemorySchema.VIDEO_RAM_END - MemorySchema.VIDEO_RAM_START];
+        private readonly byte[] _gpuRegisters         = new byte[MemorySchema.GPU_REGISTERS_END - MemorySchema.GPU_REGISTERS_START];
         private readonly byte[] _spriteAttributeTable = new byte[MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START];
 
-        private int _scanlineCounter = SCALINE_DRAW_CLOCKS;
+        private int  _cycleCounter;
+        private bool _pendingVBlankInterrupt;
 
-        private readonly int[,] _screenData = new int[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
 
         public void Update(int cycles)
         {
-            SetLCDStatus(cycles);
-
             if (!IsLCDEnabled())
             {
-                return;
-            }
-
-            _scanlineCounter -= cycles;
-
-            if (_scanlineCounter > 0)
-            {
-                return;
-            }
-
-            // Not 100% about this maybe just _scanlineCounter = SCALINE_DRAW_CLOCKS;
-            _scanlineCounter = SCALINE_DRAW_CLOCKS + _scanlineCounter;
-
-            var currentLine = _gpuRegisters[(int)Registers.Scanline];
-
-            if (currentLine > MAX_SCANLINES)
-            {
+                _cycleCounter                          = 0;
                 _gpuRegisters[(int)Registers.Scanline] = 0;
+                SetStatusRegister(LCDStatus.HBlank);
+
                 return;
             }
 
-            if (currentLine == Display.VERTICAL_RESOLUTION)
+            _cycleCounter += cycles;
+
+            var currentLine      = _gpuRegisters[(int)Registers.Scanline];
+            var requestInterrupt = false;
+
+            switch (GetStatusMode())
             {
-                MessageBus.Instance.RequestInterrupt(Interrupts.VBlank);
+                case LCDStatus.HBlank:
+                    requestInterrupt = HandleHBlank(currentLine);
+                    break;
+                case LCDStatus.VBlank:
+                    requestInterrupt = HandleVBlank(currentLine);
+                    break;
+                case LCDStatus.SearchingSpritesAttributes:
+                    HandleSearchingSpritesAttributes();
+                    break;
+                case LCDStatus.TransferringDataToLCDDriver:
+                    requestInterrupt = TransferringDataToLCDDriver();
+                    break;
             }
 
-            if (currentLine < Display.VERTICAL_RESOLUTION)
+            //Request interrupt if mode has changed or a coincidence has occurred
+            if (requestInterrupt)
             {
-                DrawScanLine();
+                MessageBus.Instance.RequestInterrupt(Interrupts.LCD);
             }
-
-            _gpuRegisters[(int)Registers.Scanline]++;
         }
 
         public byte ReadByte(int address)
@@ -159,52 +161,94 @@ namespace GBZEmuLibrary
             return _screenData;
         }
 
-        private void SetLCDStatus(int cycles)
+        private bool HandleHBlank(int currentLine)
         {
-            if (!IsLCDEnabled())
-            {
-                _scanlineCounter = SCALINE_DRAW_CLOCKS - cycles;
-                _gpuRegisters[(int)Registers.Scanline] = 0;
-                SetStatusRegister(LCDStatus.HBlank);
-
-                return;
-            }
-
-            var currentLine = _gpuRegisters[(int)Registers.Scanline];
-            var mode = LCDStatus.HBlank;
             var requestInterrupt = false;
 
-            if (currentLine >= Display.VERTICAL_RESOLUTION)
+            if (_cycleCounter >= HBLANK_CLOCKS)
             {
-                mode = LCDStatus.VBlank;
-                SetStatusRegister(mode);
-                requestInterrupt = Helpers.TestBit(_gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.VBlankInterruptEnabled);
+                _cycleCounter -= HBLANK_CLOCKS;
+
+                requestInterrupt = UpdateScanline(ref currentLine);
+
+                if (currentLine == Display.VERTICAL_RESOLUTION)
+                {
+                    _pendingVBlankInterrupt = true;
+                    SetStatusRegister(LCDStatus.VBlank);
+
+                    requestInterrupt |= Helpers.TestBit(_gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.HBlankInterruptEnabled);
+                }
+                else
+                {
+                    SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
+                    requestInterrupt |= Helpers.TestBit(_gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.SearchingSpriteAttributesInterruptEnabled);
+                }
             }
-            else if (_scanlineCounter >= SEARCHING_SPRITES_ATTRIBUTES_BOUNDS)
+
+            return requestInterrupt;
+        }
+
+        private bool HandleVBlank(int currentLine)
+        {
+            var requestInterrupt = false;
+
+            if (_cycleCounter >= SCANLINE_DRAW_CLOCKS)
             {
-                mode = LCDStatus.SearchingSpritesAttributes;
-                SetStatusRegister(mode);
-                requestInterrupt = Helpers.TestBit(_gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.SearchingSpriteAttributesInterruptEnabled);
+                _cycleCounter -= SCANLINE_DRAW_CLOCKS;
+
+                requestInterrupt = UpdateScanline(ref currentLine);
+
+                if (currentLine == 0) //Possibly need to deal with line 0 timing
+                {
+                    SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
+                    requestInterrupt |= Helpers.TestBit(_gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.SearchingSpriteAttributesInterruptEnabled);
+                }
             }
-            else if (_scanlineCounter >= TRANSFERRING_DATA_TO_LCD_DRIVER_BOUNDS)
+            else if (_pendingVBlankInterrupt && _cycleCounter >= 4)
             {
-                mode = LCDStatus.TransferringDataToLCDDriver;
-                SetStatusRegister(mode);
+                _pendingVBlankInterrupt = false;
+                MessageBus.Instance.RequestInterrupt(Interrupts.VBlank);
             }
-            else
+
+            return requestInterrupt;
+        }
+
+        private void HandleSearchingSpritesAttributes()
+        {
+            if (_cycleCounter >= SEARCHING_SPRITES_ATTRIBUTES_CLOCKS)
             {
-                SetStatusRegister(mode);
+                _cycleCounter -= SEARCHING_SPRITES_ATTRIBUTES_CLOCKS;
+
+                SetStatusRegister(LCDStatus.TransferringDataToLCDDriver);
+            }
+        }
+
+        private bool TransferringDataToLCDDriver()
+        {
+            var requestInterrupt = false;
+
+            if (_cycleCounter >= TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS)
+            {
+                _cycleCounter -= TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
+
+                SetStatusRegister(LCDStatus.HBlank);
                 requestInterrupt = Helpers.TestBit(_gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.HBlankInterruptEnabled);
+
+                DrawScanLine();
             }
+
+            return requestInterrupt;
+        }
+
+        private bool UpdateScanline(ref int currentLine)
+        {
+            currentLine = (currentLine + 1) % MAX_SCANLINES;
+            _gpuRegisters[(int)Registers.Scanline] = (byte)currentLine;
 
             var coincidence = currentLine == _gpuRegisters[(int)Registers.LCDYCoord];
             Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, coincidence);
 
-            //Request interrupt if mode has changed or a coincidence has occurred
-            if ((requestInterrupt && mode != GetStatusMode()) || (coincidence && Helpers.TestBit(_gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.CoincidenceInterruptEnabled)))
-            {
-                MessageBus.Instance.RequestInterrupt(Interrupts.LCD);
-            }
+            return coincidence;
         }
 
         private bool IsLCDEnabled()
@@ -250,18 +294,18 @@ namespace GBZEmuLibrary
             {
                 RenderTiles(control, scanline, windowX, scanline - windowY, debugOffset, true);
             }
-        } 
+        }
 
         private void RenderTiles(byte control, byte scanline, int xPos, int yPos, int debugOffset, bool window = false)
         {
-            var tileData = Helpers.TestBit(control, (int)LCDControlBits.BGWindowTileDataSelect) ? MemorySchema.TILE_DATA_UNSIGNED_START : MemorySchema.TILE_DATA_SIGNED_START;
+            var tileData         = Helpers.TestBit(control, (int)LCDControlBits.BGWindowTileDataSelect) ? MemorySchema.TILE_DATA_UNSIGNED_START : MemorySchema.TILE_DATA_SIGNED_START;
             var backgroundMemory = Helpers.TestBit(control, window ? (int)LCDControlBits.WindowTileMapSelect : (int)LCDControlBits.BGTileMapSelect) ? MemorySchema.BACKGROUND_LAYOUT_1_START : MemorySchema.BACKGROUND_LAYOUT_0_START;
 
             var signed = tileData == MemorySchema.TILE_DATA_SIGNED_START;
 
             //TODO get rid of below magic numbers
             var tileRow = ((byte)(yPos / 8)) * 32;
-            var offset = signed ? 128 : 0;
+            var offset  = signed ? 128 : 0;
 
             for (var pixel = 0; pixel < Display.HORIZONTAL_RESOLUTION; pixel++)
             {
@@ -280,12 +324,12 @@ namespace GBZEmuLibrary
                 }
 
                 var tileCol = x / 8;
-                var data = ReadByte(backgroundMemory + tileRow + tileCol);
+                var data    = ReadByte(backgroundMemory + tileRow + tileCol);
                 var tileNum = signed ? (int)(sbyte)data : data;
 
                 var tileLoc = tileData + ((tileNum + offset) * TILE_SIZE);
 
-                var line = (yPos % 8) * 2;
+                var line  = (yPos % 8) * 2;
                 var data1 = ReadByte(tileLoc + line);
                 var data2 = ReadByte(tileLoc + line + 1);
 
@@ -307,7 +351,7 @@ namespace GBZEmuLibrary
         private void RenderSprites(byte control, byte scanline, int debugOffset = 0)
         {
             var use8x16 = Helpers.TestBit(control, (int)LCDControlBits.SpriteSize);
-            var ySize = use8x16 ? 16 : 8;
+            var ySize   = use8x16 ? 16 : 8;
 
             const int tableStart = MemorySchema.SPRITE_ATTRIBUTE_TABLE_START;
 
