@@ -12,7 +12,7 @@ namespace GBZEmuLibrary
             RAMBank
         }
 
-        public GBCMode GBCMode => _forceDMG ? GBCMode.NoGBC : _header.GBCMode;
+        public GBCMode GBCMode => _header.GBCMode;
 
         private readonly byte[] _cartMemory = new byte[CartridgeSchema.MAX_CART_SIZE];
         private byte[] _externalRAM;
@@ -28,10 +28,8 @@ namespace GBZEmuLibrary
 
         private bool _forceDMG;
 
-        public bool LoadFile(string file, bool forceDMG)
+        public bool LoadFile(string file)
         {
-            _forceDMG = forceDMG;
-
             if (File.Exists(file))
             {
                 try

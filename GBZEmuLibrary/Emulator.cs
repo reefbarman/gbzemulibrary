@@ -16,7 +16,6 @@ namespace GBZEmuLibrary
         {
             public string ROMPath;
             public BootMode BootMode = BootMode.PreferGBC;
-            public bool ForceDMG = false;
         }
 
         private const int CLOCKS_PER_CYCLE     = GameBoySchema.MAX_DMG_CLOCK_CYCLES / GameBoySchema.TARGET_FRAMERATE;
@@ -48,7 +47,7 @@ namespace GBZEmuLibrary
 
         public bool Start(Config config)
         {
-            var success = _cartridge.LoadFile(config.ROMPath, config.ForceDMG);
+            var success = _cartridge.LoadFile(config.ROMPath);
 
             if (_cartridge.GBCMode == GBCMode.GBCOnly && (config.BootMode != BootMode.PreferGBC || config.BootMode != BootMode.SkipBoot))
             {
