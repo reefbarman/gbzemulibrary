@@ -481,7 +481,7 @@ namespace GBZEmuLibrary
                     var tileLineOffset = tilePixelRow * 2;
                     var tileAddress = MemorySchema.TILE_DATA_UNSIGNED_START + (tileIndex * TILE_SIZE);
 
-                    var bank = _mode != GBCMode.NoGBC ? Helpers.GetBit(attributes, (int)BGAttributeBits.TileVRAMBankNumber) : 0;
+                    var bank = _mode != GBCMode.NoGBC ? Helpers.GetBit(attributes, (int)SpriteAttributesBits.TileVRAMBankNumber) : 0;
 
                     var data1 = ReadFromVRAMWithBank(tileAddress + tileLineOffset, bank);
                     var data2 = ReadFromVRAMWithBank(tileAddress + tileLineOffset + 1, bank);

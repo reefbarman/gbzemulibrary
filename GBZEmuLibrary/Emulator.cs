@@ -1,19 +1,21 @@
-﻿namespace GBZEmuLibrary
+﻿using System;
+
+namespace GBZEmuLibrary
 {
     public class Emulator
     {
-        public enum BootAnimMode
+        public enum BootMode
         {
-            NoBoot = 0x01,
-            Normal = 0x02,
-            Short = 0x03,
-            NoAnim = 0x00
+            SkipBoot,
+            PreferDMG,
+            PreferDMGShort,
+            PreferGBC
         }
 
         public class Config
         {
             public string ROMPath;
-            public BootAnimMode BootAnimMode = BootAnimMode.Normal;
+            public BootMode BootMode = BootMode.PreferGBC;
             public bool ForceDMG = false;
         }
 
@@ -48,11 +50,18 @@
         {
             var success = _cartridge.LoadFile(config.ROMPath, config.ForceDMG);
 
-            BootROM.SetBootMode(_cartridge.GBCMode != GBCMode.NoGBC, (byte)config.BootAnimMode);
+            if (_cartridge.GBCMode == GBCMode.GBCOnly && (config.BootMode != BootMode.PreferGBC || config.BootMode != BootMode.SkipBoot))
+            {
+                throw new ArgumentException("Trying to start GBC ROM with invalid Boot Mode");
+            }
+
+            //TODO figure out how to take advantage of gbc boot rom palettes
+
+            BootROM.SetBootMode(config.BootMode == BootMode.PreferGBC, config.BootMode == BootMode.PreferDMGShort);
 
             if (success)
             {
-                _cpu.Reset(config.BootAnimMode != BootAnimMode.NoBoot, _cartridge.GBCMode);
+                _cpu.Reset(config.BootMode != BootMode.SkipBoot, _cartridge.GBCMode);
                 _gpu.Init(_cartridge.GBCMode);
                 _mmu.Init(_cartridge.GBCMode);
             }

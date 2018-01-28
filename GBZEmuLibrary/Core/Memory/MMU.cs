@@ -6,8 +6,8 @@ namespace GBZEmuLibrary
 {
     internal class MMU
     {
-        public bool   InBIOS { get; set; } = true;
-        public Func<byte> GetSpeedState;
+        public bool         InBootROM { get; set; } = true;
+        public Func<byte>   GetSpeedState;
         public Action<byte> OnPendingSpeedSwitch;
 
         private readonly Cartridge      _cartridge;
@@ -17,18 +17,18 @@ namespace GBZEmuLibrary
         private readonly Joypad         _joypad;
         private readonly APU            _apu;
 
-        private readonly WorkRAM        _workRAM;
+        private readonly WorkRAM _workRAM;
 
         private readonly byte[] _memory = new byte[MemorySchema.MAX_RAM_SIZE];
 
         public MMU(Cartridge cart, GPU gpu, Timer timer, DivideRegister divideRegister, Joypad joypad, APU apu)
         {
-            _cartridge = cart;
-            _gpu = gpu;
-            _timer = timer;
+            _cartridge      = cart;
+            _gpu            = gpu;
+            _timer          = timer;
             _divideRegister = divideRegister;
-            _joypad = joypad;
-            _apu = apu;
+            _joypad         = joypad;
+            _apu            = apu;
 
             _workRAM = new WorkRAM();
         }
@@ -123,7 +123,7 @@ namespace GBZEmuLibrary
         {
             if (address < MemorySchema.ROM_END)
             {
-                if (InBIOS)
+                if (InBootROM)
                 {
                     if (address < MemorySchema.BOOT_ROM_SECTION_1_END || address >= MemorySchema.BOOT_ROM_SECTION_2_START && address < MemorySchema.BOOT_ROM_SECTION_2_END)
                     {
@@ -213,9 +213,8 @@ namespace GBZEmuLibrary
             {
             }
 
-            if (address>= MemorySchema.INTERRUPT_ENABLE_REGISTER_START && address < MemorySchema.INTERRUPT_ENABLE_REGISTER_END)
+            if (address >= MemorySchema.INTERRUPT_ENABLE_REGISTER_START && address < MemorySchema.INTERRUPT_ENABLE_REGISTER_END)
             {
-                
             }
 
             return _memory[address];
@@ -226,7 +225,7 @@ namespace GBZEmuLibrary
             //TODO improve this interface
             if (address == 0xFF02 && data == 0x81)
             {
-                Console.Write(Encoding.ASCII.GetString(new []{ ReadByte(0xFF01)}));
+                Console.Write(Encoding.ASCII.GetString(new[] {ReadByte(0xFF01)}));
             }
 
             if (address < MemorySchema.ROM_END)
@@ -316,7 +315,7 @@ namespace GBZEmuLibrary
             if (address == MemorySchema.BOOT_ROM_DISABLE_REGISTER)
             {
                 _memory[address] = data;
-                InBIOS = false;
+                InBootROM        = false;
                 return;
             }
 
@@ -338,17 +337,16 @@ namespace GBZEmuLibrary
 
             if (address >= MemorySchema.INTERRUPT_ENABLE_REGISTER_START && address < MemorySchema.INTERRUPT_ENABLE_REGISTER_END)
             {
-                
             }
 
             _memory[address] = data;
         }
 
-        public void Reset(bool usingBios)
+        public void Reset(bool usingBootROM)
         {
             _apu.Reset();
 
-            if (usingBios)
+            if (usingBootROM)
             {
                 return;
             }

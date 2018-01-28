@@ -93,7 +93,7 @@ namespace GBZEmuLibrary
                 Helpers.NoOp();
             }
 
-            if (_pc == _breakPC && !_mmu.InBIOS)
+            if (_pc == _breakPC && !_mmu.InBootROM)
             {
                 Helpers.NoOp();
             }
@@ -166,17 +166,17 @@ namespace GBZEmuLibrary
             _interruptHandler.Update();
         }
 
-        public void Reset(bool usingBios, GBCMode gbcMode)
+        public void Reset(bool usingBootROM, GBCMode gbcMode)
         {
             _gbcMode = gbcMode;
 
-            if (usingBios)
+            if (usingBootROM)
             {
                 _registers.A = (byte)(_gbcMode != GBCMode.NoGBC ? 0x11 : 0x01);
             }
             else
             {
-                _mmu.InBIOS = false;
+                _mmu.InBootROM = false;
 
                 _registers.AF = (ushort)(_gbcMode != GBCMode.NoGBC ? 0x11B0 : 0x01B0);
                 _registers.BC = 0x0013;
@@ -187,7 +187,7 @@ namespace GBZEmuLibrary
                 _pc   = 0x100;
             }
 
-            _mmu.Reset(usingBios);
+            _mmu.Reset(usingBootROM);
         }
 
         private void ProcessExtended()
