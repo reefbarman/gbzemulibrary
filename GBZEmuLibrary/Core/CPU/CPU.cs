@@ -24,7 +24,7 @@ namespace GBZEmuLibrary
         private          bool          _dumpMemory;
         private readonly int           _breakPC            = 0x02B7;
         private readonly ulong         _processRecordStart = ulong.MaxValue;
-        private readonly ulong         _breakProcessCount  = 582826; //708182;
+        private readonly ulong         _breakProcessCount  = 1601466; //708182;
         private readonly StringBuilder _opBuilder          = new StringBuilder();
 
         #endregion
@@ -70,7 +70,7 @@ namespace GBZEmuLibrary
 
         public override string ToString()
         {
-            return $"{_processCount}: TC: {_totalClocks} PC: {_pc - 1:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
+            return $"{_processCount}: TC: {_totalClocks} PC: {_pc:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
             //return $"{_processCount}: TC: {_totalClocks} SL: {_mmu.ReadByte(0xFF44)} PC: {_pc - 1:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
             //return $"{_processCount}: T: {Timer.TimerCounter()} TC: {_totalClocks} PC: {_pc - 1:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
         }
@@ -138,11 +138,6 @@ namespace GBZEmuLibrary
                 throw new NotImplementedException($"Instruction not implemented: {instruction:X}");
             }
 
-            if (_pc == MemorySchema.BIOS_END)
-            {
-                _mmu.InBIOS = false;
-            }
-
             // we are trying to disable interrupts, however interrupts get disabled after the next instruction
             //TODO determine if disabling is handled different https://github.com/AntonioND/giibiiadvance/blob/master/docs/TCAGBD.pdf (section 3.3)
             if (_pendingInterruptDisabled)
@@ -177,18 +172,20 @@ namespace GBZEmuLibrary
 
             if (usingBios)
             {
-                return;
+                _registers.A = (byte)(_gbcMode != GBCMode.NoGBC ? 0x11 : 0x01);
             }
+            else
+            {
+                _mmu.InBIOS = false;
 
-            _mmu.InBIOS = false;
+                _registers.AF = (ushort)(_gbcMode != GBCMode.NoGBC ? 0x11B0 : 0x01B0);
+                _registers.BC = 0x0013;
+                _registers.DE = 0x00D8;
+                _registers.HL = 0x014D;
 
-            _registers.AF = (ushort)(_gbcMode != GBCMode.NoGBC ? 0x11B0 : 0x01B0);
-            _registers.BC = 0x0013;
-            _registers.DE = 0x00D8;
-            _registers.HL = 0x014D;
-
-            _sp.P = 0xFFFE;
-            _pc   = 0x100;
+                _sp.P = 0xFFFE;
+                _pc   = 0x100;
+            }
 
             _mmu.Reset(usingBios);
         }
