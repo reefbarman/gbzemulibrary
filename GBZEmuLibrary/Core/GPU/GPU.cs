@@ -148,7 +148,7 @@ namespace GBZEmuLibrary
                     HandleSearchingSpritesAttributes();
                     break;
                 case LCDStatus.TransferringDataToLCDDriver:
-                    requestInterrupt = TransferringDataToLCDDriver();
+                    requestInterrupt = TransferringDataToLCDDriver(currentLine);
                     break;
             }
 
@@ -309,7 +309,7 @@ namespace GBZEmuLibrary
             }
         }
 
-        private bool TransferringDataToLCDDriver()
+        private bool TransferringDataToLCDDriver(int currentLine)
         {
             var requestInterrupt = false;
 
@@ -319,6 +319,11 @@ namespace GBZEmuLibrary
 
                 SetStatusRegister(LCDStatus.HBlank);
                 requestInterrupt = IsInterruptEnabled(LCDStatusBits.HBlankInterruptEnabled);
+
+                if (currentLine < Display.VERTICAL_RESOLUTION)
+                {
+                    MessageBus.Instance.HBlankStarted();
+                }
 
                 DrawScanLine();
             }

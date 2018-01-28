@@ -90,6 +90,11 @@
         public const int CPU_SPEED_SWITCH_REGISTER             = 0xFF4D;
         public const int GPU_VRAM_BANK_REGISTER                = 0xFF4F;
         public const int BOOT_ROM_DISABLE_REGISTER             = 0xFF50;
+        public const int DMA_GBC_SOURCE_HIGH_REGISTER          = 0xFF51;
+        public const int DMA_GBC_SOURCE_LOW_REGISTER           = 0xFF52;
+        public const int DMA_GBC_DESTINATION_HIGH_REGISTER     = 0xFF53;
+        public const int DMA_GBC_DESTINATION_LOW_REGISTER      = 0xFF54;
+        public const int DMA_GBC_LENGTH_MODE_START_REGISTER    = 0xFF55;
         public const int GPU_GBC_BG_PALETTE_INDEX_REGISTER     = 0xFF68;
         public const int GPU_GBC_BG_PALETTE_DATA_REGISTER      = 0xFF69;
         public const int GPU_GBC_SPRITE_PALETTE_INDEX_REGISTER = 0xFF6A;

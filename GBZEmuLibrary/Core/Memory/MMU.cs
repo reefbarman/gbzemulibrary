@@ -18,6 +18,7 @@ namespace GBZEmuLibrary
         private readonly APU            _apu;
 
         private readonly WorkRAM _workRAM;
+        private readonly DMAController _dmaController;
 
         private readonly byte[] _memory = new byte[MemorySchema.MAX_RAM_SIZE];
 
@@ -31,6 +32,10 @@ namespace GBZEmuLibrary
             _apu            = apu;
 
             _workRAM = new WorkRAM();
+            _dmaController = new DMAController();
+
+            MessageBus.Instance.OnReadByte = ReadByte;
+            MessageBus.Instance.OnWriteByte = WriteByte;
         }
 
         public void Init(GBCMode mode)
@@ -181,6 +186,11 @@ namespace GBZEmuLibrary
 
             if (address >= MemorySchema.GPU_REGISTERS_START && address < MemorySchema.GPU_REGISTERS_END)
             {
+                if (address == MemorySchema.DMA_REGISTER)
+                {
+                    return _dmaController.ReadByte(address);
+                }
+
                 return _gpu.ReadByte(address);
             }
 
@@ -197,6 +207,11 @@ namespace GBZEmuLibrary
             if (address == MemorySchema.BOOT_ROM_DISABLE_REGISTER)
             {
                 return _memory[address];
+            }
+
+            if (address >= MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER && address <= MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER)
+            {
+                return _dmaController.ReadByte(address);
             }
 
             if (address >= MemorySchema.GPU_GBC_BG_PALETTE_INDEX_REGISTER && address <= MemorySchema.GPU_GBC_SPRITE_PALETTE_DATA_REGISTER)
@@ -292,7 +307,7 @@ namespace GBZEmuLibrary
             {
                 if (address == MemorySchema.DMA_REGISTER)
                 {
-                    ProcessDMATranser(data);
+                    _dmaController.WriteByte(data, address);
                     return;
                 }
 
@@ -316,6 +331,12 @@ namespace GBZEmuLibrary
             {
                 _memory[address] = data;
                 InBootROM        = false;
+                return;
+            }
+
+            if (address >= MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER && address <= MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER)
+            {
+                _dmaController.WriteByte(data, address);
                 return;
             }
 
@@ -364,16 +385,6 @@ namespace GBZEmuLibrary
             WriteByte(0x00, 0xFF4A);
             WriteByte(0x00, 0xFF4B);
             WriteByte(0x00, 0xFFFF);
-        }
-
-        private void ProcessDMATranser(byte data)
-        {
-            var address = data << 8;
-
-            for (var i = 0; i < (MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START); i++)
-            {
-                WriteByte(ReadByte(address + i), MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + i);
-            }
         }
     }
 }
