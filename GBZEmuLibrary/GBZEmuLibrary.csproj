@@ -47,8 +47,9 @@
     <Compile Include="Core\APU\NoiseGenerator.cs" />
     <Compile Include="Core\APU\SquareWaveGenerator.cs" />
     <Compile Include="Core\APU\WaveGenerator.cs" />
-    <Compile Include="Core\BIOS.cs" />
-    <Compile Include="Core\Cartridge.cs" />
+    <Compile Include="Core\BootROM.cs" />
+    <Compile Include="Core\Cartridge\Cartridge.cs" />
+    <Compile Include="Core\Cartridge\CartridgeHeader.cs" />
     <Compile Include="Core\GPU\Color.cs" />
     <Compile Include="Core\CPU\CPU.cs" />
     <Compile Include="Core\CPU\CPU.Arithmetic.cs" />
@@ -64,8 +65,9 @@
     <Compile Include="Core\GPU\GPU.cs" />
     <Compile Include="Core\Helpers.cs" />
     <Compile Include="Core\Joypad.cs" />
+    <Compile Include="Core\Memory\WorkRAM.cs" />
     <Compile Include="Core\MessageBus.cs" />
-    <Compile Include="Core\MMU.cs" />
+    <Compile Include="Core\Memory\MMU.cs" />
     <Compile Include="Core\Schemas.cs" />
     <Compile Include="Core\Timer.cs" />
     <Compile Include="Emulator.cs" />

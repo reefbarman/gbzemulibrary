@@ -6,8 +6,9 @@ namespace GBZEmuLibrary
 {
     internal class MMU
     {
-        public Action OnBiosExited         = null;
         public bool   InBIOS { get; set; } = true;
+        public Func<byte> GetSpeedState;
+        public Action<byte> OnPendingSpeedSwitch;
 
         private readonly Cartridge      _cartridge;
         private readonly GPU            _gpu;
@@ -15,6 +16,8 @@ namespace GBZEmuLibrary
         private readonly DivideRegister _divideRegister;
         private readonly Joypad         _joypad;
         private readonly APU            _apu;
+
+        private readonly WorkRAM        _workRAM;
 
         private readonly byte[] _memory = new byte[MemorySchema.MAX_RAM_SIZE];
 
@@ -26,6 +29,13 @@ namespace GBZEmuLibrary
             _divideRegister = divideRegister;
             _joypad = joypad;
             _apu = apu;
+
+            _workRAM = new WorkRAM();
+        }
+
+        public void Init(GBCMode mode)
+        {
+            _workRAM.Init(mode);
         }
 
         public string DumpMemString()
@@ -115,9 +125,9 @@ namespace GBZEmuLibrary
             {
                 if (InBIOS)
                 {
-                    if (address < MemorySchema.BIOS_END)
+                    if (address < MemorySchema.BOOT_ROM_SECTION_1_END || address >= MemorySchema.BOOT_ROM_SECTION_2_START && address < MemorySchema.BOOT_ROM_SECTION_2_END)
                     {
-                        return BIOS.Bytes[address];
+                        return BootROM.Bytes[address];
                     }
                 }
 
@@ -134,14 +144,9 @@ namespace GBZEmuLibrary
                 return _cartridge.ReadByte(address);
             }
 
-            if (address < MemorySchema.WORK_RAM_END)
+            if (address < MemorySchema.ECHO_RAM_SWITCHABLE_END)
             {
-                return _memory[address]; //TODO REFACTOR WHEN FULLY IMPLEMENTED
-            }
-        
-            if (address < MemorySchema.ECHO_RAM_END)
-            {
-                return _memory[address]; //TODO REFACTOR WHEN FULLY IMPLEMENTED
+                return _workRAM.ReadByte(address);
             }
 
             if (address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END)
@@ -179,6 +184,31 @@ namespace GBZEmuLibrary
                 return _gpu.ReadByte(address);
             }
 
+            if (address == MemorySchema.CPU_SPEED_SWITCH_REGISTER)
+            {
+                return (byte)GetSpeedState?.Invoke();
+            }
+
+            if (address == MemorySchema.GPU_VRAM_BANK_REGISTER)
+            {
+                return _gpu.ReadByte(address);
+            }
+
+            if (address == MemorySchema.BOOT_ROM_DISABLE_REGISTER)
+            {
+                return _memory[address];
+            }
+
+            if (address >= MemorySchema.GPU_GBC_BG_PALETTE_INDEX_REGISTER && address <= MemorySchema.GPU_GBC_SPRITE_PALETTE_DATA_REGISTER)
+            {
+                return _gpu.ReadByte(address);
+            }
+
+            if (address == MemorySchema.SWITCHABLE_WORK_RAM_REGISTER)
+            {
+                return _workRAM.ReadByte(address);
+            }
+
             if (address < MemorySchema.HIGH_RAM_END)
             {
             }
@@ -193,6 +223,7 @@ namespace GBZEmuLibrary
 
         public void WriteByte(byte data, int address)
         {
+            //TODO improve this interface
             if (address == 0xFF02 && data == 0x81)
             {
                 Console.Write(Encoding.ASCII.GetString(new []{ ReadByte(0xFF01)}));
@@ -216,16 +247,9 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            if (address < MemorySchema.WORK_RAM_END)
+            if (address < MemorySchema.ECHO_RAM_SWITCHABLE_END)
             {
-                _memory[address] = data;
-                return; //TODO refactor
-            }
-
-            // writing to ECHO ram also writes in RAM 
-            if (address < MemorySchema.ECHO_RAM_END)
-            {
-                WriteByte(data, address - MemorySchema.WORK_RAM_ECHO_OFFSET);
+                _workRAM.WriteByte(data, address);
                 return;
             }
 
@@ -274,6 +298,37 @@ namespace GBZEmuLibrary
                 }
 
                 _gpu.WriteByte(data, address);
+                return;
+            }
+
+            if (address == MemorySchema.CPU_SPEED_SWITCH_REGISTER)
+            {
+                OnPendingSpeedSwitch?.Invoke(data);
+                return;
+            }
+
+            if (address == MemorySchema.GPU_VRAM_BANK_REGISTER)
+            {
+                _gpu.WriteByte(data, address);
+                return;
+            }
+
+            if (address == MemorySchema.BOOT_ROM_DISABLE_REGISTER)
+            {
+                _memory[address] = data;
+                InBIOS = false;
+                return;
+            }
+
+            if (address >= MemorySchema.GPU_GBC_BG_PALETTE_INDEX_REGISTER && address <= MemorySchema.GPU_GBC_SPRITE_PALETTE_DATA_REGISTER)
+            {
+                _gpu.WriteByte(data, address);
+                return;
+            }
+
+            if (address == MemorySchema.SWITCHABLE_WORK_RAM_REGISTER)
+            {
+                _workRAM.WriteByte(data, address);
                 return;
             }
 

@@ -1,9 +1,22 @@
-﻿using System;
-
-namespace GBZEmuLibrary
+﻿namespace GBZEmuLibrary
 {
     public class Emulator
     {
+        public enum BootAnimMode
+        {
+            NoBoot = 0x01,
+            Normal = 0x02,
+            Short = 0x03,
+            NoAnim = 0x00
+        }
+
+        public class Config
+        {
+            public string ROMPath;
+            public BootAnimMode BootAnimMode = BootAnimMode.Normal;
+            public bool ForceDMG = false;
+        }
+
         private const int CLOCKS_PER_CYCLE     = GameBoySchema.MAX_DMG_CLOCK_CYCLES / GameBoySchema.TARGET_FRAMERATE;
 
         private Cartridge      _cartridge;
@@ -31,17 +44,20 @@ namespace GBZEmuLibrary
             _cpu.OnClockTick += UpdateSystems;
         }
 
-        public bool Start(string romFile, bool usingBios, bool useShortBios = false)
+        public bool Start(Config config)
         {
-            BIOS.UseShortBIOS = useShortBios;
-            if (useShortBios)
+            var success = _cartridge.LoadFile(config.ROMPath, config.ForceDMG);
+
+            BootROM.SetBootMode(_cartridge.GBCMode != GBCMode.NoGBC, (byte)config.BootAnimMode);
+
+            if (success)
             {
-                BIOS.Bytes[0x00FD] = 0x03; //TODO setup anim mode
+                _cpu.Reset(config.BootAnimMode != BootAnimMode.NoBoot, _cartridge.GBCMode);
+                _gpu.Init(_cartridge.GBCMode);
+                _mmu.Init(_cartridge.GBCMode);
             }
 
-            _cpu.Reset(usingBios);
-
-            return _cartridge.LoadFile(romFile);
+            return success;
         }
 
         public void Update()
@@ -54,12 +70,12 @@ namespace GBZEmuLibrary
                 _cpu.UpdateInterrupts();
 
                 _clocksThisFrame += _clocksThisUpdate;
-            } while (_clocksThisFrame < CLOCKS_PER_CYCLE);
+            } while (_clocksThisFrame < (CLOCKS_PER_CYCLE * _cpu.SpeedFactor));
 
-            _clocksThisFrame -= CLOCKS_PER_CYCLE;
+            _clocksThisFrame -= (CLOCKS_PER_CYCLE * _cpu.SpeedFactor);
         }
 
-        public int[,] GetScreenData()
+        public Color[,] GetScreenData()
         {
             return _gpu.GetScreenData();
         }
@@ -90,7 +106,7 @@ namespace GBZEmuLibrary
             _divideRegister.Update(cycles);
             _timer.Update(cycles);
             _gpu.Update(cycles);
-            _apu.Update(cycles);
+            _apu.Update(cycles / _cpu.SpeedFactor);
         }
     }
 }

@@ -2,31 +2,34 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using InsSet = GBZEmuLibrary.InstructionSet;
-using InsCBSet = GBZEmuLibrary.CBInstructionSet;
 using InsSchema = GBZEmuLibrary.InstructionSchema;
+using InsSet = GBZEmuLibrary.InstructionSet;
 
 namespace GBZEmuLibrary
 {
     internal partial class CPU
     {
-        public Action<int> OnClockTick = null;
+        public Action<int> OnClockTick;
 
-        private readonly MMU _mmu;
+        public int SpeedFactor => _doubleSpeed ? 2 : 1;
+
+        private readonly MMU              _mmu;
         private readonly InterruptHandler _interruptHandler;
 
         #region DEBUGGING
+
         private          ulong         _processCount;
         private          ulong         _totalClocks;
         private          int           _previousPC;
         private          bool          _dumpMemory;
         private readonly int           _breakPC            = 0x02B7;
-        private readonly ulong _processRecordStart = ulong.MaxValue;
-        private readonly ulong         _breakProcessCount  = 555654;
+        private readonly ulong         _processRecordStart = ulong.MaxValue;
+        private readonly ulong         _breakProcessCount  = 582826; //708182;
         private readonly StringBuilder _opBuilder          = new StringBuilder();
+
         #endregion
 
-        private ushort       _pc; 
+        private ushort       _pc;
         private StackPointer _sp;
         private Registers    _registers;
         private bool         _pendingInterruptDisabled;
@@ -37,13 +40,20 @@ namespace GBZEmuLibrary
 
         private bool _stopped;
         private bool _haltSkip;
+        private bool _pendingSpeedSwitch;
+        private bool _doubleSpeed;
+
+        private GBCMode _gbcMode = GBCMode.NoGBC;
 
         public CPU(MMU mmu)
         {
-            _mmu = mmu;
-            _interruptHandler = new InterruptHandler(_mmu);
-            _interruptHandler.IncrementClock += IncrementClock;
-            _interruptHandler.PushProgramCounter += () => { Push(_pc); };
+            _mmu                      = mmu;
+            _mmu.GetSpeedState        = GetSpeedState;
+            _mmu.OnPendingSpeedSwitch = OnPendingSpeedSwitch;
+
+            _interruptHandler                      =  new InterruptHandler(_mmu);
+            _interruptHandler.IncrementClock       += IncrementClock;
+            _interruptHandler.PushProgramCounter   += () => { Push(_pc); };
             _interruptHandler.UpdateProgramCounter += (pc, joypadInterrupt) =>
             {
                 _pc = pc;
@@ -60,7 +70,8 @@ namespace GBZEmuLibrary
 
         public override string ToString()
         {
-            return $"{_processCount}: TC: {_totalClocks} SL: {_mmu.ReadByte(0xFF44)} PC: {_pc - 1:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
+            return $"{_processCount}: TC: {_totalClocks} PC: {_pc - 1:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
+            //return $"{_processCount}: TC: {_totalClocks} SL: {_mmu.ReadByte(0xFF44)} PC: {_pc - 1:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
             //return $"{_processCount}: T: {Timer.TimerCounter()} TC: {_totalClocks} PC: {_pc - 1:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
         }
 
@@ -106,7 +117,7 @@ namespace GBZEmuLibrary
 
             if (_haltSkip)
             {
-                _pc = (ushort)(_pc - 1);
+                _pc       = (ushort)(_pc - 1);
                 _haltSkip = false;
             }
 
@@ -138,7 +149,7 @@ namespace GBZEmuLibrary
             {
                 if (_mmu.ReadByte(_pc - 1) != InsSet.DI)
                 {
-                    _pendingInterruptDisabled = false;
+                    _pendingInterruptDisabled           = false;
                     _interruptHandler.InterruptsEnabled = false;
                 }
             }
@@ -147,7 +158,7 @@ namespace GBZEmuLibrary
             {
                 if (_mmu.ReadByte(_pc - 1) != InsSet.EI)
                 {
-                    _pendingInterruptEnabled = false;
+                    _pendingInterruptEnabled            = false;
                     _interruptHandler.InterruptsEnabled = true;
                 }
             }
@@ -160,8 +171,10 @@ namespace GBZEmuLibrary
             _interruptHandler.Update();
         }
 
-        public void Reset(bool usingBios)
+        public void Reset(bool usingBios, GBCMode gbcMode)
         {
+            _gbcMode = gbcMode;
+
             if (usingBios)
             {
                 return;
@@ -169,13 +182,13 @@ namespace GBZEmuLibrary
 
             _mmu.InBIOS = false;
 
-            _registers.AF = 0x01B0;
+            _registers.AF = (ushort)(_gbcMode != GBCMode.NoGBC ? 0x11B0 : 0x01B0);
             _registers.BC = 0x0013;
             _registers.DE = 0x00D8;
             _registers.HL = 0x014D;
 
             _sp.P = 0xFFFE;
-            _pc = 0x100;
+            _pc   = 0x100;
 
             _mmu.Reset(usingBios);
         }
@@ -192,6 +205,21 @@ namespace GBZEmuLibrary
             {
                 throw new NotImplementedException($"CB Instruction not implemented: {instruction:X}");
             }
+        }
+
+        private void OnPendingSpeedSwitch(byte data)
+        {
+            _pendingSpeedSwitch = Helpers.TestBit(data, 1);
+        }
+
+        private byte GetSpeedState()
+        {
+            byte data = 0;
+
+            Helpers.SetBit(ref data, 0, _pendingSpeedSwitch);
+            Helpers.SetBit(ref data, 7, _doubleSpeed);
+
+            return data;
         }
     }
 }

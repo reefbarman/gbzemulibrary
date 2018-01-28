@@ -1,7 +1,4 @@
-﻿using System;
-using InsSet = GBZEmuLibrary.InstructionSet;
-using InsCBSet = GBZEmuLibrary.CBInstructionSet;
-using InsSchema = GBZEmuLibrary.InstructionSchema;
+﻿using InsSchema = GBZEmuLibrary.InstructionSchema;
 
 namespace GBZEmuLibrary
 {
@@ -99,6 +96,12 @@ namespace GBZEmuLibrary
         {
             _pc++;
             _stopped = true;
+
+            if (_pendingSpeedSwitch)
+            {
+                _pendingSpeedSwitch = false;
+                _doubleSpeed = !_doubleSpeed;
+            }
         }
 
         //TODO double check
