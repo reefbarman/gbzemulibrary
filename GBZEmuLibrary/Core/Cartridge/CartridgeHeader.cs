@@ -14,7 +14,7 @@ namespace GBZEmuLibrary
         public bool CustomPalette { get; private set; }
 
         private bool _nintendoCart = false;
-        private int _titleHash;
+        private byte _titleHash;
 
         public CartridgeHeader(byte[] cart)
         {
@@ -166,7 +166,7 @@ namespace GBZEmuLibrary
         private void ParseTitle(byte[] cart)
         {
             //TODO different end for GBC and new titles?
-            var titleHash = 0;
+            byte titleHash = 0;
             var stillCollecting = true;
 
             for (var i = CartridgeSchema.TITLE_LOC_START; i <= CartridgeSchema.TITLE_LOC_END; i++)
@@ -182,7 +182,7 @@ namespace GBZEmuLibrary
                     stillCollecting = false;
                 }
 
-                titleHash &= data;
+                titleHash += data;
             }
 
             _titleHash = titleHash;
