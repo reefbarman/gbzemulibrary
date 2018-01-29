@@ -1,14 +1,20 @@
 ﻿using System;
+using System.Text;
 
 namespace GBZEmuLibrary
 {
     internal class CartridgeHeader
     {
+        public string Title { get; private set; }
         public int Length { get; }
         public GBCMode GBCMode { get; private set; } = GBCMode.NoGBC;
         public CartridgeSchema.MBCMode BankingMode { get; private set; } = CartridgeSchema.MBCMode.NoMBC;
         public int ROMBanks { get; private set; } = 1;
         public int RAMBanks { get; private set; } = 1;
+        public bool CustomPalette { get; private set; }
+
+        private bool _nintendoCart = false;
+        private int _titleHash;
 
         public CartridgeHeader(byte[] cart)
         {
@@ -17,6 +23,9 @@ namespace GBZEmuLibrary
             ParseMBCMode(cart);
             ParseROMBanks(cart);
             ParseRAMBanks(cart);
+            ParseLicenseCode(cart);
+            ParseTitle(cart);
+            ParseCustomPalette(cart);
         }
 
         private void ParseGBCMode(byte[] cart)
@@ -135,6 +144,62 @@ namespace GBZEmuLibrary
                 case 0x05:
                     RAMBanks = 8;
                     break;
+            }
+        }
+
+        private void ParseLicenseCode(byte[] cart)
+        {
+            switch (cart[CartridgeSchema.OLD_LICENSE_CODE_LOC])
+            {
+                case 0x33:
+                    if (cart[CartridgeSchema.NEW_LICENSE_CODE_LOC] == 0x30 && cart[CartridgeSchema.NEW_LICENSE_CODE_LOC + 1] == 0x31)
+                    {
+                        _nintendoCart = true;
+                    }
+                    break;
+                case 0x01:
+                    _nintendoCart = true;
+                    break;
+            }
+        }
+
+        private void ParseTitle(byte[] cart)
+        {
+            //TODO different end for GBC and new titles?
+            var titleHash = 0;
+            var stillCollecting = true;
+
+            for (var i = CartridgeSchema.TITLE_LOC_START; i <= CartridgeSchema.TITLE_LOC_END; i++)
+            {
+                var data = cart[i];
+
+                if (data != 0 && stillCollecting)
+                {
+                    Title += Encoding.ASCII.GetString(new[] { data });
+                }
+                else
+                {
+                    stillCollecting = false;
+                }
+
+                titleHash &= data;
+            }
+
+            _titleHash = titleHash;
+        }
+
+        private void ParseCustomPalette(byte[] cart)
+        {
+            if (_nintendoCart && GBCMode == GBCMode.NoGBC)
+            {
+                for (var i = MemorySchema.BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_START; i <= MemorySchema.BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_END; i++)
+                {
+                    if (_titleHash == BootROM.GBCBootROM[i])
+                    {
+                        CustomPalette = true;
+                        break;
+                    }
+                }
             }
         }
     }

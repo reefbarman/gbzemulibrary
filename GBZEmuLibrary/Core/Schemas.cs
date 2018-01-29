@@ -48,9 +48,11 @@
 
     internal class MemorySchema
     {
-        public const int BOOT_ROM_SECTION_1_END   = 0x100;
-        public const int BOOT_ROM_SECTION_2_START = 0x200;
-        public const int BOOT_ROM_SECTION_2_END   = 0x08FF;
+        public const int BOOT_ROM_SECTION_1_END                   = 0x100;
+        public const int BOOT_ROM_SECTION_2_START                 = 0x200;
+        public const int BOOT_ROM_SECTION_2_END                   = 0x08FF;
+        public const int BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_START = 0x6C7;
+        public const int BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_END   = 0x716;
 
         public const  int MAX_RAM_SIZE           = 0x10000;
         public const  int MAX_VRAM_SIZE          = 0x4000;
@@ -140,10 +142,14 @@
         public const int RAM_BANK_SIZE = 0x2000;
 
         // Cart ROM Header Schema
-        public const int GBC_MODE_LOC     = 0x143;
-        public const int MBC_MODE_LOC     = 0x147;
-        public const int ROM_BANK_NUM_LOC = 0x148;
-        public const int RAM_BANK_NUM_LOC = 0x149;
+        public const int TITLE_LOC_START      = 0x134;
+        public const int TITLE_LOC_END        = 0x143;
+        public const int GBC_MODE_LOC         = 0x143;
+        public const int MBC_MODE_LOC         = 0x147;
+        public const int ROM_BANK_NUM_LOC     = 0x148;
+        public const int RAM_BANK_NUM_LOC     = 0x149;
+        public const int OLD_LICENSE_CODE_LOC = 0x14B;
+        public const int NEW_LICENSE_CODE_LOC = 0x144;
     }
 
     internal class APUSchema

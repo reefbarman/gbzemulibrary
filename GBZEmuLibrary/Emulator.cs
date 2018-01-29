@@ -4,18 +4,10 @@ namespace GBZEmuLibrary
 {
     public class Emulator
     {
-        public enum BootMode
-        {
-            SkipBoot,
-            PreferDMG,
-            PreferDMGShort,
-            PreferGBC
-        }
-
         public class Config
         {
             public string ROMPath;
-            public BootMode BootMode = BootMode.PreferGBC;
+            public BootMode BootMode = BootMode.GBC;
         }
 
         private const int CLOCKS_PER_CYCLE     = GameBoySchema.MAX_DMG_CLOCK_CYCLES / GameBoySchema.TARGET_FRAMERATE;
@@ -49,20 +41,47 @@ namespace GBZEmuLibrary
         {
             var success = _cartridge.LoadFile(config.ROMPath);
 
-            if (_cartridge.GBCMode == GBCMode.GBCOnly && (config.BootMode != BootMode.PreferGBC || config.BootMode != BootMode.SkipBoot))
+            var mode = _cartridge.GBCMode;
+            var useBootRom = !config.BootMode.IsSet(BootMode.Skip);
+            var gbcBootRom = _cartridge.GBCMode != GBCMode.NoGBC;
+
+            if (useBootRom)
             {
-                throw new ArgumentException("Trying to start GBC ROM with invalid Boot Mode");
+                if (config.BootMode.IsSet(BootMode.DMG))
+                {
+                    if (config.BootMode.IsSet(BootMode.Force))
+                    {
+                        if (_cartridge.GBCMode == GBCMode.GBCOnly)
+                        {
+                            throw new ArgumentException("Trying to start GBC ROM with invalid Boot Mode");
+                        }
+
+                        mode = GBCMode.NoGBC;
+                    }
+                    else
+                    {
+                        mode       = _cartridge.GBCMode == GBCMode.GBCOnly ? GBCMode.GBCOnly : GBCMode.NoGBC;
+                        gbcBootRom = mode == GBCMode.GBCOnly;
+                    }
+                }
+                else if (config.BootMode.IsSet(BootMode.GBC))
+                {
+                    gbcBootRom = true;
+
+                    if (!config.BootMode.IsSet(BootMode.Force))
+                    {
+                        mode = _cartridge.CustomPalette ? GBCMode.GBCSupport : _cartridge.GBCMode;
+                    }
+                }
             }
 
-            //TODO figure out how to take advantage of gbc boot rom palettes
-
-            BootROM.SetBootMode(config.BootMode == BootMode.PreferGBC, config.BootMode == BootMode.PreferDMGShort);
+            BootROM.SetBootMode(gbcBootRom, config.BootMode.IsSet(BootMode.Skip));
 
             if (success)
             {
-                _cpu.Reset(config.BootMode != BootMode.SkipBoot, _cartridge.GBCMode);
-                _gpu.Init(_cartridge.GBCMode);
-                _mmu.Init(_cartridge.GBCMode);
+                _cpu.Reset(useBootRom, mode);
+                _gpu.Init(mode);
+                _mmu.Init(mode);
             }
 
             return success;

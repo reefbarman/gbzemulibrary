@@ -45,6 +45,7 @@
     <Compile Include="Core\APU\NoiseGenerator.cs" />
     <Compile Include="Core\APU\SquareWaveGenerator.cs" />
     <Compile Include="Core\APU\WaveGenerator.cs" />
+    <Compile Include="Core\BootMode.cs" />
     <Compile Include="Core\BootROM.cs" />
     <Compile Include="Core\Cartridge\Cartridge.cs" />
     <Compile Include="Core\Cartridge\CartridgeHeader.cs" />

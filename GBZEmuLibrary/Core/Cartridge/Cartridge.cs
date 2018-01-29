@@ -13,6 +13,7 @@ namespace GBZEmuLibrary
         }
 
         public GBCMode GBCMode => _header.GBCMode;
+        public bool CustomPalette => _header.CustomPalette;
 
         private readonly byte[] _cartMemory = new byte[CartridgeSchema.MAX_CART_SIZE];
         private byte[] _externalRAM;
