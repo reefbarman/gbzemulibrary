@@ -7,6 +7,7 @@ namespace GBZEmuLibrary
         public class Config
         {
             public string ROMPath;
+            public string SaveLocation;
             public BootMode BootMode = BootMode.GBC;
         }
 
@@ -39,7 +40,7 @@ namespace GBZEmuLibrary
 
         public bool Start(Config config)
         {
-            var success = _cartridge.LoadFile(config.ROMPath);
+            var success = _cartridge.LoadFile(config.ROMPath, config.SaveLocation);
 
             var mode = _cartridge.GBCMode;
             var useBootRom = !config.BootMode.IsSet(BootMode.Skip);
@@ -85,6 +86,11 @@ namespace GBZEmuLibrary
             }
 
             return success;
+        }
+
+        public void Terminate()
+        {
+            _cartridge.Terminate();
         }
 
         public void Update()

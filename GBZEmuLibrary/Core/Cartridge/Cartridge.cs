@@ -1,6 +1,5 @@
 ﻿using System;
 using System.IO;
-using System.Linq;
 
 namespace GBZEmuLibrary
 {
@@ -16,20 +15,16 @@ namespace GBZEmuLibrary
         public bool CustomPalette => _header.CustomPalette;
 
         private readonly byte[] _cartMemory = new byte[CartridgeSchema.MAX_CART_SIZE];
-        private byte[] _externalRAM;
-
+        
         private CartridgeHeader _header;
+        private ExternalRAM _externalRAM;
 
         private int _romBank = 1;
         private int _ramBank;
 
-        private bool _ramEnabled;
-
         private BankingMode _bankMode;
 
-        private bool _forceDMG;
-
-        public bool LoadFile(string file)
+        public bool LoadFile(string file, string saveLocation)
         {
             if (File.Exists(file))
             {
@@ -40,7 +35,7 @@ namespace GBZEmuLibrary
 
                     Array.Copy(cart, _cartMemory, _header.Length);
 
-                    _externalRAM = Enumerable.Repeat<byte>(0xFF, CartridgeSchema.RAM_BANK_SIZE * _header.RAMBanks).ToArray();
+                    _externalRAM = new ExternalRAM(saveLocation, Path.GetFileName(file), CartridgeSchema.RAM_BANK_SIZE * _header.RAMBanks);
 
                     return true;
                 }
@@ -51,6 +46,11 @@ namespace GBZEmuLibrary
             }
 
             return false;
+        }
+
+        public void Terminate()
+        {
+            _externalRAM.Dispose();
         }
 
         public byte ReadByte(int address)
@@ -70,9 +70,9 @@ namespace GBZEmuLibrary
             {
                 address = (address - MemorySchema.EXTERNAL_RAM_START) + ((_bankMode == BankingMode.RAMBank ?  _ramBank : 0) * CartridgeSchema.RAM_BANK_SIZE);
 
-                if (address < _externalRAM.Length && _ramEnabled)
+                if (address < _externalRAM.Length && _externalRAM.Enabled)
                 {
-                    return _externalRAM[address];
+                    return _externalRAM.ReadByte(address);
                 }
 
                 return 0xFF;
@@ -99,7 +99,7 @@ namespace GBZEmuLibrary
                                 return;
                             }
 
-                            _ramEnabled = Helpers.GetBits(data, 4) == 0x0A;
+                            _externalRAM.Enabled = Helpers.GetBits(data, 4) == 0x0A;
                             break;
                     }
                 }
@@ -193,13 +193,13 @@ namespace GBZEmuLibrary
                     }
                 }
             }
-            else if (address >= MemorySchema.EXTERNAL_RAM_START && address < MemorySchema.EXTERNAL_RAM_END && _ramEnabled)
+            else if (address >= MemorySchema.EXTERNAL_RAM_START && address < MemorySchema.EXTERNAL_RAM_END && _externalRAM.Enabled)
             {
                 address = (address - MemorySchema.EXTERNAL_RAM_START) + ((_bankMode == BankingMode.RAMBank ? _ramBank : 0) * CartridgeSchema.RAM_BANK_SIZE);
 
                 if (address < _externalRAM.Length)
                 {
-                    _externalRAM[address] = data;
+                    _externalRAM.WriteByte(data, address);
                 }
             }
         }

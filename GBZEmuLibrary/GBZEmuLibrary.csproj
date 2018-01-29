@@ -49,6 +49,7 @@
     <Compile Include="Core\BootROM.cs" />
     <Compile Include="Core\Cartridge\Cartridge.cs" />
     <Compile Include="Core\Cartridge\CartridgeHeader.cs" />
+    <Compile Include="Core\Cartridge\ExternalRAM.cs" />
     <Compile Include="Core\GPU\Color.cs" />
     <Compile Include="Core\CPU\CPU.cs" />
     <Compile Include="Core\CPU\CPU.Arithmetic.cs" />
