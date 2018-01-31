@@ -233,7 +233,7 @@ namespace GBZEmuLibrary
                     _bgPaletteData[Helpers.GetBits(_bgPaletteIndex, 6)] = data;
                     if (Helpers.TestBit(_bgPaletteIndex, 7))
                     {
-                        _bgPaletteIndex++;
+                        _bgPaletteIndex = (byte)(0x80 | ((_bgPaletteIndex + 1) & 0x3F));
                     }
 
                     break;
@@ -246,7 +246,7 @@ namespace GBZEmuLibrary
                     _spritePaletteData[Helpers.GetBits(_spritePaletteIndex, 6)] = data;
                     if (Helpers.TestBit(_spritePaletteIndex, 7))
                     {
-                        _spritePaletteIndex++;
+                        _spritePaletteIndex = (byte)(0x80 | ((_spritePaletteIndex + 1) & 0x3F));
                     }
                     break;
             }
