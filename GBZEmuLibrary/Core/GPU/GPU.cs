@@ -75,7 +75,6 @@ namespace GBZEmuLibrary
             XFlip,
             YFlip,
             BGToSpritePriority
-
         }
 
         private int ScanLine
@@ -84,14 +83,16 @@ namespace GBZEmuLibrary
             set
             {
                 _gpuRegisters[(int)Registers.Scanline] = (byte)value;
+                CheckCoincidence();
             }
         }
-        private const int SCANLINE_DRAW_CLOCKS = 456; //TODO maybe use floats and get more accuracy as this should be more like 456.8 for 60FPS
-        private const int HBLANK_CLOCKS = 204;
-        private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS = 80;
+
+        private const int SCANLINE_DRAW_CLOCKS                   = 456; //TODO maybe use floats and get more accuracy as this should be more like 456.8 for 60FPS
+        private const int HBLANK_CLOCKS                          = 204;
+        private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS    = 80;
         private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
 
-        private const int MAX_SCANLINES = 154; //153;
+        private const int MAX_SCANLINES     = 154; //153;
         private const int MAX_SCROLL_AMOUNT = 256;
 
         private const int WINDOW_X_OFFSET = 7;
@@ -100,26 +101,26 @@ namespace GBZEmuLibrary
 
         private readonly Color[,] _screenData = new Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
 
-        private readonly byte[] _videoRAM = new byte[MemorySchema.MAX_VRAM_SIZE];
+        private readonly byte[] _videoRAM             = new byte[MemorySchema.MAX_VRAM_SIZE];
         private readonly byte[] _spriteAttributeTable = new byte[MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START];
-        private readonly byte[] _gpuRegisters = new byte[MemorySchema.GPU_REGISTERS_END - MemorySchema.GPU_REGISTERS_START];
+        private readonly byte[] _gpuRegisters         = new byte[MemorySchema.GPU_REGISTERS_END - MemorySchema.GPU_REGISTERS_START];
 
-        private byte _bgPaletteIndex;
+        private          byte   _bgPaletteIndex;
         private readonly byte[] _bgPaletteData;
 
-        private byte _spritePaletteIndex;
+        private          byte   _spritePaletteIndex;
         private readonly byte[] _spritePaletteData;
 
         private int _vRAMBank;
 
-        private int _cycleCounter;
+        private int  _cycleCounter;
         private bool _pendingVBlankInterrupt;
 
         private bool _gbcMode = false;
 
         public GPU()
         {
-            _bgPaletteData = Enumerable.Repeat<byte>(0xFF, MathSchema.MAX_6_BIT_VALUE).ToArray();
+            _bgPaletteData     = Enumerable.Repeat<byte>(0xFF, MathSchema.MAX_6_BIT_VALUE).ToArray();
             _spritePaletteData = Enumerable.Repeat<byte>(0xFF, MathSchema.MAX_6_BIT_VALUE).ToArray();
         }
 
@@ -134,7 +135,7 @@ namespace GBZEmuLibrary
             if (!IsLCDEnabled())
             {
                 _cycleCounter = 0;
-                ScanLine = 0;
+                ScanLine      = 0;
                 SetStatusRegister(LCDStatus.HBlank);
 
                 return;
@@ -160,7 +161,12 @@ namespace GBZEmuLibrary
                     break;
             }
 
-            //Request interrupt if mode has changed or a coincidence has occurred
+            if (ScanLine == _gpuRegisters[(int)Registers.LCDYCoord])
+            {
+                Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, true);
+            }
+
+            //Request interrupt if mode has changed
             if (requestInterrupt)
             {
                 MessageBus.Instance.RequestInterrupt(Interrupts.LCD);
@@ -213,6 +219,11 @@ namespace GBZEmuLibrary
                 address -= MemorySchema.GPU_REGISTERS_START;
 
                 _gpuRegisters[address] = data;
+
+                if (address == (int)Registers.LCDYCoord)
+                {
+                    CheckCoincidence();
+                }
             }
             else if (address == MemorySchema.GPU_VRAM_BANK_REGISTER)
             {
@@ -248,6 +259,7 @@ namespace GBZEmuLibrary
                     {
                         _spritePaletteIndex = (byte)(0x80 | ((_spritePaletteIndex + 1) & 0x3F));
                     }
+
                     break;
             }
         }
@@ -255,6 +267,17 @@ namespace GBZEmuLibrary
         public Color[,] GetScreenData()
         {
             return _screenData;
+        }
+
+        private void CheckCoincidence()
+        {
+            var coincidence = ScanLine == _gpuRegisters[(int)Registers.LCDYCoord];
+
+            //Request interrupt if mode has changed or a coincidence has occurred
+            if (coincidence && IsInterruptEnabled(LCDStatusBits.CoincidenceInterruptEnabled))
+            {
+                MessageBus.Instance.RequestInterrupt(Interrupts.LCD);
+            }
         }
 
         private bool HandleHBlank()
@@ -265,19 +288,17 @@ namespace GBZEmuLibrary
             {
                 _cycleCounter -= HBLANK_CLOCKS;
 
-                requestInterrupt = UpdateScanline();
+                ScanLine++;
 
                 if (ScanLine == Display.VERTICAL_RESOLUTION)
                 {
                     _pendingVBlankInterrupt = true;
                     SetStatusRegister(LCDStatus.VBlank);
-
-                    requestInterrupt |= IsInterruptEnabled(LCDStatusBits.HBlankInterruptEnabled);
+                    requestInterrupt |= IsInterruptEnabled(LCDStatusBits.VBlankInterruptEnabled);
                 }
                 else
                 {
                     SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
-                    requestInterrupt |= IsInterruptEnabled(LCDStatusBits.SearchingSpriteAttributesInterruptEnabled);
                 }
             }
 
@@ -292,10 +313,12 @@ namespace GBZEmuLibrary
             {
                 _cycleCounter -= SCANLINE_DRAW_CLOCKS;
 
-                requestInterrupt = UpdateScanline();
+                ScanLine++;
 
-                if (ScanLine == 0) //Possibly need to deal with line 0 timing
+                if (ScanLine > Display.VERTICAL_RESOLUTION + 9) //TODO figure out what the magic number is about?
                 {
+                    ScanLine = 0;
+
                     SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
                     requestInterrupt |= IsInterruptEnabled(LCDStatusBits.SearchingSpriteAttributesInterruptEnabled);
                 }
@@ -339,16 +362,6 @@ namespace GBZEmuLibrary
             }
 
             return requestInterrupt;
-        }
-
-        private bool UpdateScanline()
-        {
-            ScanLine = (ScanLine + 1) % MAX_SCANLINES;
-
-            var coincidence = ScanLine == _gpuRegisters[(int)Registers.LCDYCoord];
-            Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, coincidence);
-
-            return coincidence;
         }
 
         private bool IsLCDEnabled()
@@ -397,14 +410,14 @@ namespace GBZEmuLibrary
 
         private void RenderTiles(byte control, int xPos, int yPos, bool window = false)
         {
-            var tileDataLoc = Helpers.TestBit(control, (int)LCDControlBits.BGWindowTileDataSelect) ? MemorySchema.TILE_DATA_UNSIGNED_START : MemorySchema.TILE_DATA_SIGNED_START;
+            var tileDataLoc         = Helpers.TestBit(control, (int)LCDControlBits.BGWindowTileDataSelect) ? MemorySchema.TILE_DATA_UNSIGNED_START : MemorySchema.TILE_DATA_SIGNED_START;
             var backgroundMemoryLoc = Helpers.TestBit(control, window ? (int)LCDControlBits.WindowTileMapSelect : (int)LCDControlBits.BGTileMapSelect) ? MemorySchema.BACKGROUND_LAYOUT_1_START : MemorySchema.BACKGROUND_LAYOUT_0_START;
 
             var signed = tileDataLoc == MemorySchema.TILE_DATA_SIGNED_START;
 
             //TODO get rid of below magic numbers
             var tileRow = ((byte)(yPos / 8)) * 32;
-            var offset = signed ? 128 : 0;
+            var offset  = signed ? 128 : 0;
 
             for (var pixel = 0; pixel < Display.HORIZONTAL_RESOLUTION; pixel++)
             {
@@ -422,12 +435,12 @@ namespace GBZEmuLibrary
                     x %= MAX_SCROLL_AMOUNT;
                 }
 
-                var tileCol = x / 8;
+                var tileCol      = x / 8;
                 var tileMemIndex = backgroundMemoryLoc + tileRow + tileCol;
 
                 var attributes = GetBGAttributes(tileMemIndex);
-                var data = ReadByte(tileMemIndex);
-                var tileNum = signed ? (int)(sbyte)data : data;
+                var data       = ReadByte(tileMemIndex);
+                var tileNum    = signed ? (int)(sbyte)data : data;
 
                 var tileLoc = tileDataLoc + ((tileNum + offset) * TILE_SIZE);
 
@@ -458,8 +471,8 @@ namespace GBZEmuLibrary
                 }
 
                 //TODO maybe need to implement gameboy pixel fetcher to sort out BG priorty over sprite
-                var color = GetColor(true, (byte)colorNum, attributes, (int)Registers.BackgroundTilePalette);
-                color.BGPriority = Helpers.TestBit(attributes, (int)BGAttributeBits.BGToSpritePriority);
+                var color                    = GetColor(true, (byte)colorNum, attributes, (int)Registers.BackgroundTilePalette);
+                color.BGPriority             = Helpers.TestBit(attributes, (int)BGAttributeBits.BGToSpritePriority);
                 _screenData[pixel, ScanLine] = color;
             }
         }
@@ -467,7 +480,7 @@ namespace GBZEmuLibrary
         private void RenderSprites(byte control)
         {
             var use8x16 = Helpers.TestBit(control, (int)LCDControlBits.SpriteSize);
-            var ySize = use8x16 ? 16 : 8;
+            var ySize   = use8x16 ? 16 : 8;
 
             const int tableStart = MemorySchema.SPRITE_ATTRIBUTE_TABLE_START;
 
@@ -485,7 +498,7 @@ namespace GBZEmuLibrary
                     }
 
                     var attributes = ReadByte(tableStart + i + 3);
-                    var bank = _gbcMode ? Helpers.GetBit(attributes, (int)SpriteAttributesBits.TileVRAMBankNumber) : 0;
+                    var bank       = _gbcMode ? Helpers.GetBit(attributes, (int)SpriteAttributesBits.TileVRAMBankNumber) : 0;
 
                     var tilePixelRow = ScanLine - y;
 
@@ -495,11 +508,10 @@ namespace GBZEmuLibrary
                     }
 
                     var tileLineOffset = tilePixelRow * 2;
-                    var tileAddress = MemorySchema.TILE_DATA_UNSIGNED_START + (tileIndex * TILE_SIZE);
+                    var tileAddress    = MemorySchema.TILE_DATA_UNSIGNED_START + (tileIndex * TILE_SIZE);
 
-
-                    var data1 = ReadFromVRAMWithBank(tileAddress + tileLineOffset, bank);
-                    var data2 = ReadFromVRAMWithBank(tileAddress + tileLineOffset + 1, bank);
+                    var data1          = ReadFromVRAMWithBank(tileAddress + tileLineOffset, bank);
+                    var data2          = ReadFromVRAMWithBank(tileAddress + tileLineOffset + 1, bank);
                     var paletteAddress = Helpers.TestBit(attributes, (int)SpriteAttributesBits.PaletteNum) ? (int)Registers.SpritePalette1 : (int)Registers.SpritePalette0;
 
                     for (var column = 0; column < 8; column++)
@@ -516,15 +528,17 @@ namespace GBZEmuLibrary
                             }
 
                             byte colorValue = 0;
-                            colorValue |= (byte)((data1 >> (7 - tilePixelColumn)) & 1);
-                            colorValue |= (byte)(((data2 >> (7 - tilePixelColumn)) & 1) << 1);
+                            colorValue      |= (byte)((data1 >> (7 - tilePixelColumn)) & 1);
+                            colorValue      |= (byte)(((data2 >> (7 - tilePixelColumn)) & 1) << 1);
 
                             if (colorValue == 0)
                             {
                                 continue;
                             }
 
+                            // Bit0 of LCD control register in GBC mode make sprites always render on top
                             var spritePriority = _gbcMode && !Helpers.TestBit(control, (int)LCDControlBits.BGDisplayEnabled);
+
                             if (((Helpers.TestBit(attributes, (int)SpriteAttributesBits.SpriteToBGPriority) && _screenData[spriteX, ScanLine].Index != 0) || _screenData[spriteX, ScanLine].BGPriority) && !spritePriority)
                             {
                                 continue;
@@ -596,7 +610,6 @@ namespace GBZEmuLibrary
         {
             if (!_gbcMode)
             {
-
                 var colorIndex = GetColorIndex(colorValue, MemorySchema.GPU_REGISTERS_START | paletteAddress);
 
                 return new Color(Display.DefaultPalette[colorIndex])
@@ -609,7 +622,7 @@ namespace GBZEmuLibrary
 
             var palette = bgWindow ? _bgPaletteData : _spritePaletteData;
 
-            var index = paletteIndex * 8 + colorValue * 2;
+            var index      = paletteIndex * 8 + colorValue * 2;
             var colorBytes = palette[index] | (palette[index + 1] << 8);
 
             return new Color(
@@ -617,7 +630,7 @@ namespace GBZEmuLibrary
                     g: (byte)(((colorBytes >> 5) & 0x1F) * 8),
                     b: (byte)(((colorBytes >> 10) & 0x1F) * 8)
                 )
-            { Index = colorValue };
+                {Index = colorValue};
         }
 
         private bool IsInterruptEnabled(LCDStatusBits status)
