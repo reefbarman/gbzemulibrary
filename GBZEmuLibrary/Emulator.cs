@@ -81,7 +81,7 @@ namespace GBZEmuLibrary
             if (success)
             {
                 _cpu.Reset(useBootRom, mode);
-                _gpu.Init(mode);
+                _gpu.Reset(mode != GBCMode.NoGBC);
                 _mmu.Init(mode);
             }
 

@@ -133,7 +133,7 @@ namespace GBZEmuLibrary
 
         private int GetLength()
         {
-            return ((_dmaLengthMode & 0x7F) + 1) * 0x10;
+            return (Helpers.GetBits(_dmaLengthMode, 7) / 0x10) - 1;
         }
 
         private void OnHBlank()

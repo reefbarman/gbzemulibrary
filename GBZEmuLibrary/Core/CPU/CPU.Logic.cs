@@ -94,7 +94,6 @@ namespace GBZEmuLibrary
 
         private void Stop()
         {
-            _pc++;
             _stopped = true;
 
             if (_pendingSpeedSwitch)
