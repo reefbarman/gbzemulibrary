@@ -50,6 +50,7 @@ namespace GBZEmuLibrary
 
         private void BitTest(int bit, ushort address)
         {
+            IncrementClock();
             var value  = ReadByte(address);
             BitTest(bit, value);
         }

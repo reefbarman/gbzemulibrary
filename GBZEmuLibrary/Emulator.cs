@@ -136,10 +136,13 @@ namespace GBZEmuLibrary
         private void UpdateSystems(int cycles)
         {
             _clocksThisUpdate += cycles;
+
+            cycles /= _cpu.SpeedFactor;
+
             _divideRegister.Update(cycles);
             _timer.Update(cycles);
             _gpu.Update(cycles);
-            _apu.Update(cycles / _cpu.SpeedFactor);
+            _apu.Update(cycles);
         }
     }
 }

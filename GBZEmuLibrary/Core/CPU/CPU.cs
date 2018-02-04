@@ -206,7 +206,7 @@ namespace GBZEmuLibrary
 
         private void OnPendingSpeedSwitch(byte data)
         {
-            _pendingSpeedSwitch = Helpers.TestBit(data, 1);
+            _pendingSpeedSwitch = Helpers.TestBit(data, 0);
         }
 
         private byte GetSpeedState()

@@ -161,10 +161,7 @@ namespace GBZEmuLibrary
                     break;
             }
 
-            if (ScanLine == _gpuRegisters[(int)Registers.LCDYCoord])
-            {
-                Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, true);
-            }
+            Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, ScanLine == _gpuRegisters[(int)Registers.LCDYCoord]);
 
             //Request interrupt if mode has changed
             if (requestInterrupt)
