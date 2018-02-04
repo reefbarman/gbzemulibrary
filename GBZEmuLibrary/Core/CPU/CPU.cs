@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using InsSchema = GBZEmuLibrary.InstructionSchema;
-using InsSet = GBZEmuLibrary.InstructionSet;
 
 namespace GBZEmuLibrary
 {
@@ -32,8 +31,8 @@ namespace GBZEmuLibrary
         private ushort       _pc;
         private StackPointer _sp;
         private Registers    _registers;
-        private bool         _pendingInterruptDisabled;
-        private bool         _pendingInterruptEnabled;
+        private int         _pendingInterruptDisabled;
+        private int         _pendingInterruptEnabled;
 
         private Dictionary<byte, Action> _instructions;
         private Dictionary<byte, Action> _instructionsCB;
@@ -140,22 +139,14 @@ namespace GBZEmuLibrary
 
             // we are trying to disable interrupts, however interrupts get disabled after the next instruction
             //TODO determine if disabling is handled different https://github.com/AntonioND/giibiiadvance/blob/master/docs/TCAGBD.pdf (section 3.3)
-            if (_pendingInterruptDisabled)
+            if (_pendingInterruptDisabled >= 0 && _pendingInterruptDisabled-- == 0)
             {
-                if (_mmu.ReadByte(_pc - 1) != InsSet.DI)
-                {
-                    _pendingInterruptDisabled           = false;
-                    _interruptHandler.InterruptsEnabled = false;
-                }
+                _interruptHandler.InterruptsEnabled = false;
             }
 
-            if (_pendingInterruptEnabled)
+            if (_pendingInterruptEnabled >= 0 && _pendingInterruptEnabled-- == 0)
             {
-                if (_mmu.ReadByte(_pc - 1) != InsSet.EI)
-                {
-                    _pendingInterruptEnabled            = false;
-                    _interruptHandler.InterruptsEnabled = true;
-                }
+                _interruptHandler.InterruptsEnabled = true;
             }
 
             _processCount++;

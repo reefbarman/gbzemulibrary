@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using InsSet = GBZEmuLibrary.InstructionSet;
 using InsCBSet = GBZEmuLibrary.CBInstructionSet;
 using InsSchema = GBZEmuLibrary.InstructionSchema;
+using InsSet = GBZEmuLibrary.InstructionSet;
 
 namespace GBZEmuLibrary
 {
@@ -228,7 +228,7 @@ namespace GBZEmuLibrary
                 { InsSet.SUBn,     () => Subtract(ReadByte(_pc++)) },
                 { InsSet.RST10H,   () => Restart(0x10) },
                 { InsSet.RETC,     () => ReturnTest(InsSchema.FLAG_C, true) },
-                { InsSet.RETI,     () => { _pendingInterruptEnabled = true; Return(); } },
+                { InsSet.RETI,     () => { _pendingInterruptEnabled = 1; Return(); } },
                 { InsSet.JPCnn,    () => JumpTestImmediate16Bit(InsSchema.FLAG_C, true) },
                 { InsSet.CALLCnn,  () => CallTest(InsSchema.FLAG_C, true) },
                 { InsSet.SBCAn,    () => Subtract(ReadByte(_pc++), true) },
@@ -247,14 +247,14 @@ namespace GBZEmuLibrary
                 { InsSet.LDHAn,    () => LoadFromImmediateAddress(out _registers.A) },
                 { InsSet.POPAF,    () => { Pop(out _registers.AF); _registers.F &= 0xF0; } }, //TODO need to figure out why we have to clear the flags
                 { InsSet.LDAC,     () => LoadFromAddress(out _registers.A, 0xFF00 | _registers.C) },
-                { InsSet.DI,       () => { _pendingInterruptDisabled = true; _interruptHandler.InterruptsEnabled = true; } },
+                { InsSet.DI,       () => { _pendingInterruptDisabled = 1; _interruptHandler.InterruptsEnabled = true; } },
                 { InsSet.PUSHAF,   () => Push(_registers.AF) },
                 { InsSet.ORn,      () => OR(ReadByte(_pc++)) },
                 { InsSet.RST30H,   () => Restart(0x30) },
                 { InsSet.LDHLSPn,  LoadHLSPSpecial },
                 { InsSet.LDSPHL,   () => Load(ref _sp.P, _registers.HL) },
                 { InsSet.LDAnn,    () => LoadFromImmediate16BitAddress(out _registers.A) },
-                { InsSet.EI,       () => { _pendingInterruptEnabled = true; } },
+                { InsSet.EI,       () => { _pendingInterruptEnabled = 1; } },
                 { InsSet.CPn,      () => Compare(ReadByte(_pc++)) },
                 { InsSet.RST38H,   () => Restart(0x38) }
             };
