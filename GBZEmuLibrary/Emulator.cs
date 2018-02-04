@@ -6,35 +6,35 @@ namespace GBZEmuLibrary
     {
         public class Config
         {
-            public string ROMPath;
-            public string SaveLocation;
+            public string   ROMPath;
+            public string   SaveLocation;
             public BootMode BootMode = BootMode.GBC;
         }
 
-        private const int CLOCKS_PER_CYCLE     = GameBoySchema.MAX_DMG_CLOCK_CYCLES / GameBoySchema.TARGET_FRAMERATE;
+        private const int CLOCKS_PER_CYCLE = GameBoySchema.MAX_DMG_CLOCK_CYCLES / GameBoySchema.TARGET_FRAMERATE;
 
-        private Cartridge      _cartridge;
-        private GPU            _gpu;
-        private Timer          _timer;
-        private DivideRegister _divideRegister;
-        private Joypad         _joypad;
-        private APU            _apu;
-        private MMU            _mmu;
-        private CPU            _cpu;
+        private readonly Cartridge      _cartridge;
+        private readonly GPU            _gpu;
+        private readonly Timer          _timer;
+        private readonly DivideRegister _divideRegister;
+        private readonly Joypad         _joypad;
+        private readonly APU            _apu;
+        private readonly MMU            _mmu;
+        private readonly CPU            _cpu;
 
         private int _clocksThisUpdate;
         private int _clocksThisFrame;
 
-        public void Init()
+        public Emulator()
         {
-            _cartridge = new Cartridge();
-            _gpu = new GPU();
-            _timer = new Timer();
-            _divideRegister = new DivideRegister();
-            _joypad = new Joypad();
-            _apu = new APU();
-            _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu);
-            _cpu = new CPU(_mmu);
+            _cartridge       =  new Cartridge();
+            _gpu             =  new GPU();
+            _timer           =  new Timer();
+            _divideRegister  =  new DivideRegister();
+            _joypad          =  new Joypad();
+            _apu             =  new APU();
+            _mmu             =  new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu);
+            _cpu             =  new CPU(_mmu);
             _cpu.OnClockTick += UpdateSystems;
         }
 
@@ -42,7 +42,7 @@ namespace GBZEmuLibrary
         {
             var success = _cartridge.LoadFile(config.ROMPath, config.SaveLocation);
 
-            var mode = _cartridge.GBCMode;
+            var mode       = _cartridge.GBCMode;
             var useBootRom = !config.BootMode.IsSet(BootMode.Skip);
             var gbcBootRom = _cartridge.GBCMode != GBCMode.NoGBC;
 

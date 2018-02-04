@@ -3,15 +3,15 @@ using System.Text;
 
 namespace GBZEmuLibrary
 {
-    internal class CartridgeHeader
+    public class CartridgeHeader
     {
         public string Title { get; private set; }
-        public int Length { get; }
-        public GBCMode GBCMode { get; private set; } = GBCMode.NoGBC;
-        public CartridgeSchema.MBCMode BankingMode { get; private set; } = CartridgeSchema.MBCMode.NoMBC;
-        public int ROMBanks { get; private set; } = 1;
-        public int RAMBanks { get; private set; } = 1;
-        public bool CustomPalette { get; private set; }
+        internal int Length { get; }
+        internal GBCMode GBCMode { get; private set; } = GBCMode.NoGBC;
+        internal CartridgeSchema.MBCMode BankingMode { get; private set; } = CartridgeSchema.MBCMode.NoMBC;
+        internal int ROMBanks { get; private set; } = 1;
+        internal int RAMBanks { get; private set; } = 1;
+        internal bool CustomPalette { get; private set; }
 
         private bool _nintendoCart = false;
         private byte _titleHash;
