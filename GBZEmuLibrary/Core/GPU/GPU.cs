@@ -79,7 +79,11 @@ namespace GBZEmuLibrary
 
         private int ScanLine
         {
-            get => _gpuRegisters[(int)Registers.Scanline];
+            get
+            {
+                return _gpuRegisters[(int)Registers.Scanline];
+            }
+
             set
             {
                 _gpuRegisters[(int)Registers.Scanline] = (byte)value;
@@ -218,8 +222,7 @@ namespace GBZEmuLibrary
                 switch (address)
                 {
                     case (int)Registers.LCDStatus:
-                        //_gpuRegisters[address] = data;
-                        _gpuRegisters[address] = (byte)(_gpuRegisters[address] & 0b111 | data & 0b01111000);
+                        _gpuRegisters[address] = (byte)(_gpuRegisters[address] & 0x07 | data & 0x78);
                         break;
                     case (int)Registers.LCDYCoord:
                         _gpuRegisters[address] = data;
