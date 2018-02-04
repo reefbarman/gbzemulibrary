@@ -218,11 +218,19 @@ namespace GBZEmuLibrary
             {
                 address -= MemorySchema.GPU_REGISTERS_START;
 
-                _gpuRegisters[address] = data;
-
-                if (address == (int)Registers.LCDYCoord)
+                switch (address)
                 {
-                    CheckCoincidence();
+                    case (int)Registers.LCDStatus:
+                        //_gpuRegisters[address] = data;
+                        _gpuRegisters[address] = (byte)(_gpuRegisters[address] & 0b111 | data & 0b01111000);
+                        break;
+                    case (int)Registers.LCDYCoord:
+                        _gpuRegisters[address] = data;
+                        CheckCoincidence();
+                        break;
+                    default:
+                        _gpuRegisters[address] = data;
+                        break;
                 }
             }
             else if (address == MemorySchema.GPU_VRAM_BANK_REGISTER)
@@ -470,7 +478,6 @@ namespace GBZEmuLibrary
                     continue;
                 }
 
-                //TODO maybe need to implement gameboy pixel fetcher to sort out BG priorty over sprite
                 var color                    = GetColor(true, (byte)colorNum, attributes, (int)Registers.BackgroundTilePalette);
                 color.BGPriority             = Helpers.TestBit(attributes, (int)BGAttributeBits.BGToSpritePriority);
                 _screenData[pixel, ScanLine] = color;
