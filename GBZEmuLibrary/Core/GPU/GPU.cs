@@ -79,7 +79,11 @@ namespace GBZEmuLibrary
 
         private int ScanLine
         {
-            get => _gpuRegisters[(int)Registers.Scanline];
+            get
+            {
+                return _gpuRegisters[(int)Registers.Scanline];
+            }
+
             set
             {
                 _gpuRegisters[(int)Registers.Scanline] = (byte)value;
@@ -161,10 +165,7 @@ namespace GBZEmuLibrary
                     break;
             }
 
-            if (ScanLine == _gpuRegisters[(int)Registers.LCDYCoord])
-            {
-                Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, true);
-            }
+            Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, ScanLine == _gpuRegisters[(int)Registers.LCDYCoord]);
 
             //Request interrupt if mode has changed
             if (requestInterrupt)
@@ -218,11 +219,18 @@ namespace GBZEmuLibrary
             {
                 address -= MemorySchema.GPU_REGISTERS_START;
 
-                _gpuRegisters[address] = data;
-
-                if (address == (int)Registers.LCDYCoord)
+                switch (address)
                 {
-                    CheckCoincidence();
+                    case (int)Registers.LCDStatus:
+                        _gpuRegisters[address] = (byte)(_gpuRegisters[address] & 0x07 | data & 0x78);
+                        break;
+                    case (int)Registers.LCDYCoord:
+                        _gpuRegisters[address] = data;
+                        CheckCoincidence();
+                        break;
+                    default:
+                        _gpuRegisters[address] = data;
+                        break;
                 }
             }
             else if (address == MemorySchema.GPU_VRAM_BANK_REGISTER)
@@ -470,7 +478,6 @@ namespace GBZEmuLibrary
                     continue;
                 }
 
-                //TODO maybe need to implement gameboy pixel fetcher to sort out BG priorty over sprite
                 var color                    = GetColor(true, (byte)colorNum, attributes, (int)Registers.BackgroundTilePalette);
                 color.BGPriority             = Helpers.TestBit(attributes, (int)BGAttributeBits.BGToSpritePriority);
                 _screenData[pixel, ScanLine] = color;

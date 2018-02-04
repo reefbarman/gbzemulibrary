@@ -103,9 +103,9 @@ namespace GBZEmuLibrary
                 _cpu.UpdateInterrupts();
 
                 _clocksThisFrame += _clocksThisUpdate;
-            } while (_clocksThisFrame < (CLOCKS_PER_CYCLE * _cpu.SpeedFactor));
+            } while (_clocksThisFrame < CLOCKS_PER_CYCLE);
 
-            _clocksThisFrame -= (CLOCKS_PER_CYCLE * _cpu.SpeedFactor);
+            _clocksThisFrame -= CLOCKS_PER_CYCLE;
         }
 
         public Color[,] GetScreenData()
@@ -135,11 +135,14 @@ namespace GBZEmuLibrary
 
         private void UpdateSystems(int cycles)
         {
+            cycles /= _cpu.SpeedFactor;
+
             _clocksThisUpdate += cycles;
+
             _divideRegister.Update(cycles);
             _timer.Update(cycles);
             _gpu.Update(cycles);
-            _apu.Update(cycles / _cpu.SpeedFactor);
+            _apu.Update(cycles);
         }
     }
 }

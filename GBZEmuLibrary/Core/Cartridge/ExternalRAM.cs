@@ -6,7 +6,11 @@ namespace GBZEmuLibrary
     {
         public bool Enabled
         {
-            get => _enabled;
+            get
+            {
+                return _enabled;
+            }
+
             set
             {
                 _enabled = value;
