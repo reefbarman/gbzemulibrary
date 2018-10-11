@@ -25,7 +25,7 @@ namespace GBZEmuLibrary
     [StructLayout(LayoutKind.Explicit)]
     internal struct StackPointer
     {
-        [FieldOffset(0)] public ushort P;
+        [FieldOffset(0)] public ushort SP;
         [FieldOffset(0)] public byte   Lo;
         [FieldOffset(1)] public byte   Hi;
     }

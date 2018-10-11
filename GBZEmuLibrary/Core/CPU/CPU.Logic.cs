@@ -103,8 +103,7 @@ namespace GBZEmuLibrary
                 _doubleSpeed = !_doubleSpeed;
             }
         }
-
-        //TODO double check
+        
         private void DAA()
         {
             int a = _registers.A;

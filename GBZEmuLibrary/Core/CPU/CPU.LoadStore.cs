@@ -49,10 +49,10 @@ namespace GBZEmuLibrary
         {
             var n = ReadByte(_pc++);
 
-            _registers.HL = (ushort)((_sp.P + (sbyte)n) & 0xFFFF);
+            _registers.HL = (ushort)((_sp.SP + (sbyte)n) & 0xFFFF);
 
             SetFlag(InsSchema.FLAG_C, (_sp.Lo + n) > 0xFF);
-            SetFlag(InsSchema.FLAG_H, ((_sp.P & 0x0F) + (n & 0x0F)) > 0x0F);
+            SetFlag(InsSchema.FLAG_H, ((_sp.SP & 0x0F) + (n & 0x0F)) > 0x0F);
 
             SetFlag(InsSchema.FLAG_Z, false);
             SetFlag(InsSchema.FLAG_N, false);
@@ -90,15 +90,15 @@ namespace GBZEmuLibrary
 
         private void Push(ushort data)
         {
-            WriteByte((byte)(data >> 8), --_sp.P);
-            WriteByte((byte)(data & 0xFF), --_sp.P);
+            WriteByte((byte)(data >> 8), --_sp.SP);
+            WriteByte((byte)(data & 0xFF), --_sp.SP);
             IncrementClock();
         }
 
         private void Pop(out ushort reg)
         {
-            reg = Read16Bit(_sp.P);
-            _sp.P += 2;
+            reg = Read16Bit(_sp.SP);
+            _sp.SP += 2;
         }
     }
 }

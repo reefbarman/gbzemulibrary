@@ -1,8 +1,6 @@
-﻿using System;
-
-namespace GBZEmuLibrary
+﻿namespace GBZEmuLibrary
 {
-    internal class Joypad
+    internal class Joypad : IMemoryUnit
     {
         private const int DIRECTION_BUTTONS_SELECT = 4;
         private const int OTHER_BUTTONS_SELECT = 5;
@@ -13,6 +11,11 @@ namespace GBZEmuLibrary
         public void WriteByte(byte data, int address)
         {
             _joyPadRegister = data;
+        }
+
+        public bool CanReadWriteByte(int address)
+        {
+            return address == MemorySchema.JOYPAD_REGISTER;
         }
 
         public byte ReadByte(int address)

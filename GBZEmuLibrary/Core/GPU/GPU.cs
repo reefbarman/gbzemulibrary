@@ -3,7 +3,7 @@ using System.Linq;
 
 namespace GBZEmuLibrary
 {
-    internal class GPU
+    internal class GPU : IMemoryUnit
     {
         private enum LCDStatus
         {
@@ -172,6 +172,36 @@ namespace GBZEmuLibrary
             {
                 MessageBus.Instance.RequestInterrupt(Interrupts.LCD);
             }
+        }
+
+        public bool CanReadWriteByte(int address)
+        {
+            if (address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END)
+            {
+                return true;
+            }
+
+            if (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START && address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END)
+            {
+                return true;
+            }
+
+            if (address >= MemorySchema.GPU_REGISTERS_START && address < MemorySchema.GPU_REGISTERS_END && address != MemorySchema.DMA_REGISTER)
+            {
+                return true;
+            }
+
+            if (address == MemorySchema.GPU_VRAM_BANK_REGISTER)
+            {
+                return true;
+            }
+
+            if (address >= MemorySchema.GPU_GBC_BG_PALETTE_INDEX_REGISTER && address <= MemorySchema.GPU_GBC_SPRITE_PALETTE_DATA_REGISTER)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         public byte ReadByte(int address)

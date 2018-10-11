@@ -3,7 +3,7 @@ using System.IO;
 
 namespace GBZEmuLibrary
 {
-    internal class Cartridge
+    internal class Cartridge : IMemoryUnit
     {
         private enum BankingMode
         {
@@ -51,6 +51,21 @@ namespace GBZEmuLibrary
         public void Terminate()
         {
             _externalRAM.Dispose();
+        }
+
+        public bool CanReadWriteByte(int address)
+        {
+            if (address < MemorySchema.ROM_END)
+            {
+                return true;
+            }
+
+            if (address >= MemorySchema.EXTERNAL_RAM_START && address < MemorySchema.EXTERNAL_RAM_END)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         public byte ReadByte(int address)
@@ -171,7 +186,7 @@ namespace GBZEmuLibrary
                             }
                             else
                             {
-                                _ramBank = Helpers.GetBits(data, 2) % _header.RAMBanks;
+                                _ramBank = _header.RAMBanks == 0 ? 0 : Helpers.GetBits(data, 2) % _header.RAMBanks;
                             }
                             break;
 

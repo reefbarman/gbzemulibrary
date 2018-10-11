@@ -1,7 +1,4 @@
-﻿using System;
-using InsSet = GBZEmuLibrary.InstructionSet;
-using InsCBSet = GBZEmuLibrary.CBInstructionSet;
-using InsSchema = GBZEmuLibrary.InstructionSchema;
+﻿using InsSchema = GBZEmuLibrary.InstructionSchema;
 
 namespace GBZEmuLibrary
 {
@@ -24,11 +21,6 @@ namespace GBZEmuLibrary
             }
 
             SetFlag(InsSchema.FLAG_Z, reg == 0 && !specialized);
-
-            /*if (!specialized)
-            {
-                IncrementClock();
-            }*/
         }
 
         private void RotateLeft(ushort address)
@@ -53,11 +45,6 @@ namespace GBZEmuLibrary
             }
 
             SetFlag(InsSchema.FLAG_Z, reg == 0 && !specialized);
-
-            /*if (!specialized)
-            {
-                IncrementClock();
-            }*/
         }
 
         private void LogicalShiftLeft(ref byte reg)
@@ -102,11 +89,6 @@ namespace GBZEmuLibrary
             }
 
             SetFlag(InsSchema.FLAG_Z, reg == 0 && !specialized);
-
-            /*if (!specialized)
-            {
-                IncrementClock();
-            }*/
         }
 
         private void RotateRight(ushort address)
@@ -131,11 +113,6 @@ namespace GBZEmuLibrary
             }
 
             SetFlag(InsSchema.FLAG_Z, reg == 0 && !specialized);
-
-            /*if (!specialized)
-            {
-                IncrementClock();
-            }*/
         }
 
         private void RotateRightNoCarry(ushort address)
@@ -238,12 +215,11 @@ namespace GBZEmuLibrary
             _registers.F = 0;
 
             SetFlag(InsSchema.FLAG_C, (_sp.Lo + val) > 0xFF);
-            SetFlag(InsSchema.FLAG_H, ((_sp.P & 0x0F) + (val & 0x0f)) > 0x0F);
+            SetFlag(InsSchema.FLAG_H, ((_sp.SP & 0x0F) + (val & 0x0f)) > 0x0F);
 
-            _sp.P = (ushort)(_sp.P + (sbyte)val);
+            _sp.SP = (ushort)(_sp.SP + (sbyte)val);
         }
 
-        // TODO either refactor this or the AddCarry function
         private void Subtract(byte data, bool subtractCarryFlag = false)
         {
             var orig = _registers.A;

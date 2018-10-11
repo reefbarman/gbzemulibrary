@@ -1,8 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text;
-using InsSchema = GBZEmuLibrary.InstructionSchema;
 
 namespace GBZEmuLibrary
 {
@@ -14,19 +11,6 @@ namespace GBZEmuLibrary
 
         private readonly MMU              _mmu;
         private readonly InterruptHandler _interruptHandler;
-
-        #region DEBUGGING
-
-        private          ulong         _processCount;
-        private          ulong         _totalClocks;
-        private          int           _previousPC;
-        private          bool          _dumpMemory;
-        private readonly int           _breakPC            = 0x02B7;
-        private readonly ulong         _processRecordStart = ulong.MaxValue;
-        private readonly ulong         _breakProcessCount  = 1601466; //708182;
-        private readonly StringBuilder _opBuilder          = new StringBuilder();
-
-        #endregion
 
         private ushort       _pc;
         private StackPointer _sp;
@@ -67,44 +51,15 @@ namespace GBZEmuLibrary
             InitInstructions();
         }
 
-        public override string ToString()
-        {
-            return $"{_processCount}: TC: {_totalClocks} PC: {_pc:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
-            //return $"{_processCount}: TC: {_totalClocks} SL: {_mmu.ReadByte(0xFF44)} PC: {_pc - 1:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
-            //return $"{_processCount}: T: {Timer.TimerCounter()} TC: {_totalClocks} PC: {_pc - 1:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.P:X4}, Z: {Helpers.TestBit(_registers.F, InsSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InsSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InsSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InsSchema.FLAG_C)}";
-        }
-
         public void Process()
         {
-            //TODO check if worth keeping
-            if (_processCount >= _processRecordStart)
-            {
-                _opBuilder.AppendLine(ToString());
-            }
-
-            if (_processCount == _breakProcessCount)
-            {
-                if (_opBuilder.Length > 0)
-                {
-                    File.WriteAllText("InstructionLog", _opBuilder.ToString());
-                }
-
-                Helpers.NoOp();
-            }
-
-            if (_pc == _breakPC && !_mmu.InBootROM)
-            {
-                Helpers.NoOp();
-            }
-
+            Debug();
             //TODO determine the best way to handle stop
             /*if (_stopped)
             {
                 _processCount++;
                 return 0;
             }*/
-
-            _previousPC = _pc;
 
             if (_interruptHandler.Halted)
             {
@@ -122,18 +77,10 @@ namespace GBZEmuLibrary
 
             if (_instructions.ContainsKey(instruction))
             {
-                if (_dumpMemory)
-                {
-                    File.WriteAllBytes("MemLog", _mmu.DumpMem());
-                    _dumpMemory = false;
-                }
-
                 _instructions[instruction]();
             }
             else
             {
-                File.WriteAllBytes("MemLog", _mmu.DumpMem());
-                File.WriteAllText("InstructionLog", _opBuilder.ToString());
                 throw new NotImplementedException($"Instruction not implemented: {instruction:X}");
             }
 
@@ -148,8 +95,6 @@ namespace GBZEmuLibrary
             {
                 _interruptHandler.InterruptsEnabled = true;
             }
-
-            _processCount++;
         }
 
         public void UpdateInterrupts()
@@ -167,14 +112,14 @@ namespace GBZEmuLibrary
             }
             else
             {
-                _mmu.InBootROM = false;
+                _mmu.WriteByte(0, MemorySchema.BOOT_ROM_DISABLE_REGISTER);
 
                 _registers.AF = (ushort)(_gbcMode != GBCMode.NoGBC ? 0x11B0 : 0x01B0);
                 _registers.BC = 0x0013;
                 _registers.DE = 0x00D8;
                 _registers.HL = 0x014D;
 
-                _sp.P = 0xFFFE;
+                _sp.SP = 0xFFFE;
                 _pc   = 0x100;
             }
 

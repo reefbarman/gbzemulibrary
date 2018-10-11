@@ -2,7 +2,7 @@
 
 namespace GBZEmuLibrary
 {
-    internal class DMAController
+    internal class DMAController : IMemoryUnit
     {
         private byte _sourceHigh;
         private byte _sourceLow;
@@ -60,6 +60,21 @@ namespace GBZEmuLibrary
                     break;
 
             }
+        }
+
+        public bool CanReadWriteByte(int address)
+        {
+            if (address == MemorySchema.DMA_REGISTER)
+            {
+                return true;
+            }
+
+            if (address >= MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER && address <= MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         public byte ReadByte(int address)

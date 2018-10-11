@@ -2,7 +2,7 @@
 
 namespace GBZEmuLibrary
 {
-    internal class APU
+    internal class APU : IMemoryUnit
     {
         private readonly byte[] _memory = new byte[MemorySchema.APU_REGISTERS_END - MemorySchema.APU_REGISTERS_START];
 
@@ -313,6 +313,11 @@ namespace GBZEmuLibrary
 
                     throw new IndexOutOfRangeException();
             }
+        }
+
+        public bool CanReadWriteByte(int address)
+        {
+            return address >= MemorySchema.APU_REGISTERS_START && address < MemorySchema.APU_REGISTERS_END;
         }
 
         public byte ReadByte(int address)

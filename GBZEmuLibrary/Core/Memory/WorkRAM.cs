@@ -2,7 +2,7 @@
 
 namespace GBZEmuLibrary
 {
-    internal class WorkRAM
+    internal class WorkRAM : IMemoryUnit
     {
         private const int MAX_NUM_RAM_BANKS = 8;
 
@@ -15,6 +15,21 @@ namespace GBZEmuLibrary
         public void Init(GBCMode mode)
         {
             _mode = mode;
+        }
+
+        public bool CanReadWriteByte(int address)
+        {
+            if (address >= MemorySchema.WORK_RAM_START && address < MemorySchema.ECHO_RAM_SWITCHABLE_END)
+            {
+                return true;
+            }
+
+            if (address == MemorySchema.SWITCHABLE_WORK_RAM_REGISTER)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         public byte ReadByte(int address)

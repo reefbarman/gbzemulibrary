@@ -50,6 +50,7 @@
     <Compile Include="Core\Cartridge\Cartridge.cs" />
     <Compile Include="Core\Cartridge\CartridgeHeader.cs" />
     <Compile Include="Core\Cartridge\ExternalRAM.cs" />
+    <Compile Include="Core\Memory\IMemoryUnit.cs" />
     <Compile Include="Core\GPU\Color.cs" />
     <Compile Include="Core\CPU\CPU.cs" />
     <Compile Include="Core\CPU\CPU.Arithmetic.cs" />
@@ -66,6 +67,7 @@
     <Compile Include="Core\Helpers.cs" />
     <Compile Include="Core\Joypad.cs" />
     <Compile Include="Core\Memory\DMAController.cs" />
+    <Compile Include="Core\Memory\MainMemory.cs" />
     <Compile Include="Core\Memory\WorkRAM.cs" />
     <Compile Include="Core\MessageBus.cs" />
     <Compile Include="Core\Memory\MMU.cs" />
@@ -73,6 +75,9 @@
     <Compile Include="Core\Timer.cs" />
     <Compile Include="Emulator.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Core\CPU\CPU.Debugging.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

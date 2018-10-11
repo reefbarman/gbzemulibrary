@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace GBZEmuLibrary
+﻿namespace GBZEmuLibrary
 {
     internal partial class CPU
     {

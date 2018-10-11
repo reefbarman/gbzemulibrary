@@ -2,7 +2,7 @@
 
 namespace GBZEmuLibrary
 {
-    internal class Timer
+    internal class Timer : IMemoryUnit
     {
         private const int FREQ_4096 = 4096;
         private const int FREQ_262144 = 262144;
@@ -15,22 +15,6 @@ namespace GBZEmuLibrary
         private int _cyclesPerTimerIncrement = GameBoySchema.MAX_DMG_CLOCK_CYCLES / FREQ_4096; //TODO can this be setup dynamically?
         private int _timerCounter = 0;
         private bool _timerEnabled = false;
-
-        //Debug
-
-        private static Timer instance;
-
-        public Timer()
-        {
-            instance = this;
-        }
-
-        public static int TimerCounter()
-        {
-            return instance._timerCounter;
-        }
-
-        //Debug
 
         public void Update(int cycles)
         {
@@ -66,6 +50,11 @@ namespace GBZEmuLibrary
                 _timerEnabled = Helpers.TestBit(ReadByte(address), TIMER_ENABLED_BIT);
                 _cyclesPerTimerIncrement = GetCurrentClockFrequency(data & 0x3);
             }
+        }
+
+        public bool CanReadWriteByte(int address)
+        {
+            return address >= MemorySchema.TIMER_START && address < MemorySchema.TIMER_END;
         }
 
         public byte ReadByte(int address)

@@ -42,6 +42,11 @@ namespace GBZEmuLibrary
         {
             var success = _cartridge.LoadFile(config.ROMPath, config.SaveLocation);
 
+            if (!success)
+            {
+                return false;
+            }
+
             var mode       = _cartridge.GBCMode;
             var useBootRom = !config.BootMode.IsSet(BootMode.Skip);
             var gbcBootRom = _cartridge.GBCMode != GBCMode.NoGBC;
@@ -78,14 +83,12 @@ namespace GBZEmuLibrary
 
             BootROM.SetBootMode(gbcBootRom, config.BootMode.IsSet(BootMode.Skip));
 
-            if (success)
-            {
-                _cpu.Reset(useBootRom, mode);
-                _gpu.Reset(mode != GBCMode.NoGBC);
-                _mmu.Init(mode);
-            }
+            _apu.Reset();
+            _cpu.Reset(useBootRom, mode);
+            _gpu.Reset(mode != GBCMode.NoGBC);
+            _mmu.Init(mode);
 
-            return success;
+            return true;
         }
 
         public void Terminate()

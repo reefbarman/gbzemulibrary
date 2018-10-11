@@ -1,8 +1,6 @@
-﻿using System;
-
-namespace GBZEmuLibrary
+﻿namespace GBZEmuLibrary
 {
-    internal class DivideRegister
+    internal class DivideRegister : IMemoryUnit
     {
         private const int CYCLES_PER_DIVIDER_UPDATE = GameBoySchema.MAX_DMG_CLOCK_CYCLES / 16384;
 
@@ -23,6 +21,11 @@ namespace GBZEmuLibrary
         public void WriteByte(byte data, int address)
         {
             _register = 0;
+        }
+
+        public bool CanReadWriteByte(int address)
+        {
+            return address == MemorySchema.DIVIDE_REGISTER;
         }
 
         public byte ReadByte(int address)
