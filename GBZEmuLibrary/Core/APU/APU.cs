@@ -19,8 +19,8 @@ namespace GBZEmuLibrary
         //Using double buffering
         private readonly byte[][] _buffer =
         {
-            new byte[((Sound.SAMPLE_RATE / GameBoySchema.TARGET_FRAMERATE) * 2) + 2],
-            new byte[((Sound.SAMPLE_RATE / GameBoySchema.TARGET_FRAMERATE) * 2) + 2],
+            new byte[GameBoySchema.MAX_AUDIO_FRAMES_PER_VIDEO_FRAME * 2],
+            new byte[GameBoySchema.MAX_AUDIO_FRAMES_PER_VIDEO_FRAME * 2],
         };
 
         private int _currentBuffer;
@@ -63,8 +63,9 @@ namespace GBZEmuLibrary
             }
         }
 
-        public byte[] GetSoundSamples()
+        public byte[] GetSoundSamples(out int sampleFrameCount)
         {
+            sampleFrameCount = _currentByte;
             _currentByte = 0;
 
             var outSamples = _buffer[_currentBuffer];

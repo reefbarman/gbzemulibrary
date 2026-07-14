@@ -14,7 +14,6 @@ namespace GBZEmuLibrary
             public BootMode BootMode = BootMode.GBC;
         }
 
-        private const int CLOCKS_PER_CYCLE = GameBoySchema.MAX_DMG_CLOCK_CYCLES / GameBoySchema.TARGET_FRAMERATE;
 
         private readonly Cartridge _cartridge;
         private readonly GPU _gpu;
@@ -149,9 +148,9 @@ namespace GBZEmuLibrary
                 _cpu.UpdateInterrupts();
 
                 _clocksThisFrame += _clocksThisUpdate;
-            } while (_clocksThisFrame < CLOCKS_PER_CYCLE);
+            } while (_clocksThisFrame < Display.CLOCK_CYCLES_PER_FRAME);
 
-            _clocksThisFrame -= CLOCKS_PER_CYCLE;
+            _clocksThisFrame -= Display.CLOCK_CYCLES_PER_FRAME;
         }
 
         public Color[,] GetScreenData()
@@ -169,9 +168,9 @@ namespace GBZEmuLibrary
             _joypad.ButtonUp(button);
         }
 
-        public byte[] GetSoundSamples()
+        public byte[] GetSoundSamples(out int sampleFrameCount)
         {
-            return _apu.GetSoundSamples();
+            return _apu.GetSoundSamples(out sampleFrameCount);
         }
 
         public void ToggleChannel(Sound.Channel channel, bool enabled)

@@ -42,7 +42,7 @@ When changing instruction or interrupt behavior:
 - check timer, PPU, APU, and interrupt side effects, not only register results;
 - do not add independent wall-clock timing inside a subsystem.
 
-`Emulator.Update()` runs until one nominal 60 Hz cycle budget is consumed. Real-time pacing belongs to the host.
+`Emulator.Update()` runs until one 70,224-cycle hardware frame budget is consumed (approximately 59.7275 Hz). Real-time pacing belongs to the host.
 
 ### Memory routing
 
@@ -71,7 +71,7 @@ Treat these as compatibility-sensitive:
 - `JoypadButtons` numeric ordering, which maps directly onto joypad-register bits;
 - save naming as `<full ROM filename>.sav`.
 
-`GetScreenData()` and `GetSoundSamples()` expose reused internal buffers. The audio array is cleared and reused by the next `GetSoundSamples()` call, so asynchronous hosts must copy it first. Avoid hidden allocations or format changes in these hot paths unless the API change is deliberate and documented.
+`GetScreenData()` and `GetSoundSamples(out int sampleFrameCount)` expose reused internal buffers. Only the first `sampleFrameCount * 2` audio bytes are valid. The audio array is cleared and reused by the next `GetSoundSamples(...)` call, so asynchronous hosts must copy it first. Avoid hidden allocations or format changes in these hot paths unless the API change is deliberate and documented.
 
 `Terminate()` flushes/closes cartridge RAM and is idempotent. An `Emulator` instance permits one successful `Start()`; hosts must construct a new instance to load or restart a ROM. Preserve save data on all normal and failed-start shutdown paths.
 

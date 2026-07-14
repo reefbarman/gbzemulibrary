@@ -30,6 +30,8 @@
     {
         public const int HORIZONTAL_RESOLUTION = 160;
         public const int VERTICAL_RESOLUTION = 144;
+        public const int CLOCK_CYCLES_PER_FRAME = 70224;
+        public const double FRAME_RATE = (double)GameBoySchema.MAX_DMG_CLOCK_CYCLES / CLOCK_CYCLES_PER_FRAME;
 
         public static Color[] DefaultPalette { get; } =
         {
@@ -42,8 +44,9 @@
 
     internal class GameBoySchema
     {
-        public const int TARGET_FRAMERATE = 60;
         public const int MAX_DMG_CLOCK_CYCLES = 4194304;
+        public const int MAX_AUDIO_FRAMES_PER_VIDEO_FRAME = (int)
+            (((long)Sound.SAMPLE_RATE * Display.CLOCK_CYCLES_PER_FRAME + MAX_DMG_CLOCK_CYCLES - 1) / MAX_DMG_CLOCK_CYCLES);
     }
 
     internal class MemorySchema

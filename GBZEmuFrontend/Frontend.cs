@@ -9,14 +9,19 @@ namespace GBZEmuFrontend;
 
 internal sealed class Frontend : IDisposable
 {
-    private const int FramesPerSecond = 60;
-    private const int AudioFramesPerUpdate = EmulatorSound.SAMPLE_RATE / FramesPerSecond;
+    private const int PresentationFramesPerSecond = 60;
+    private const int AudioFramesPerBuffer = EmulatorSound.SAMPLE_RATE / PresentationFramesPerSecond;
+    private const int AudioQueueCapacityFrames = AudioFramesPerBuffer * 2;
+    private const int MaxCatchUpFrames = 5;
+    private const float DcBlockerFeedback = 0.999f;
+    private const double FrameDuration = 1.0 / Display.FRAME_RATE;
     private const double FrameStepRepeatDelay = 0.4;
     private const double FrameStepRepeatInterval = 1.0 / 15.0;
 
     private readonly Emulator _emulator = new();
     private readonly RaylibColor[] _pixels = new RaylibColor[Display.HORIZONTAL_RESOLUTION * Display.VERTICAL_RESOLUTION];
-    private readonly short[] _audioSamples = new short[AudioFramesPerUpdate * 2];
+    private readonly short[] _audioSamples = new short[AudioFramesPerBuffer * 2];
+    private readonly short[] _audioQueue = new short[AudioQueueCapacityFrames * 2];
     private readonly Dictionary<KeyboardKey, JoypadButtons> _keyMap = new()
     {
         [KeyboardKey.Right] = JoypadButtons.Right,
@@ -39,7 +44,17 @@ internal sealed class Frontend : IDisposable
     private bool _paused;
     private bool _waitingForInputRelease;
     private bool _frameStepRepeatArmed;
+    private bool _audioNeedsReset;
+    private int _audioQueueReadFrame;
+    private int _audioQueueWriteFrame;
+    private int _audioQueuedFrames;
     private double _nextFrameStepTime;
+    private double _lastUpdateTime;
+    private double _frameAccumulator;
+    private float _leftDcInput;
+    private float _leftDcOutput;
+    private float _rightDcInput;
+    private float _rightDcOutput;
 
     public void Run(FrontendOptions options)
     {
@@ -49,7 +64,7 @@ internal sealed class Frontend : IDisposable
             Display.VERTICAL_RESOLUTION * options.Scale,
             "GBZEmuFrontend - Select ROM");
         _windowReady = true;
-        Raylib.SetTargetFPS(FramesPerSecond);
+        Raylib.SetTargetFPS(PresentationFramesPerSecond);
 
         var romPath = options.ROMPath ?? SelectROM(options.ROMDirectory!);
         if (romPath == null)
@@ -91,7 +106,7 @@ internal sealed class Frontend : IDisposable
         _audioReady = Raylib.IsAudioDeviceReady();
         if (_audioReady)
         {
-            Raylib.SetAudioStreamBufferSizeDefault(AudioFramesPerUpdate);
+            Raylib.SetAudioStreamBufferSizeDefault(AudioFramesPerBuffer);
             _audioStream = Raylib.LoadAudioStream(EmulatorSound.SAMPLE_RATE, 16, 2);
             Raylib.PlayAudioStream(_audioStream);
         }
@@ -105,17 +120,19 @@ internal sealed class Frontend : IDisposable
             SetPaused(true);
         }
 
+        _lastUpdateTime = Raylib.GetTime();
+
         while (!Raylib.WindowShouldClose())
         {
             UpdateInput();
 
-            if (ShouldAdvanceFrame())
+            var stepFrame = ShouldStepFrame();
+            if (AdvanceEmulation(stepFrame))
             {
-                _emulator.Update();
                 UpdateVideo();
-                UpdateAudio();
             }
 
+            UpdateAudio();
             Draw(options.Scale);
         }
     }
@@ -240,7 +257,7 @@ internal sealed class Frontend : IDisposable
         }
     }
 
-    private bool ShouldAdvanceFrame()
+    private bool ShouldStepFrame()
     {
         if (Raylib.IsKeyPressed(KeyboardKey.P))
         {
@@ -250,7 +267,7 @@ internal sealed class Frontend : IDisposable
         if (!_paused)
         {
             ResetFrameStepRepeat();
-            return true;
+            return false;
         }
 
         if (Raylib.IsKeyPressed(KeyboardKey.N))
@@ -275,6 +292,50 @@ internal sealed class Frontend : IDisposable
         return true;
     }
 
+    private bool AdvanceEmulation(bool stepFrame)
+    {
+        var now = Raylib.GetTime();
+        var elapsed = now - _lastUpdateTime;
+        _lastUpdateTime = now;
+
+        if (_paused)
+        {
+            _frameAccumulator = 0;
+
+            if (!stepFrame)
+            {
+                return false;
+            }
+
+            AdvanceFrame(false);
+            ResetAudioQueue();
+            return true;
+        }
+
+        _frameAccumulator += Math.Min(elapsed, FrameDuration * MaxCatchUpFrames);
+
+        var framesAdvanced = 0;
+        while (_frameAccumulator >= FrameDuration && framesAdvanced < MaxCatchUpFrames)
+        {
+            AdvanceFrame(true);
+            _frameAccumulator -= FrameDuration;
+            framesAdvanced++;
+        }
+
+        return framesAdvanced > 0;
+    }
+
+    private void AdvanceFrame(bool queueAudio)
+    {
+        _emulator.Update();
+        var source = _emulator.GetSoundSamples(out var sampleFrameCount);
+
+        if (queueAudio && _audioReady)
+        {
+            QueueAudio(source, sampleFrameCount);
+        }
+    }
+
     private void ResetFrameStepRepeat()
     {
         _frameStepRepeatArmed = false;
@@ -295,6 +356,12 @@ internal sealed class Frontend : IDisposable
         if (paused)
         {
             Raylib.PauseAudioStream(_audioStream);
+        }
+        else if (_audioNeedsReset)
+        {
+            Raylib.StopAudioStream(_audioStream);
+            Raylib.PlayAudioStream(_audioStream);
+            _audioNeedsReset = false;
         }
         else
         {
@@ -318,46 +385,69 @@ internal sealed class Frontend : IDisposable
         Raylib.UpdateTexture(_texture, _pixels);
     }
 
-    private void UpdateAudio()
+    private void QueueAudio(byte[] source, int frameCount)
     {
-        var source = _emulator.GetSoundSamples();
-
-        if (_paused || !_audioReady || !Raylib.IsAudioStreamProcessed(_audioStream))
+        if (frameCount <= 0)
         {
             return;
         }
 
-        var sampleCount = Math.Min(source.Length, _audioSamples.Length);
-        var leftTotal = 0;
-        var rightTotal = 0;
-        var frameCount = sampleCount / 2;
+        if (frameCount > AudioQueueCapacityFrames - _audioQueuedFrames)
+        {
+            var framesToDiscard = frameCount - (AudioQueueCapacityFrames - _audioQueuedFrames);
+            _audioQueueReadFrame = (_audioQueueReadFrame + framesToDiscard) % AudioQueueCapacityFrames;
+            _audioQueuedFrames -= framesToDiscard;
+        }
 
         for (var i = 0; i < frameCount; i++)
         {
-            leftTotal += source[i * 2];
-            rightTotal += source[(i * 2) + 1];
+            _audioQueue[_audioQueueWriteFrame * 2] = FilterSample(source[i * 2], ref _leftDcInput, ref _leftDcOutput);
+            _audioQueue[(_audioQueueWriteFrame * 2) + 1] = FilterSample(source[(i * 2) + 1], ref _rightDcInput, ref _rightDcOutput);
+            _audioQueueWriteFrame = (_audioQueueWriteFrame + 1) % AudioQueueCapacityFrames;
         }
 
-        var leftCenter = frameCount == 0 ? 0 : leftTotal / frameCount;
-        var rightCenter = frameCount == 0 ? 0 : rightTotal / frameCount;
-
-        for (var i = 0; i < frameCount; i++)
-        {
-            _audioSamples[i * 2] = ScaleSample(source[i * 2] - leftCenter);
-            _audioSamples[(i * 2) + 1] = ScaleSample(source[(i * 2) + 1] - rightCenter);
-        }
-
-        if (sampleCount < _audioSamples.Length)
-        {
-            Array.Clear(_audioSamples, sampleCount, _audioSamples.Length - sampleCount);
-        }
-
-        Raylib.UpdateAudioStream(_audioStream, _audioSamples, AudioFramesPerUpdate);
+        _audioQueuedFrames += frameCount;
     }
 
-    private static short ScaleSample(int sample)
+    private void UpdateAudio()
     {
-        return (short)Math.Clamp(sample * 512, short.MinValue, short.MaxValue);
+        if (_paused || !_audioReady)
+        {
+            return;
+        }
+
+        while (_audioQueuedFrames >= AudioFramesPerBuffer && Raylib.IsAudioStreamProcessed(_audioStream))
+        {
+            for (var i = 0; i < AudioFramesPerBuffer; i++)
+            {
+                _audioSamples[i * 2] = _audioQueue[_audioQueueReadFrame * 2];
+                _audioSamples[(i * 2) + 1] = _audioQueue[(_audioQueueReadFrame * 2) + 1];
+                _audioQueueReadFrame = (_audioQueueReadFrame + 1) % AudioQueueCapacityFrames;
+            }
+
+            _audioQueuedFrames -= AudioFramesPerBuffer;
+            Raylib.UpdateAudioStream(_audioStream, _audioSamples, AudioFramesPerBuffer);
+        }
+    }
+
+    private void ResetAudioQueue()
+    {
+        _audioQueueReadFrame = 0;
+        _audioQueueWriteFrame = 0;
+        _audioQueuedFrames = 0;
+        _leftDcInput = 0;
+        _leftDcOutput = 0;
+        _rightDcInput = 0;
+        _rightDcOutput = 0;
+        _audioNeedsReset = _audioReady;
+    }
+
+    private static short FilterSample(int sample, ref float previousInput, ref float previousOutput)
+    {
+        var output = sample - previousInput + (DcBlockerFeedback * previousOutput);
+        previousInput = sample;
+        previousOutput = output;
+        return (short)Math.Clamp(output * 512, short.MinValue, short.MaxValue);
     }
 
     private void Draw(int scale)

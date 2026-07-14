@@ -25,9 +25,9 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | API                                 | Purpose                                                                                                                                   |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `Start(Config)`                     | Load a ROM, create/open its save file, select a boot mode, and reset the emulated hardware. Returns `false` when cartridge loading fails. |
-| `Update()`                          | Execute enough CPU and subsystem clocks for one nominal 60 Hz emulation tick. The host owns scheduling and catch-up behavior.             |
+| `Update()`                          | Execute enough CPU and subsystem clocks for one 70,224-cycle hardware frame (approximately 59.7275 Hz). The host owns scheduling.         |
 | `GetScreenData()`                   | Return the reusable 160×144 RGB framebuffer as `Color[x, y]`. This is the emulator's internal array, not a copy.                          |
-| `GetSoundSamples()`                 | Swap and return the current fixed-rate, interleaved stereo byte buffer. Call once per emulation update.                                   |
+| `GetSoundSamples(out frameCount)`   | Swap and return the reusable interleaved stereo byte buffer plus its valid stereo-frame count. Call once per emulation update.            |
 | `ButtonDown(...)` / `ButtonUp(...)` | Forward Game Boy button transitions to the joypad and interrupt logic.                                                                    |
 | `ToggleChannel(...)`                | Enable or mute one of the four emulated audio channels.                                                                                   |
 | `Terminate()`                       | Flush and close file-backed cartridge RAM. Safe to call repeatedly or before `Start()`.                                                   |
@@ -36,6 +36,8 @@ Public constants and data types include:
 
 - `Display.HORIZONTAL_RESOLUTION`: `160`
 - `Display.VERTICAL_RESOLUTION`: `144`
+- `Display.CLOCK_CYCLES_PER_FRAME`: `70224`
+- `Display.FRAME_RATE`: approximately `59.7275`
 - `Sound.SAMPLE_RATE`: `44100`
 - `JoypadButtons`: D-pad, `A`, `B`, `Select`, and `Start`
 - `Color`: byte-valued `R`, `G`, and `B` components
@@ -110,11 +112,11 @@ if (!emulator.Start(config))
     throw new InvalidOperationException("The cartridge could not be loaded.");
 }
 
-// Once per nominal 60 Hz emulation tick:
+// Once per 59.7275 Hz hardware frame:
 emulator.Update();
 
 Color[,] frame = emulator.GetScreenData();
-byte[] audio = emulator.GetSoundSamples();
+byte[] audio = emulator.GetSoundSamples(out int audioFrameCount);
 
 // From the host input callbacks:
 emulator.ButtonDown(JoypadButtons.A);
@@ -130,7 +132,7 @@ emulator.Terminate();
 
 `GetScreenData()` returns the same `Color[160, 144]` array on every call. Pixels use `[x, y]` indexing, with scanline `0` at the top of the emulated display. Each component is an 8-bit RGB value.
 
-A host should copy or convert this buffer into its own texture format before the next emulator update. Do not mutate it or consume it concurrently while `Update()` is writing scanlines. Rendering may run at a different refresh rate, but calls to `Update()` should represent 60 Hz emulation ticks; the host must decide how to catch up or skip presentation when its frame rate differs.
+A host should copy or convert this buffer into its own texture format before the next emulator update. Do not mutate it or consume it concurrently while `Update()` is writing scanlines. Rendering may run at a different refresh rate, but calls to `Update()` should represent 70,224-cycle hardware frames at `Display.FRAME_RATE`; the host should use elapsed time to catch up emulation and may duplicate or skip presentation when its display rate differs. Vsync should control presentation, not emulation speed.
 
 For Unity, `GBZEmuLibrary.Color` conflicts by name with `UnityEngine.Color`. Use a namespace alias or fully qualified name, for example:
 
@@ -142,13 +144,13 @@ A Unity adapter can flatten `frame[x, y]` into a `Color32[]`, upload it to a 160
 
 ### Audio
 
-Audio is generated at a fixed 44,100 Hz. `GetSoundSamples()` returns a double-buffered byte array with interleaved channel amplitudes:
+Audio is generated at a fixed 44,100 Hz. `GetSoundSamples(out int sampleFrameCount)` returns a double-buffered byte array with interleaved channel amplitudes:
 
 ```text
 left, right, left, right, ...
 ```
 
-The current buffer length is 1,472 bytes (736 stereo sample frames), approximately one 60 Hz emulation update. These bytes are emulator channel amplitudes, not a ready-to-play Unity `float` buffer. The host is responsible for normalization/conversion, buffering, and submitting samples at the required cadence. Calling `GetSoundSamples()` swaps and clears the producer buffer, so it should normally be called once after each `Update()`. The returned array is internal storage that will be cleared and reused by the next `GetSoundSamples()` call; consume or copy it before then, especially when handing audio to an asynchronous host API.
+The buffer has capacity for 739 stereo sample frames. `sampleFrameCount` reports how many frames are valid for the completed emulation update; consume the first `sampleFrameCount * 2` bytes. These bytes are emulator channel amplitudes, not a ready-to-play Unity `float` buffer. The host is responsible for normalization/conversion, buffering, and submitting samples at the required cadence. Calling `GetSoundSamples(...)` swaps and clears the producer buffer, so it should be called once after each `Update()`. The returned array is internal storage that will be cleared and reused by the next `GetSoundSamples(...)` call; consume or copy it before then, especially when handing audio to an asynchronous host API.
 
 ### Input
 
@@ -249,7 +251,7 @@ GBZEmuFrontend/                 Cross-platform Raylib-cs test host
 - Cartridge behavior is partial: notably no MBC2 RAM, no MBC3 RTC, nonfunctional MBC3/MBC5 external-RAM bank selection, and a 2 MiB ROM-image cap.
 - The internal `MessageBus` is a static singleton. Multiple `Emulator` instances overwrite callbacks and accumulate subscriptions, so only one live instance should be used per process.
 - The public buffers and emulation state are not thread-safe.
-- Frame pacing uses a nominal 60 Hz integer budget rather than exact hardware timing; the host owns real-time pacing and underrun/overrun handling.
+- The host owns real-time pacing and audio underrun/overrun handling; the core advances one approximately 59.7275 Hz hardware frame per `Update()`.
 - STOP behavior is incomplete, and serial/link-cable emulation is not implemented (the serial test convention writes characters to standard output).
 - The included frontend is deliberately minimal: no debugger UI, rewind, save states, configurable input mapping, or engine-specific adapter is included; ROM selection is limited to the configured directory picker.
 
