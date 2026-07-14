@@ -11,6 +11,8 @@ internal sealed class Frontend : IDisposable
 {
     private const int FramesPerSecond = 60;
     private const int AudioFramesPerUpdate = EmulatorSound.SAMPLE_RATE / FramesPerSecond;
+    private const double FrameStepRepeatDelay = 0.4;
+    private const double FrameStepRepeatInterval = 1.0 / 15.0;
 
     private readonly Emulator _emulator = new();
     private readonly RaylibColor[] _pixels = new RaylibColor[Display.HORIZONTAL_RESOLUTION * Display.VERTICAL_RESOLUTION];
@@ -29,12 +31,34 @@ internal sealed class Frontend : IDisposable
 
     private Texture2D _texture;
     private AudioStream _audioStream;
+    private string _windowTitle = string.Empty;
     private bool _started;
     private bool _windowReady;
+    private bool _textureReady;
     private bool _audioReady;
+    private bool _paused;
+    private bool _waitingForInputRelease;
+    private bool _frameStepRepeatArmed;
+    private double _nextFrameStepTime;
 
     public void Run(FrontendOptions options)
     {
+        Raylib.SetConfigFlags(ConfigFlags.VSyncHint | ConfigFlags.HighDpiWindow);
+        Raylib.InitWindow(
+            Display.HORIZONTAL_RESOLUTION * options.Scale,
+            Display.VERTICAL_RESOLUTION * options.Scale,
+            "GBZEmuFrontend - Select ROM");
+        _windowReady = true;
+        Raylib.SetTargetFPS(FramesPerSecond);
+
+        var romPath = options.ROMPath ?? SelectROM(options.ROMDirectory!);
+        if (romPath == null)
+        {
+            return;
+        }
+
+        _waitingForInputRelease = options.ROMPath == null;
+
         var bootMode = options.ForceDMG ? BootMode.DMG | BootMode.Force : BootMode.GBC;
         if (options.BootROMPath == null)
         {
@@ -43,7 +67,7 @@ internal sealed class Frontend : IDisposable
 
         _started = _emulator.Start(new Emulator.Config
         {
-            ROMPath = options.ROMPath,
+            ROMPath = romPath,
             SaveLocation = options.SaveDirectory,
             BootROMPath = options.BootROMPath,
             BootMode = bootMode
@@ -51,21 +75,17 @@ internal sealed class Frontend : IDisposable
 
         if (!_started)
         {
-            throw new InvalidOperationException($"Failed to load ROM: {options.ROMPath}");
+            throw new InvalidOperationException($"Failed to load ROM: {romPath}");
         }
 
-        Raylib.SetConfigFlags(ConfigFlags.VSyncHint | ConfigFlags.HighDpiWindow);
-        Raylib.InitWindow(
-            Display.HORIZONTAL_RESOLUTION * options.Scale,
-            Display.VERTICAL_RESOLUTION * options.Scale,
-            $"GBZEmuFrontend - {Path.GetFileName(options.ROMPath)}");
-        _windowReady = true;
-        Raylib.SetTargetFPS(FramesPerSecond);
+        _windowTitle = $"GBZEmuFrontend - {Path.GetFileName(romPath)}";
+        Raylib.SetWindowTitle(_windowTitle);
 
         var image = Raylib.GenImageColor(Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION, RaylibColor.Black);
         _texture = Raylib.LoadTextureFromImage(image);
         Raylib.UnloadImage(image);
         Raylib.SetTextureFilter(_texture, TextureFilter.Point);
+        _textureReady = true;
 
         Raylib.InitAudioDevice();
         _audioReady = Raylib.IsAudioDeviceReady();
@@ -80,12 +100,22 @@ internal sealed class Frontend : IDisposable
             Console.Error.WriteLine("Audio device initialization failed; continuing without sound.");
         }
 
+        if (options.StartPaused)
+        {
+            SetPaused(true);
+        }
+
         while (!Raylib.WindowShouldClose())
         {
             UpdateInput();
-            _emulator.Update();
-            UpdateVideo();
-            UpdateAudio();
+
+            if (ShouldAdvanceFrame())
+            {
+                _emulator.Update();
+                UpdateVideo();
+                UpdateAudio();
+            }
+
             Draw(options.Scale);
         }
     }
@@ -102,7 +132,12 @@ internal sealed class Frontend : IDisposable
 
         if (_windowReady)
         {
-            Raylib.UnloadTexture(_texture);
+            if (_textureReady)
+            {
+                Raylib.UnloadTexture(_texture);
+                _textureReady = false;
+            }
+
             Raylib.CloseWindow();
             _windowReady = false;
         }
@@ -114,8 +149,83 @@ internal sealed class Frontend : IDisposable
         }
     }
 
+    private static string? SelectROM(string romDirectory)
+    {
+        var romPaths = Directory.GetFiles(romDirectory)
+            .Where(path => path.EndsWith(".gb", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".gbc", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        var selectedIndex = 0;
+
+        while (!Raylib.WindowShouldClose())
+        {
+            if (romPaths.Length > 0)
+            {
+                if (Raylib.IsKeyPressed(KeyboardKey.Up))
+                {
+                    selectedIndex = (selectedIndex + romPaths.Length - 1) % romPaths.Length;
+                }
+
+                if (Raylib.IsKeyPressed(KeyboardKey.Down))
+                {
+                    selectedIndex = (selectedIndex + 1) % romPaths.Length;
+                }
+
+                if (Raylib.IsKeyPressed(KeyboardKey.Enter))
+                {
+                    return romPaths[selectedIndex];
+                }
+            }
+
+            DrawROMPicker(romDirectory, romPaths, selectedIndex);
+        }
+
+        return null;
+    }
+
+    private static void DrawROMPicker(string romDirectory, string[] romPaths, int selectedIndex)
+    {
+        const int padding = 24;
+        const int titleFontSize = 24;
+        const int itemFontSize = 18;
+        const int itemHeight = 26;
+        const int listTop = 84;
+
+        var visibleItems = Math.Max(1, (Raylib.GetScreenHeight() - listTop - padding) / itemHeight);
+        var firstVisible = Math.Max(0, selectedIndex - visibleItems + 1);
+        var lastVisible = Math.Min(romPaths.Length, firstVisible + visibleItems);
+
+        Raylib.BeginDrawing();
+        Raylib.ClearBackground(RaylibColor.Black);
+        Raylib.DrawText("Select a ROM", padding, 20, titleFontSize, RaylibColor.RayWhite);
+        Raylib.DrawText(romDirectory, padding, 52, 14, RaylibColor.Gray);
+
+        if (romPaths.Length == 0)
+        {
+            Raylib.DrawText("No .gb or .gbc files found. Press Escape to quit.", padding, listTop, itemFontSize, RaylibColor.Gray);
+        }
+        else
+        {
+            for (var i = firstVisible; i < lastVisible; i++)
+            {
+                var color = i == selectedIndex ? RaylibColor.Yellow : RaylibColor.RayWhite;
+                var prefix = i == selectedIndex ? "> " : "  ";
+                Raylib.DrawText($"{prefix}{Path.GetFileName(romPaths[i])}", padding, listTop + ((i - firstVisible) * itemHeight), itemFontSize, color);
+            }
+        }
+
+        Raylib.EndDrawing();
+    }
+
     private void UpdateInput()
     {
+        if (_waitingForInputRelease)
+        {
+            _waitingForInputRelease = _keyMap.Keys.Any(key => Raylib.IsKeyDown(key));
+            return;
+        }
+
         foreach (var binding in _keyMap)
         {
             if (Raylib.IsKeyPressed(binding.Key))
@@ -127,6 +237,68 @@ internal sealed class Frontend : IDisposable
             {
                 _emulator.ButtonUp(binding.Value);
             }
+        }
+    }
+
+    private bool ShouldAdvanceFrame()
+    {
+        if (Raylib.IsKeyPressed(KeyboardKey.P))
+        {
+            SetPaused(!_paused);
+        }
+
+        if (!_paused)
+        {
+            ResetFrameStepRepeat();
+            return true;
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.N))
+        {
+            _frameStepRepeatArmed = true;
+            _nextFrameStepTime = Raylib.GetTime() + FrameStepRepeatDelay;
+            return true;
+        }
+
+        if (!Raylib.IsKeyDown(KeyboardKey.N))
+        {
+            ResetFrameStepRepeat();
+            return false;
+        }
+
+        if (!_frameStepRepeatArmed || Raylib.GetTime() < _nextFrameStepTime)
+        {
+            return false;
+        }
+
+        _nextFrameStepTime = Raylib.GetTime() + FrameStepRepeatInterval;
+        return true;
+    }
+
+    private void ResetFrameStepRepeat()
+    {
+        _frameStepRepeatArmed = false;
+        _nextFrameStepTime = 0;
+    }
+
+    private void SetPaused(bool paused)
+    {
+        _paused = paused;
+        ResetFrameStepRepeat();
+        Raylib.SetWindowTitle(paused ? $"{_windowTitle} [PAUSED]" : _windowTitle);
+
+        if (!_audioReady)
+        {
+            return;
+        }
+
+        if (paused)
+        {
+            Raylib.PauseAudioStream(_audioStream);
+        }
+        else
+        {
+            Raylib.ResumeAudioStream(_audioStream);
         }
     }
 
@@ -150,7 +322,7 @@ internal sealed class Frontend : IDisposable
     {
         var source = _emulator.GetSoundSamples();
 
-        if (!_audioReady || !Raylib.IsAudioStreamProcessed(_audioStream))
+        if (_paused || !_audioReady || !Raylib.IsAudioStreamProcessed(_audioStream))
         {
             return;
         }

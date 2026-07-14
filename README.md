@@ -77,14 +77,16 @@ dotnet run --project GBZEmuFrontend -- /path/to/game.gbc --bootrom /path/to/cgb_
 
 Options:
 
+- `--rom-dir <path>`: show an in-window picker containing `.gb` and `.gbc` files from the directory instead of supplying a ROM path.
 - `--bootrom <path>`: firmware image; omit to use `BootMode.Skip`.
 - `--save-dir <path>`: save directory; defaults to the ROM directory and is created by the frontend.
 - `--scale <1-10>`: integer window scale; defaults to 4 (640×576).
 - `--dmg`: request and force DMG mode. Use this with a DMG boot ROM; it rejects CGB-only cartridges.
+- `--paused`: start emulation paused before its first update.
 
-Controls: arrow keys for the D-pad, **X** for A, **Z** for B, **Enter** for Start, **Right Shift** for Select, and **Escape** to quit. The frontend targets macOS, Windows, and Linux through Raylib-cs native packages.
+Controls: arrow keys for the D-pad, **X** for A, **Z** for B, **Enter** for Start, **Right Shift** for Select, and **Escape** to quit. In the ROM picker, use **Up/Down** to choose a ROM and **Enter** to load it. Press **P** to pause or resume emulation. While paused, tap **N** to advance one emulation frame, or hold it for 400 ms to continue stepping at 15 frames per second. The window title includes `[PAUSED]` while frame-step mode is active. The frontend targets macOS, Windows, and Linux through Raylib-cs native packages.
 
-For local development, `.vscode/launch.json` contains F5 profiles for assets under the gitignored `runtime/` directory. The first profile launches Roguecraft with `runtime/bios/gbc_bios.bin`; edit or add profiles for your own legally obtained files.
+For local development, `.vscode/launch.json` contains F5 profiles for assets under the gitignored `runtime/` directory. `Frontend: ROM Picker (paused)` lists ROMs from `runtime/roms`, loads `runtime/bios/gbc_bios.bin`, and starts the selected ROM paused. ROM-specific profiles remain available for direct launches.
 
 ## Basic integration
 
@@ -249,7 +251,7 @@ GBZEmuFrontend/                 Cross-platform Raylib-cs test host
 - The public buffers and emulation state are not thread-safe.
 - Frame pacing uses a nominal 60 Hz integer budget rather than exact hardware timing; the host owns real-time pacing and underrun/overrun handling.
 - STOP behavior is incomplete, and serial/link-cable emulation is not implemented (the serial test convention writes characters to standard output).
-- The included frontend is deliberately minimal: no debugger UI, rewind, save states, ROM browser, configurable input mapping, or engine-specific adapter is included.
+- The included frontend is deliberately minimal: no debugger UI, rewind, save states, configurable input mapping, or engine-specific adapter is included; ROM selection is limited to the configured directory picker.
 
 ## Legal and license status
 
