@@ -6,7 +6,7 @@ namespace GBZEmuLibrary
 {
     internal class MMU
     {
-        public Func<byte>   GetSpeedState;
+        public Func<byte> GetSpeedState;
         public Action<byte> OnPendingSpeedSwitch;
 
         public bool InBootROM => _mainMemory.InBootROM;
@@ -56,7 +56,7 @@ namespace GBZEmuLibrary
             {
                 if (_mainMemory.InBootROM)
                 {
-                    if (address < MemorySchema.BOOT_ROM_SECTION_1_END || address >= MemorySchema.BOOT_ROM_SECTION_2_START && address < MemorySchema.BOOT_ROM_SECTION_2_END)
+                    if (address < MemorySchema.BOOT_ROM_SECTION_1_END || BootROM.IsGBCSelected && address >= MemorySchema.BOOT_ROM_SECTION_2_START && address < MemorySchema.BOOT_ROM_SECTION_2_END)
                     {
                         return BootROM.Bytes[address];
                     }
@@ -81,7 +81,7 @@ namespace GBZEmuLibrary
             //TODO improve this interface
             if (address == 0xFF02 && data == 0x81)
             {
-                Console.Write(Encoding.ASCII.GetString(new[] {ReadByte(0xFF01)}));
+                Console.Write(Encoding.ASCII.GetString(new[] { ReadByte(0xFF01) }));
             }
 
             if (address == MemorySchema.CPU_SPEED_SWITCH_REGISTER)
@@ -101,6 +101,8 @@ namespace GBZEmuLibrary
 
         public void Reset(bool usingBootROM)
         {
+            _mainMemory.InBootROM = usingBootROM;
+
             if (usingBootROM)
             {
                 return;

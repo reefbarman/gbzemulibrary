@@ -4,7 +4,7 @@ GBZEmuLibrary is an embeddable Game Boy and Game Boy Color emulator core written
 
 The library is intended to sit behind a host such as Unity or another C# engine: the host advances emulation, uploads the framebuffer to its own texture, submits audio to its own mixer, and forwards input events.
 
-> **Project status:** experimental and compatibility-driven. The core contains substantial DMG/CGB functionality, but the repository has no automated test suite or published compatibility matrix. See [Current limitations](#current-limitations), especially the boot-ROM shim caveat, before integrating it.
+> **Project status:** experimental and compatibility-driven. The core contains substantial DMG/CGB functionality, but the repository has no automated test suite or published compatibility matrix. See [Current limitations](#current-limitations) before integrating it.
 
 ## Highlights
 
@@ -15,7 +15,8 @@ The library is intended to sit behind a host such as Unity or another C# engine:
 - ROM-only, MBC1, MBC2, MBC3, and MBC5 cartridge header/banking paths.
 - File-backed external cartridge RAM.
 - Public RGB framebuffer, stereo sample buffer, and joypad API designed for host-engine adapters.
-- Targets .NET Framework 3.5 APIs for compatibility with older C# engine runtimes.
+- Targets `netstandard2.0` for compatibility with current Unity versions and modern .NET hosts.
+- Includes a small cross-platform Raylib-cs frontend for interactive video, audio, and input testing.
 
 ## Host API
 
@@ -29,7 +30,7 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | `GetSoundSamples()`                 | Swap and return the current fixed-rate, interleaved stereo byte buffer. Call once per emulation update.                                   |
 | `ButtonDown(...)` / `ButtonUp(...)` | Forward Game Boy button transitions to the joypad and interrupt logic.                                                                    |
 | `ToggleChannel(...)`                | Enable or mute one of the four emulated audio channels.                                                                                   |
-| `Terminate()`                       | Flush and close file-backed cartridge RAM. Call it after every successful `Start()` before discarding the emulator.                       |
+| `Terminate()`                       | Flush and close file-backed cartridge RAM. Safe to call repeatedly or before `Start()`.                                                   |
 
 Public constants and data types include:
 
@@ -41,26 +42,49 @@ Public constants and data types include:
 
 ## Build
 
-The solution contains one classic, non-SDK-style C# library project:
+Install the current LTS [.NET SDK](https://dotnet.microsoft.com/download), then build the SDK-style solution:
 
-- Solution: `GBZEmuLibrary.sln`
-- Project: `GBZEmuLibrary/GBZEmuLibrary.csproj`
-- Target: .NET Framework 3.5, Any CPU
-- NuGet dependencies: none
-
-Build with Visual Studio/MSBuild and a .NET Framework 3.5 targeting pack:
-
-```powershell
-msbuild GBZEmuLibrary.sln /p:Configuration=Release
+```sh
+dotnet build GBZEmuLibrary.sln -c Release
 ```
 
-The resulting assembly is written to:
+The solution contains:
+
+- `GBZEmuLibrary/GBZEmuLibrary.csproj`: engine-neutral `netstandard2.0` library with no package dependencies.
+- `GBZEmuFrontend/GBZEmuFrontend.csproj`: `net10.0` test frontend using Raylib-cs 8.0.0.
+
+The library assembly is written to:
 
 ```text
-GBZEmuLibrary/bin/Release/GBZEmuLibrary.dll
+GBZEmuLibrary/bin/Release/netstandard2.0/GBZEmuLibrary.dll
 ```
 
-A compatible Mono `xbuild` installation can also build this project on platforms where the .NET Framework 3.5 reference assemblies are available. `dotnet build` is not the canonical build path for this legacy project format and target.
+Current Unity versions can reference that DLL as a managed plug-in. The core has no Unity or Raylib dependency; Raylib is confined to the separate frontend project.
+
+## Test frontend
+
+Run a ROM without firmware to use the emulator's post-boot initialization path:
+
+```sh
+dotnet run --project GBZEmuFrontend -- /path/to/game.gb
+```
+
+Run with a legally obtained 256-byte DMG or 2304-byte CGB boot ROM:
+
+```sh
+dotnet run --project GBZEmuFrontend -- /path/to/game.gbc --bootrom /path/to/cgb_boot.bin
+```
+
+Options:
+
+- `--bootrom <path>`: firmware image; omit to use `BootMode.Skip`.
+- `--save-dir <path>`: save directory; defaults to the ROM directory and is created by the frontend.
+- `--scale <1-10>`: integer window scale; defaults to 4 (640×576).
+- `--dmg`: request and force DMG mode. Use this with a DMG boot ROM; it rejects CGB-only cartridges.
+
+Controls: arrow keys for the D-pad, **X** for A, **Z** for B, **Enter** for Start, **Right Shift** for Select, and **Escape** to quit. The frontend targets macOS, Windows, and Linux through Raylib-cs native packages.
+
+For local development, `.vscode/launch.json` contains F5 profiles for assets under the gitignored `runtime/` directory. The first profile launches Roguecraft with `runtime/bios/gbc_bios.bin`; edit or add profiles for your own legally obtained files.
 
 ## Basic integration
 
@@ -75,7 +99,8 @@ Emulator.Config config = new Emulator.Config
 {
     ROMPath = @"roms/game.gbc",
     SaveLocation = @"saves",
-    BootMode = BootMode.GBC | BootMode.Skip
+    BootROMPath = @"firmware/cgb_boot.bin", // Optional; alternatively set BootROM to byte[]
+    BootMode = BootMode.GBC
 };
 
 if (!emulator.Start(config))
@@ -97,7 +122,7 @@ emulator.ButtonUp(JoypadButtons.A);
 emulator.Terminate();
 ```
 
-`SaveLocation` must already exist. If it is null or empty, saves are placed in the process working directory.
+`SaveLocation` must already exist. If it is null or empty, saves are placed in the process working directory. `BootROM` bytes take precedence over `BootROMPath` when both are set. An `Emulator` instance supports one successful `Start()`; create a new instance to load or restart a ROM.
 
 ### Video
 
@@ -144,15 +169,15 @@ Writes are file-backed and are flushed when cartridge RAM is disabled and when `
 
 `BootMode` is a flags enum:
 
-| Flag    | Intent                                                                   | Current behavior                                       |
-| ------- | ------------------------------------------------------------------------ | ------------------------------------------------------ |
-| `DMG`   | Request original Game Boy startup behavior.                              | Used by `Start()` when a boot sequence is enabled.     |
-| `GBC`   | Request Game Boy Color startup behavior.                                 | The default `Config` value.                            |
-| `Skip`  | Begin from post-boot CPU/register state instead of executing a boot ROM. | Also reaches the current quick-boot selection code.    |
-| `Force` | Force the requested hardware mode where possible.                        | Forcing DMG mode rejects CGB-only cartridges.          |
-| `Short` | Intended for a shortened boot animation.                                 | Declared but not currently read by `Emulator.Start()`. |
+| Flag    | Intent                                                                   | Behavior                                                                                    |
+| ------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `DMG`   | Request original Game Boy startup behavior.                              | Selects a supplied 256-byte DMG image when booting.                                         |
+| `GBC`   | Request Game Boy Color startup behavior.                                 | The default `Config` value; selects a supplied 2304-byte CGB image when booting.            |
+| `Skip`  | Begin from post-boot CPU/register state instead of executing a boot ROM. | Does not require firmware.                                                                  |
+| `Force` | Force the requested hardware mode where possible.                        | Forcing DMG mode rejects CGB-only cartridges.                                               |
+| `Short` | Use the shortened DMG startup animation.                                 | Applies the existing byte patch to a private copy of a supplied DMG image; ignored for CGB. |
 
-`GBZEmuLibrary/Core/BootROM.cs` is currently a distribution shim: its DMG, short-DMG, and CGB byte arrays are empty. Consequently, the normal boot-ROM paths are not self-contained. In addition, the existing DMG skip path indexes the empty short-DMG array. In the current checkout, a CGB-compatible cartridge with `BootMode.GBC | BootMode.Skip` avoids boot-ROM reads; DMG startup requires a code change or a lawful host-supplied boot-ROM mechanism.
+The library does not distribute firmware. Supply a 256-byte DMG or 2304-byte CGB image through `Emulator.Config.BootROMPath` or `Emulator.Config.BootROM`. An invalid image length throws `ArgumentException`. If boot execution is requested but no compatible image is supplied, `Start()` safely falls back to the post-boot initialization path rather than reading missing firmware.
 
 Do not commit proprietary boot ROMs, commercial ROMs, or generated save files to this repository.
 
@@ -206,24 +231,25 @@ GBZEmuLibrary/
 │   ├── GPU/                    DMG/CGB scanline renderer and public RGB color
 │   ├── Memory/                 MMU, RAM, and DMA routing
 │   ├── BootMode.cs             Public boot-mode flags
-│   ├── BootROM.cs              Empty boot-ROM distribution shim
+│   ├── BootROM.cs              Runtime host-supplied boot-ROM storage
 │   ├── Joypad.cs               Input register and joypad interrupts
 │   ├── MessageBus.cs           Internal subsystem event bus
 │   ├── Schemas.cs              Public constants and internal hardware map
 │   └── Timer.cs                Programmable timer
-└── GBZEmuLibrary.csproj        .NET Framework 3.5 library project
+└── GBZEmuLibrary.csproj        SDK-style netstandard2.0 library project
+GBZEmuFrontend/                 Cross-platform Raylib-cs test host
 ```
 
 ## Current limitations
 
 - No automated tests, CI configuration, conformance results, or game compatibility matrix are included.
-- Boot-ROM data is not included, and the DMG skip-boot path is incomplete as described above.
+- Boot-ROM data is not included; hosts must provide firmware at runtime or use skip-boot initialization.
 - Cartridge behavior is partial: notably no MBC2 RAM, no MBC3 RTC, nonfunctional MBC3/MBC5 external-RAM bank selection, and a 2 MiB ROM-image cap.
 - The internal `MessageBus` is a static singleton. Multiple `Emulator` instances overwrite callbacks and accumulate subscriptions, so only one live instance should be used per process.
 - The public buffers and emulation state are not thread-safe.
 - Frame pacing uses a nominal 60 Hz integer budget rather than exact hardware timing; the host owns real-time pacing and underrun/overrun handling.
 - STOP behavior is incomplete, and serial/link-cable emulation is not implemented (the serial test convention writes characters to standard output).
-- There is no frontend, debugger UI, rewind, save-state system, ROM browser, input mapper, or engine-specific adapter in this repository.
+- The included frontend is deliberately minimal: no debugger UI, rewind, save states, ROM browser, configurable input mapping, or engine-specific adapter is included.
 
 ## Legal and license status
 

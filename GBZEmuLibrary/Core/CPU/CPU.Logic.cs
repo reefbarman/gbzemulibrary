@@ -51,7 +51,7 @@ namespace GBZEmuLibrary
         private void BitTest(int bit, ushort address)
         {
             IncrementClock();
-            var value  = ReadByte(address);
+            var value = ReadByte(address);
             BitTest(bit, value);
         }
 
@@ -62,7 +62,7 @@ namespace GBZEmuLibrary
 
         private void ClearBit(int bit, ushort address)
         {
-            var value  = ReadByte(address);
+            var value = ReadByte(address);
             ClearBit(bit, ref value);
             WriteByte(value, address);
         }
@@ -74,7 +74,7 @@ namespace GBZEmuLibrary
 
         private void SetBit(int bit, ushort address)
         {
-            var value  = ReadByte(address);
+            var value = ReadByte(address);
             SetBit(bit, ref value);
             WriteByte(value, address);
         }
@@ -95,15 +95,13 @@ namespace GBZEmuLibrary
 
         private void Stop()
         {
-            _stopped = true;
-
             if (_pendingSpeedSwitch)
             {
                 _pendingSpeedSwitch = false;
                 _doubleSpeed = !_doubleSpeed;
             }
         }
-        
+
         private void DAA()
         {
             int a = _registers.A;
@@ -159,7 +157,7 @@ namespace GBZEmuLibrary
 
         private void Swap(ushort address)
         {
-            var value  = ReadByte(address);
+            var value = ReadByte(address);
             Swap(ref value);
             WriteByte(value, address);
         }

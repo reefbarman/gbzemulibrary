@@ -190,7 +190,7 @@ namespace GBZEmuLibrary
 
         private void ParseCustomPalette(byte[] cart)
         {
-            if (_nintendoCart && GBCMode == GBCMode.NoGBC)
+            if (_nintendoCart && GBCMode == GBCMode.NoGBC && BootROM.HasGBCBootROM)
             {
                 for (var i = MemorySchema.BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_START; i <= MemorySchema.BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_END; i++)
                 {

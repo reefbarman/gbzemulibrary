@@ -9,19 +9,18 @@ namespace GBZEmuLibrary
 
         public int SpeedFactor => _doubleSpeed ? 2 : 1;
 
-        private readonly MMU              _mmu;
+        private readonly MMU _mmu;
         private readonly InterruptHandler _interruptHandler;
 
-        private ushort       _pc;
+        private ushort _pc;
         private StackPointer _sp;
-        private Registers    _registers;
-        private int         _pendingInterruptDisabled;
-        private int         _pendingInterruptEnabled;
+        private Registers _registers;
+        private int _pendingInterruptDisabled;
+        private int _pendingInterruptEnabled;
 
         private Dictionary<byte, Action> _instructions;
         private Dictionary<byte, Action> _instructionsCB;
 
-        private bool _stopped;
         private bool _haltSkip;
         private bool _pendingSpeedSwitch;
         private bool _doubleSpeed;
@@ -30,20 +29,16 @@ namespace GBZEmuLibrary
 
         public CPU(MMU mmu)
         {
-            _mmu                      = mmu;
-            _mmu.GetSpeedState        = GetSpeedState;
+            _mmu = mmu;
+            _mmu.GetSpeedState = GetSpeedState;
             _mmu.OnPendingSpeedSwitch = OnPendingSpeedSwitch;
 
-            _interruptHandler                      =  new InterruptHandler(_mmu);
-            _interruptHandler.IncrementClock       += IncrementClock;
-            _interruptHandler.PushProgramCounter   += () => { Push(_pc); };
+            _interruptHandler = new InterruptHandler(_mmu);
+            _interruptHandler.IncrementClock += IncrementClock;
+            _interruptHandler.PushProgramCounter += () => { Push(_pc); };
             _interruptHandler.UpdateProgramCounter += (pc, joypadInterrupt) =>
             {
                 _pc = pc;
-                if (joypadInterrupt)
-                {
-                    _stopped = false;
-                }
             };
 
             MessageBus.Instance.OnRequestInterrupt += i => _interruptHandler.RequestInterrupt(i);
@@ -54,12 +49,6 @@ namespace GBZEmuLibrary
         public void Process()
         {
             Debug();
-            //TODO determine the best way to handle stop
-            /*if (_stopped)
-            {
-                _processCount++;
-                return 0;
-            }*/
 
             if (_interruptHandler.Halted)
             {
@@ -71,7 +60,7 @@ namespace GBZEmuLibrary
 
             if (_haltSkip)
             {
-                _pc       = (ushort)(_pc - 1);
+                _pc = (ushort)(_pc - 1);
                 _haltSkip = false;
             }
 
@@ -120,7 +109,7 @@ namespace GBZEmuLibrary
                 _registers.HL = 0x014D;
 
                 _sp.SP = 0xFFFE;
-                _pc   = 0x100;
+                _pc = 0x100;
             }
 
             _mmu.Reset(usingBootROM);

@@ -1,83 +1,17 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
-    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{9B7A7ACE-F450-49CB-A219-DC02382D57D9}</ProjectGuid>
-    <OutputType>Library</OutputType>
-    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>7.3</LangVersion>
     <RootNamespace>GBZEmuLibrary</RootNamespace>
     <AssemblyName>GBZEmuLibrary</AssemblyName>
-    <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
-    <FileAlignment>512</FileAlignment>
-    <TargetFrameworkProfile />
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Product>GBZEmuLibrary</Product>
+    <Copyright>Copyright © 2017</Copyright>
+    <ComVisible>false</ComVisible>
+    <ApplicationIcon />
+    <ApplicationManifest />
+    <ApplicationId>9b7a7ace-f450-49cb-a219-dc02382d57d9</ApplicationId>
   </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <DebugSymbols>true</DebugSymbols>
-    <DebugType>full</DebugType>
-    <Optimize>false</Optimize>
-    <OutputPath>bin\Debug\</OutputPath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-  </PropertyGroup>
-  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <DebugType>pdbonly</DebugType>
-    <Optimize>true</Optimize>
-    <OutputPath>bin\Release\</OutputPath>
-    <DefineConstants>TRACE</DefineConstants>
-    <ErrorReport>prompt</ErrorReport>
-    <WarningLevel>4</WarningLevel>
-  </PropertyGroup>
-  <ItemGroup>
-    <Reference Include="System" />
-    <Reference Include="System.Core" />
-    <Reference Include="System.Xml.Linq" />
-    <Reference Include="System.Data.DataSetExtensions" />
-    <Reference Include="System.Data" />
-    <Reference Include="System.Xml" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Include="Core\APU\APU.cs" />
-    <Compile Include="Core\APU\EnvelopeGenerator.cs" />
-    <Compile Include="Core\APU\Generator.cs" />
-    <Compile Include="Core\APU\NoiseGenerator.cs" />
-    <Compile Include="Core\APU\SquareWaveGenerator.cs" />
-    <Compile Include="Core\APU\WaveGenerator.cs" />
-    <Compile Include="Core\BootMode.cs" />
-    <Compile Include="Core\BootROM.cs" />
-    <Compile Include="Core\Cartridge\Cartridge.cs" />
-    <Compile Include="Core\Cartridge\CartridgeHeader.cs" />
-    <Compile Include="Core\Cartridge\ExternalRAM.cs" />
-    <Compile Include="Core\Memory\IMemoryUnit.cs" />
-    <Compile Include="Core\GPU\Color.cs" />
-    <Compile Include="Core\CPU\CPU.cs" />
-    <Compile Include="Core\CPU\CPU.Arithmetic.cs" />
-    <Compile Include="Core\CPU\CPU.Helpers.cs" />
-    <Compile Include="Core\CPU\CPU.InstructionMaps.cs" />
-    <Compile Include="Core\CPU\CPU.InstructionSet.cs" />
-    <Compile Include="Core\CPU\CPU.LoadStore.cs" />
-    <Compile Include="Core\CPU\CPU.Logic.cs" />
-    <Compile Include="Core\CPU\CPU.Navigation.cs" />
-    <Compile Include="Core\CPU\InterruptHandler.cs" />
-    <Compile Include="Core\CPU\Types.cs" />
-    <Compile Include="Core\DivideRegister.cs" />
-    <Compile Include="Core\GPU\GPU.cs" />
-    <Compile Include="Core\Helpers.cs" />
-    <Compile Include="Core\Joypad.cs" />
-    <Compile Include="Core\Memory\DMAController.cs" />
-    <Compile Include="Core\Memory\MainMemory.cs" />
-    <Compile Include="Core\Memory\WorkRAM.cs" />
-    <Compile Include="Core\MessageBus.cs" />
-    <Compile Include="Core\Memory\MMU.cs" />
-    <Compile Include="Core\Schemas.cs" />
-    <Compile Include="Core\Timer.cs" />
-    <Compile Include="Emulator.cs" />
-    <Compile Include="Properties\AssemblyInfo.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Include="Core\CPU\CPU.Debugging.cs" />
-  </ItemGroup>
-  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

@@ -16,18 +16,18 @@ These instructions apply to the entire repository.
 - `GBZEmuLibrary/Core/Memory/`: MMU routing, main/work RAM, and DMA.
 - `GBZEmuLibrary/Core/Schemas.cs`: memory map, hardware constants, and public display/audio/input types.
 - `GBZEmuLibrary/Core/MessageBus.cs`: process-global internal callbacks for interrupts, memory access, and HBlank.
-- `GBZEmuLibrary/Core/BootROM.cs`: intentionally empty boot-ROM distribution shim.
-- `GBZEmuLibrary/GBZEmuLibrary.csproj`: classic explicit-file-list .NET Framework project.
+- `GBZEmuLibrary/Core/BootROM.cs`: runtime storage and validation for host-supplied boot-ROM bytes.
+- `GBZEmuLibrary/GBZEmuLibrary.csproj`: SDK-style `netstandard2.0` library project.
+- `GBZEmuFrontend/`: minimal cross-platform Raylib-cs test host for video, audio, input, ROMs, and boot ROMs.
 - `README.md`: user-facing behavior, integration contract, and known limitations.
 
 ## Toolchain and compatibility constraints
 
-- The project targets **.NET Framework 3.5** and has no package dependencies.
-- Preserve .NET Framework 3.5 BCL compatibility. Do not introduce APIs from newer framework targets without an intentional project migration.
-- This is a classic, non-SDK-style `.csproj`. Every new `.cs` file must be added to an explicit `<Compile Include="..." />` entry or it will not be built.
-- Keep the assembly Any CPU and engine-neutral unless a task explicitly changes those constraints.
-- The existing source uses some C# 6-era syntax despite targeting the .NET 3.5 API surface. Use a compiler compatible with the existing code; do not assume the oldest Unity C# compiler can compile source files directly.
-- Do not add Unity assemblies or types to the core. A Unity integration should reference the built DLL or live in a separate adapter project.
+- The core targets **`netstandard2.0`** and has no package dependencies. Preserve compatibility with current Unity versions that consume `netstandard2.0` managed plug-ins.
+- The core project is SDK-style and uses implicit source globs; new `.cs` files under `GBZEmuLibrary/` are included automatically.
+- Keep the library assembly Any CPU and engine-neutral unless a task explicitly changes those constraints.
+- The frontend targets `net10.0` and uses Raylib-cs. Keep Raylib, rendering, audio-device, window, and platform input dependencies out of the core project.
+- Do not add Unity assemblies or types to the core. A Unity integration should reference `GBZEmuLibrary/bin/<Configuration>/netstandard2.0/GBZEmuLibrary.dll` or live in a separate adapter project.
 
 ## Architectural invariants
 
@@ -73,7 +73,7 @@ Treat these as compatibility-sensitive:
 
 `GetScreenData()` and `GetSoundSamples()` expose reused internal buffers. The audio array is cleared and reused by the next `GetSoundSamples()` call, so asynchronous hosts must copy it first. Avoid hidden allocations or format changes in these hot paths unless the API change is deliberate and documented.
 
-`Terminate()` flushes/closes cartridge RAM and is not safe to call before a successful `Start()` under the current implementation. Preserve save data on all normal shutdown paths.
+`Terminate()` flushes/closes cartridge RAM and is idempotent. An `Emulator` instance permits one successful `Start()`; hosts must construct a new instance to load or restart a ROM. Preserve save data on all normal and failed-start shutdown paths.
 
 ## Hardware-area guidance
 
@@ -109,9 +109,9 @@ Treat these as compatibility-sensitive:
 
 ### Boot behavior
 
-`Core/BootROM.cs` contains empty arrays as a distribution shim. Normal boot-ROM execution is therefore not functional in this checkout, and the current DMG skip path also indexes the empty short-DMG array. `BootMode.Short` is declared but is not read by `Emulator.Start()`.
+`Emulator.Config` accepts boot-ROM bytes or a path at runtime. `Core/BootROM.cs` validates and stores 256-byte DMG and 2304-byte CGB images; no firmware is distributed. If the requested image is unavailable, startup falls back to post-boot initialization. `BootMode.Short` applies the existing shortened-animation patch only to a private DMG-image copy.
 
-Do not fill the arrays with copyrighted firmware. Prefer a legal runtime-supplied boot-ROM interface or a correct post-boot initialization path. Any boot change must cover DMG-only, CGB-compatible, and CGB-only cartridge headers plus `DMG`, `GBC`, `Skip`, and `Force` combinations.
+Do not commit copyrighted firmware. Any boot change must cover DMG-only, CGB-compatible, and CGB-only cartridge headers plus `DMG`, `GBC`, `Skip`, `Short`, and `Force` combinations. Preserve the DMG overlay at `0x0000–0x00FF`, the additional CGB overlay at `0x0200–0x08FF`, and fallback to cartridge ROM outside the selected image.
 
 ## Coding conventions
 
@@ -125,25 +125,19 @@ Do not fill the arrays with copyrighted firmware. Prefer a legal runtime-supplie
 
 ## Build and validation
 
-Canonical release build on a machine with MSBuild and the .NET Framework 3.5 targeting pack:
-
-```powershell
-msbuild GBZEmuLibrary.sln /p:Configuration=Release
-```
-
-A compatible Mono installation may use:
+Canonical release build with the current LTS .NET SDK:
 
 ```sh
-xbuild GBZEmuLibrary.sln /p:Configuration=Release
+dotnet build GBZEmuLibrary.sln -c Release
 ```
 
-Expected artifact:
+Expected library artifact:
 
 ```text
-GBZEmuLibrary/bin/Release/GBZEmuLibrary.dll
+GBZEmuLibrary/bin/Release/netstandard2.0/GBZEmuLibrary.dll
 ```
 
-`dotnet build` is not the canonical validation command for this legacy project format/target.
+The frontend artifact is under `GBZEmuFrontend/bin/Release/net10.0/`. Raylib-cs supplies native binaries for supported macOS, Windows, and Linux runtime identifiers.
 
 There is currently no automated test project. For behavior changes:
 
@@ -171,10 +165,10 @@ Keep capability statements evidence-based. Distinguish header recognition or imp
 
 ## Before submitting a change
 
-- Confirm every new source file is included in `GBZEmuLibrary.csproj`.
+- Confirm new core source files remain under the SDK-style `GBZEmuLibrary/` project root.
 - Review cycle counts and memory ownership for affected paths.
 - Check for accidental host-framework dependencies.
 - Check for copyrighted ROM/firmware/save artifacts.
-- Build with the legacy target when tools are available.
+- Build the full solution in Debug and Release with `dotnet build`.
 - Run or document focused emulator validation.
 - Update README limitations rather than hiding known incompatibilities.

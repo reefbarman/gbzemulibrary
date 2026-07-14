@@ -1,0 +1,55 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Frontend: Roguecraft (CGB BIOS)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build frontend",
+      "program": "${workspaceFolder}/GBZEmuFrontend/bin/Debug/net10.0/GBZEmuFrontend.dll",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "${workspaceFolder}/runtime/roms/Roguecraft_GB_RC1.gbc",
+        "--bootrom",
+        "${workspaceFolder}/runtime/bios/gbc_bios.bin",
+        "--save-dir",
+        "${workspaceFolder}/runtime/saves"
+      ],
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Frontend: Pokemon Crystal (CGB BIOS)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build frontend",
+      "program": "${workspaceFolder}/GBZEmuFrontend/bin/Debug/net10.0/GBZEmuFrontend.dll",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "${workspaceFolder}/runtime/roms/Pokemon - Crystal Version (UE) (V1.1) [C][!].gbc",
+        "--bootrom",
+        "${workspaceFolder}/runtime/bios/gbc_bios.bin",
+        "--save-dir",
+        "${workspaceFolder}/runtime/saves"
+      ],
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    },
+    {
+      "name": "Frontend: Pokemon Red (skip BIOS)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build frontend",
+      "program": "${workspaceFolder}/GBZEmuFrontend/bin/Debug/net10.0/GBZEmuFrontend.dll",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "${workspaceFolder}/runtime/roms/Pokemon - Red Version (USA, Europe) (SGB Enhanced).gb",
+        "--dmg",
+        "--save-dir",
+        "${workspaceFolder}/runtime/saves"
+      ],
+      "console": "integratedTerminal",
+      "stopAtEntry": false
+    }
+  ]
+}
