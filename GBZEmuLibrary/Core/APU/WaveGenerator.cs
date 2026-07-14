@@ -11,8 +11,8 @@ namespace GBZEmuLibrary
         private int _volumeShift;
 
         private byte[] _waveTable = new byte[(APUSchema.WAVE_TABLE_END - APUSchema.WAVE_TABLE_START) * 2];
-        private int    _wavePos;
-        private byte   _currentSample;
+        private int _wavePos;
+        private byte _currentSample;
 
         public WaveGenerator() : base(byte.MaxValue + 1)
         {
@@ -22,7 +22,7 @@ namespace GBZEmuLibrary
         {
             var index = address - APUSchema.WAVE_TABLE_START;
 
-            _waveTable[index * 2]     = (byte)Helpers.GetBitsIsolated(data, 4, 4);
+            _waveTable[index * 2] = (byte)Helpers.GetBitsIsolated(data, 4, 4);
             _waveTable[index * 2 + 1] = Helpers.GetBits(data, 4);
         }
 
@@ -50,7 +50,7 @@ namespace GBZEmuLibrary
                     case APUSchema.WAVE_3_FREQUENCY_LSB:
                         return 0xFF;
 
-                    case APUSchema.WAVE_3_FREQUENCY_MSB: 
+                    case APUSchema.WAVE_3_FREQUENCY_MSB:
                         // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB (Only interested in length enabled)
                         register = (_lengthEnabled ? 1 : 0) << 6;
                         return (byte)(0xBF | register);
@@ -88,7 +88,7 @@ namespace GBZEmuLibrary
         public override void Init()
         {
             base.Init();
-            _wavePos       = 0;
+            _wavePos = 0;
             _currentSample = 0;
         }
 
@@ -128,8 +128,8 @@ namespace GBZEmuLibrary
             if (_frequencyCount >= _frequency)
             {
                 _frequencyCount -= _frequency;
-                _wavePos        =  (_wavePos + 1) % 32;
-                _currentSample  =  _waveTable[_wavePos];
+                _wavePos = (_wavePos + 1) % 32;
+                _currentSample = _waveTable[_wavePos];
             }
         }
     }

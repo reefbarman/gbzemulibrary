@@ -5,9 +5,9 @@ namespace GBZEmuLibrary
     [Flags]
     public enum BootMode
     {
-        DMG   = 1,
-        GBC   = 2,
-        Skip  = 4,
+        DMG = 1,
+        GBC = 2,
+        Skip = 4,
         Force = 8,
         Short = 16
     }

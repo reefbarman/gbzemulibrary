@@ -7,9 +7,9 @@ namespace GBZEmuLibrary
     // Ref 2 - http://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware
     internal class SquareWaveGenerator : EnvelopeGenerator
     {
-        private int  _initialSweepPeriod;
-        private int  _sweepPeriod;
-        private int  _shiftSweep;
+        private int _initialSweepPeriod;
+        private int _sweepPeriod;
+        private int _shiftSweep;
         private bool _negateSweep;
         private bool _sweepEnabled;
         private bool _sweepNegated;
@@ -34,7 +34,7 @@ namespace GBZEmuLibrary
             base.Reset();
 
             _initialSweepPeriod = 0;
-            _shiftSweep         = 0;
+            _shiftSweep = 0;
             SetSweepMode(false);
 
             _dutyCycle = 0;
@@ -50,7 +50,7 @@ namespace GBZEmuLibrary
                     // Register Format -PPP NSSS Sweep period, negate, shift
                     register = _shiftSweep | ((_negateSweep ? 1 : 0) << 3) | (_initialSweepPeriod << 4);
                     return (byte)(0x80 | register);
-                    
+
                 case APUSchema.SQUARE_1_DUTY_LENGTH_LOAD:
                 case APUSchema.SQUARE_2_DUTY_LENGTH_LOAD:
                     // Register Format DDLL LLLL Duty, Length load (64-L) (Only first six bytes needed)
@@ -111,8 +111,8 @@ namespace GBZEmuLibrary
 
             SetFreqTimer(_originalFrequency);
             _shadowFrequency = _originalFrequency;
-            _sweepPeriod     = _initialSweepPeriod == 0 ? 8 : _initialSweepPeriod;
-            _sweepNegated    = false;
+            _sweepPeriod = _initialSweepPeriod == 0 ? 8 : _initialSweepPeriod;
+            _sweepNegated = false;
 
             _sweepEnabled = (_shiftSweep != 0) || (_initialSweepPeriod != 0);
 
@@ -121,7 +121,7 @@ namespace GBZEmuLibrary
                 CalculateNewFrequency();
             }
 
-            _volume         = _initialVolume;
+            _volume = _initialVolume;
             _envelopePeriod = _initialEnvelopePeriod == 0 ? 8 : _initialEnvelopePeriod;
         }
 
@@ -163,7 +163,7 @@ namespace GBZEmuLibrary
             if (_frequencyCount >= _frequency)
             {
                 _frequencyCount -= _frequency;
-                _wavePos        =  (_wavePos + 1) % 8;
+                _wavePos = (_wavePos + 1) % 8;
             }
         }
 

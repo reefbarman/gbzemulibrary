@@ -31,8 +31,8 @@
             else if (!Helpers.TestBit(_joyPadRegister, OTHER_BUTTONS_SELECT))
             {
                 var otherButtonState = _joyPadState >> 4;
-                otherButtonState |= 0xF0;     
-                state &= otherButtonState; 
+                otherButtonState |= 0xF0;
+                state &= otherButtonState;
             }
 
             return (byte)state;

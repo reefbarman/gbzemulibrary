@@ -4,15 +4,15 @@ namespace GBZEmuLibrary
 {
     internal abstract class Generator
     {
-        public int  ChannelState { get; set; }
-        public bool Enabled      { get; set; } = true;
-        public bool Status       => _enabled && _dacEnabled;
+        public int ChannelState { get; set; }
+        public bool Enabled { get; set; } = true;
+        public bool Status => _enabled && _dacEnabled;
 
         protected bool _dacEnabled;
         protected bool _enabled;
 
-        protected int  _maxLength;
-        protected int  _totalLength;
+        protected int _maxLength;
+        protected int _totalLength;
         protected bool _lengthEnabled;
 
         protected int _originalFrequency;
@@ -28,14 +28,14 @@ namespace GBZEmuLibrary
         }
 
         public abstract byte ReadByte(int address);
-        public abstract    void HandleTrigger();
-        protected abstract int  GetSample();
+        public abstract void HandleTrigger();
+        protected abstract int GetSample();
         protected abstract void UpdateFrequency(int cycles);
 
         public virtual void Init()
         {
             _frameSequenceTimer = 0;
-            _sequenceTimer      = 0;
+            _sequenceTimer = 0;
         }
 
         public virtual void Reset()
@@ -104,8 +104,8 @@ namespace GBZEmuLibrary
 
         public void ToggleDAC(bool enabled)
         {
-            _dacEnabled =  enabled;
-            _enabled    &= _dacEnabled;
+            _dacEnabled = enabled;
+            _enabled &= _dacEnabled;
         }
 
         public void SetLength(byte data)

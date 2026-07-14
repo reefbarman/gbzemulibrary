@@ -136,7 +136,7 @@ namespace GBZEmuLibrary
 
         private void LogicalShiftRight(ushort address)
         {
-            var value  = ReadByte(address);
+            var value = ReadByte(address);
             LogicalShiftRight(ref value);
             WriteByte(value, address);
         }

@@ -15,8 +15,8 @@ namespace GBZEmuLibrary
     internal class InterruptHandler
     {
         private const int VBLANK_SERVICE_ROUTINE = 0x40;
-        private const int LCD_SERVICE_ROUTINE    = 0x48;
-        private const int TIMER_SERVICE_ROUTINE  = 0x50;
+        private const int LCD_SERVICE_ROUTINE = 0x48;
+        private const int TIMER_SERVICE_ROUTINE = 0x50;
         private const int SERIAL_SERVICE_ROUTINE = 0x58;
         private const int JOYPAD_SERVICE_ROUTINE = 0x60;
 
@@ -39,7 +39,7 @@ namespace GBZEmuLibrary
             UpdateRegister(interrupt, true);
 
             var register = _mmu.ReadByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
-            var enabled  = _mmu.ReadByte(MemorySchema.INTERRUPT_ENABLE_REGISTER_START);
+            var enabled = _mmu.ReadByte(MemorySchema.INTERRUPT_ENABLE_REGISTER_START);
 
             if (Helpers.TestBit(register, (int)interrupt) && Helpers.TestBit(enabled, (int)interrupt) && Halted)
             {

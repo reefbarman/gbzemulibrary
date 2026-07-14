@@ -15,7 +15,7 @@ namespace GBZEmuLibrary
         public bool CustomPalette => _header.CustomPalette;
 
         private readonly byte[] _cartMemory = new byte[CartridgeSchema.MAX_CART_SIZE];
-        
+
         private CartridgeHeader _header;
         private ExternalRAM _externalRAM;
 
@@ -31,7 +31,7 @@ namespace GBZEmuLibrary
                 try
                 {
                     var cart = File.ReadAllBytes(Path.Combine(Directory.GetCurrentDirectory(), file));
-                    _header  = new CartridgeHeader(cart);
+                    _header = new CartridgeHeader(cart);
 
                     Array.Copy(cart, _cartMemory, _header.Length);
 
@@ -83,7 +83,7 @@ namespace GBZEmuLibrary
 
             if (address >= MemorySchema.EXTERNAL_RAM_START && address < MemorySchema.EXTERNAL_RAM_END)
             {
-                address = (address - MemorySchema.EXTERNAL_RAM_START) + ((_bankMode == BankingMode.RAMBank ?  _ramBank : 0) * CartridgeSchema.RAM_BANK_SIZE);
+                address = (address - MemorySchema.EXTERNAL_RAM_START) + ((_bankMode == BankingMode.RAMBank ? _ramBank : 0) * CartridgeSchema.RAM_BANK_SIZE);
 
                 if (address < _externalRAM.Length && _externalRAM.Enabled)
                 {

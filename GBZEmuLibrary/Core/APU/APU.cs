@@ -8,13 +8,13 @@ namespace GBZEmuLibrary
 
         private readonly SquareWaveGenerator _channel1;
         private readonly SquareWaveGenerator _channel2;
-        private readonly WaveGenerator       _channel3;
-        private readonly NoiseGenerator      _channel4;
+        private readonly WaveGenerator _channel3;
+        private readonly NoiseGenerator _channel4;
 
         private bool _powered;
 
         private readonly float _maxCyclesPerSample;
-        private          float _cycleCounter;
+        private float _cycleCounter;
 
         //Using double buffering
         private readonly byte[][] _buffer =
@@ -140,7 +140,7 @@ namespace GBZEmuLibrary
                     // Register Format FFFF FFFF Frequency LSB
 
                     freqLowerBits = data;
-                    freqHighBits  = Helpers.GetBits(ReadByte(APUSchema.SQUARE_1_FREQUENCY_MSB), 3) << 8;
+                    freqHighBits = Helpers.GetBits(ReadByte(APUSchema.SQUARE_1_FREQUENCY_MSB), 3) << 8;
 
                     _channel1.SetFrequency(freqHighBits + freqLowerBits);
                     break;
@@ -149,7 +149,7 @@ namespace GBZEmuLibrary
                     // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB
 
                     freqLowerBits = ReadByte(APUSchema.SQUARE_1_FREQUENCY_LSB);
-                    freqHighBits  = Helpers.GetBits(data, 3) << 8;
+                    freqHighBits = Helpers.GetBits(data, 3) << 8;
 
                     _channel1.SetFrequency(freqHighBits + freqLowerBits);
 
@@ -182,7 +182,7 @@ namespace GBZEmuLibrary
                     // Register Format FFFF FFFF Frequency LSB
 
                     freqLowerBits = data;
-                    freqHighBits  = Helpers.GetBits(ReadByte(APUSchema.SQUARE_2_FREQUENCY_MSB), 3) << 8;
+                    freqHighBits = Helpers.GetBits(ReadByte(APUSchema.SQUARE_2_FREQUENCY_MSB), 3) << 8;
 
                     _channel2.SetFrequency(freqHighBits + freqLowerBits);
                     break;
@@ -191,7 +191,7 @@ namespace GBZEmuLibrary
                     // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB
 
                     freqLowerBits = ReadByte(APUSchema.SQUARE_2_FREQUENCY_LSB);
-                    freqHighBits  = Helpers.GetBits(data, 3) << 8;
+                    freqHighBits = Helpers.GetBits(data, 3) << 8;
 
                     _channel2.SetFrequency(freqHighBits + freqLowerBits);
 
@@ -223,7 +223,7 @@ namespace GBZEmuLibrary
                     // Register Format FFFF FFFF Frequency LSB
 
                     freqLowerBits = data;
-                    freqHighBits  = Helpers.GetBits(ReadByte(APUSchema.WAVE_3_FREQUENCY_MSB), 3) << 8;
+                    freqHighBits = Helpers.GetBits(ReadByte(APUSchema.WAVE_3_FREQUENCY_MSB), 3) << 8;
 
                     _channel3.SetFrequency(freqHighBits + freqLowerBits);
                     break;
@@ -232,7 +232,7 @@ namespace GBZEmuLibrary
                     // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB
 
                     freqLowerBits = ReadByte(APUSchema.WAVE_3_FREQUENCY_LSB);
-                    freqHighBits  = Helpers.GetBits(data, 3) << 8;
+                    freqHighBits = Helpers.GetBits(data, 3) << 8;
 
                     _channel3.SetFrequency(freqHighBits + freqLowerBits);
 
@@ -279,10 +279,10 @@ namespace GBZEmuLibrary
                 case APUSchema.VIN_VOL_CONTROL:
                     // Register Format ALLL BRRR Vin L enable, Left vol, Vin R enable, Right vol
                     _rightChannelVolume = Helpers.GetBits(data, 3);
-                    _leftChannelVolume  = Helpers.GetBits((byte)(data >> 4), 3);
+                    _leftChannelVolume = Helpers.GetBits((byte)(data >> 4), 3);
 
                     _rightVinEnabled = Helpers.TestBit(data, 3);
-                    _leftVinEnabled  = Helpers.TestBit(data, 7);
+                    _leftVinEnabled = Helpers.TestBit(data, 7);
 
                     break;
 
@@ -589,7 +589,7 @@ namespace GBZEmuLibrary
 
             _cycleCounter -= _maxCyclesPerSample;
 
-            var leftChannel  = 0;
+            var leftChannel = 0;
             var rightChannel = 0;
 
             if (_powered)
@@ -602,7 +602,7 @@ namespace GBZEmuLibrary
 
             if (_currentByte * 2 < _buffer[_currentBuffer].Length - 1)
             {
-                _buffer[_currentBuffer][_currentByte * 2]     = (byte)((leftChannel * (1 + _leftChannelVolume)) / 8);
+                _buffer[_currentBuffer][_currentByte * 2] = (byte)((leftChannel * (1 + _leftChannelVolume)) / 8);
                 _buffer[_currentBuffer][_currentByte * 2 + 1] = (byte)((rightChannel * (1 + _rightChannelVolume)) / 8);
 
                 _currentByte++;
@@ -650,10 +650,10 @@ namespace GBZEmuLibrary
                     _memory[i] = 0;
                 }
 
-                _leftChannelVolume  = 0;
+                _leftChannelVolume = 0;
                 _rightChannelVolume = 0;
 
-                _leftVinEnabled  = false;
+                _leftVinEnabled = false;
                 _rightVinEnabled = false;
             }
             else if (newState && !_powered)

@@ -7,12 +7,12 @@ namespace GBZEmuLibrary
     internal partial class CPU
     {
 
-        private          ulong         _processCount;
-        private          ulong         _totalClocks;
-        private readonly int           _breakPC            = 0;
-        private readonly ulong         _processRecordStart = ulong.MaxValue;
-        private readonly ulong         _breakProcessCount  = ulong.MaxValue;
-        private readonly StringBuilder _opBuilder          = new StringBuilder();
+        private ulong _processCount;
+        private ulong _totalClocks;
+        private readonly int _breakPC = 0;
+        private readonly ulong _processRecordStart = ulong.MaxValue;
+        private readonly ulong _breakProcessCount = ulong.MaxValue;
+        private readonly StringBuilder _opBuilder = new StringBuilder();
 
         public override string ToString()
         {

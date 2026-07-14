@@ -53,7 +53,7 @@ namespace GBZEmuLibrary
             {
                 return _memory[address - MemorySchema.WORK_RAM_START - MemorySchema.WORK_RAM_ECHO_SWITCHABLE_OFFSET + GetBankOffset()];
             }
-            
+
             if (address == MemorySchema.SWITCHABLE_WORK_RAM_REGISTER)
             {
                 return (byte)_ramBank;

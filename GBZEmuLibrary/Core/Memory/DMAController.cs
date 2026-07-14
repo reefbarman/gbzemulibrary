@@ -27,7 +27,7 @@ namespace GBZEmuLibrary
                 case MemorySchema.DMA_REGISTER:
                     ProcessDMATranser(data);
                     break;
-                    
+
                 case MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER:
                     _sourceHigh = data;
                     break;
@@ -156,7 +156,7 @@ namespace GBZEmuLibrary
             if (_transferring)
             {
                 var offset = _currentIndex * 0x10;
-                
+
                 for (var i = 0; i < GetLength(); i++)
                 {
                     MessageBus.Instance.WriteByte(MessageBus.Instance.ReadByte(GetSourceAddress() + offset + i), GetDestinationAddress() + offset + i);

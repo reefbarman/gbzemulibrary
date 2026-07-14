@@ -48,7 +48,7 @@ namespace GBZEmuLibrary
 
         private void JumpImmediate()
         {
-            var relativeJump = (sbyte) ReadByte(_pc++);
+            var relativeJump = (sbyte)ReadByte(_pc++);
 
             _pc = (ushort)(_pc + relativeJump);
 

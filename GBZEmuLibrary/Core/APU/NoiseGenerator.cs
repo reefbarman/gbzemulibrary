@@ -14,7 +14,7 @@ namespace GBZEmuLibrary
 
         private int _linearFeedbackShiftRegister = 1;
 
-        private Queue<int> _samplesLeft  = new Queue<int>(MAX_SAMPLES_PER_CHANNEL + 1);
+        private Queue<int> _samplesLeft = new Queue<int>(MAX_SAMPLES_PER_CHANNEL + 1);
         private Queue<int> _samplesRight = new Queue<int>(MAX_SAMPLES_PER_CHANNEL + 1);
 
         public NoiseGenerator() : base(MathSchema.MAX_6_BIT_VALUE)
@@ -61,8 +61,8 @@ namespace GBZEmuLibrary
         {
             base.Reset();
 
-            _divRatio   = 0;
-            _widthMode  = 0;
+            _divRatio = 0;
+            _widthMode = 0;
             _clockShift = 0;
         }
 
@@ -82,7 +82,7 @@ namespace GBZEmuLibrary
 
             SetFrequency();
 
-            _volume         = _initialVolume;
+            _volume = _initialVolume;
             _envelopePeriod = _initialEnvelopePeriod == 0 ? 8 : _initialEnvelopePeriod;
         }
 
@@ -103,7 +103,7 @@ namespace GBZEmuLibrary
 
         public override void GetCurrentSample(ref int leftChannel, ref int rightChannel)
         {
-            leftChannel  += FilterSamples(_samplesLeft);
+            leftChannel += FilterSamples(_samplesLeft);
             rightChannel += FilterSamples(_samplesRight);
         }
 
@@ -133,7 +133,7 @@ namespace GBZEmuLibrary
                 }
             }
 
-            var leftSample  = 0;
+            var leftSample = 0;
             var rightSample = 0;
 
             base.GetCurrentSample(ref leftSample, ref rightSample);
