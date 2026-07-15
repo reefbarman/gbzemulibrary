@@ -94,11 +94,12 @@ public sealed class DebuggerTests
         byte? transferred = null;
         emulator.Debug.SerialByteTransferred += value => transferred = value;
 
+        Assert.Equal(0x7E, emulator.Debug.PeekByte(0xFF02));
         emulator.Debug.PokeByte((byte)'P', 0xFF01);
         emulator.Debug.PokeByte(0x81, 0xFF02);
 
         Assert.Equal((byte)'P', transferred);
-        Assert.Equal(0, emulator.Debug.PeekByte(0xFF02) & 0x80);
+        Assert.Equal(0x7F, emulator.Debug.PeekByte(0xFF02));
         emulator.Terminate();
     }
 
@@ -118,7 +119,7 @@ public sealed class DebuggerTests
         emulator.Debug.PokeByte(0x80, 0xFF02);
 
         Assert.Null(transferred);
-        Assert.NotEqual(0, emulator.Debug.PeekByte(0xFF02) & 0x80);
+        Assert.Equal(0xFE, emulator.Debug.PeekByte(0xFF02));
         emulator.Terminate();
     }
 

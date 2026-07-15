@@ -213,7 +213,13 @@ namespace GBZEmuLibrary
 
             if (address >= MemorySchema.GPU_REGISTERS_START && address < MemorySchema.GPU_REGISTERS_END)
             {
-                return _gpuRegisters[address - MemorySchema.GPU_REGISTERS_START];
+                var register = address - MemorySchema.GPU_REGISTERS_START;
+                var value = _gpuRegisters[register];
+
+                // STAT bit 7 is unused on DMG hardware and is pulled high when read.
+                return register == (int)Registers.LCDStatus
+                    ? (byte)(value | 0x80)
+                    : value;
             }
 
             if (address == MemorySchema.GPU_VRAM_BANK_REGISTER)

@@ -327,12 +327,6 @@ namespace GBZEmuLibrary
             var lastByteORed = ReadByteLast(address);
             var lastByte = _memory[address - MemorySchema.APU_REGISTERS_START];
 
-            if (realByte != lastByteORed)
-            {
-                Console.WriteLine($"Real: {Convert.ToString(realByte, 2)}, Last: {Convert.ToString(lastByte, 2)}");
-                Helpers.NoOp();
-            }
-
             switch (address)
             {
                 case APUSchema.SQUARE_1_SWEEP_PERIOD:

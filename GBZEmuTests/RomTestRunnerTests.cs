@@ -52,6 +52,34 @@ public sealed class RomTestRunnerTests
     }
 
     /// <summary>
+    /// Emits a serial diagnostic before an invalid Mooneye fingerprint and verifies the failure preserves that text.
+    /// Mooneye and SameSuite use serial output to identify the exact subtest that failed before their LD B,B marker.
+    /// </summary>
+    [Fact]
+    public void MooneyeRunnerIncludesSerialFailureDiagnostic()
+    {
+        using var rom = TestRom.Create(
+            0x21, 0x00, 0x02,
+            0x06, 4,
+            0x2A,
+            0xEA, 0x01, 0xFF,
+            0x3E, 0x81,
+            0xEA, 0x02, 0xFF,
+            0x05,
+            0x20, 0xF4,
+            0x40,
+            0x18, 0xFE);
+        var bytes = File.ReadAllBytes(rom.Path);
+        "FF03"u8.CopyTo(bytes.AsSpan(0x0200));
+        File.WriteAllBytes(rom.Path, bytes);
+        using var runner = new RomTestRunner(rom.Path);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => runner.RunMooneyeProtocol(1));
+
+        Assert.Contains("Serial output: FF03", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Builds the Mooneye Fibonacci register fingerprint and executes LD B,B as its completion signal.
     /// This validates both the protocol oracle and exact-state capture at the test ROM's breakpoint convention.
     /// </summary>

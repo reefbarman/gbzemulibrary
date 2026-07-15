@@ -1,43 +1,58 @@
 ﻿namespace GBZEmuLibrary
 {
-    internal class Joypad : IMemoryUnit
+    /// <summary>
+    /// Emulates the active-low P1 joypad register and its two multiplexed four-button groups.
+    /// </summary>
+    internal sealed class Joypad : IMemoryUnit
     {
         private const int DIRECTION_BUTTONS_SELECT = 4;
         private const int OTHER_BUTTONS_SELECT = 5;
+        private const byte BUTTON_GROUP_MASK = 0x0F;
+        private const byte SELECT_MASK = 0x30;
+        private const byte UNUSED_BITS = 0xC0;
 
         private byte _joyPadState = 0xFF;
-        private byte _joyPadRegister;
+        private byte _joyPadRegister = SELECT_MASK;
 
+        /// <summary>
+        /// Stores the two writable active-low button-group selection lines.
+        /// </summary>
         public void WriteByte(byte data, int address)
         {
-            _joyPadRegister = data;
+            _joyPadRegister = (byte)(data & SELECT_MASK);
         }
 
+        /// <summary>
+        /// Returns whether this device owns the P1 joypad register.
+        /// </summary>
         public bool CanReadWriteByte(int address)
         {
             return address == MemorySchema.JOYPAD_REGISTER;
         }
 
+        /// <summary>
+        /// Reads selected active-low button lines while returning the two unused upper bits high.
+        /// </summary>
         public byte ReadByte(int address)
         {
-            var state = _joyPadRegister ^ 0xFF;
+            var buttons = BUTTON_GROUP_MASK;
 
             if (!Helpers.TestBit(_joyPadRegister, DIRECTION_BUTTONS_SELECT))
             {
-                var directionButtonState = _joyPadState & 0xF;
-                directionButtonState |= 0xF0;
-                state &= directionButtonState;
-            }
-            else if (!Helpers.TestBit(_joyPadRegister, OTHER_BUTTONS_SELECT))
-            {
-                var otherButtonState = _joyPadState >> 4;
-                otherButtonState |= 0xF0;
-                state &= otherButtonState;
+                buttons &= (byte)(_joyPadState & BUTTON_GROUP_MASK);
             }
 
-            return (byte)state;
+            if (!Helpers.TestBit(_joyPadRegister, OTHER_BUTTONS_SELECT))
+            {
+                buttons &= (byte)(_joyPadState >> 4);
+            }
+
+            return (byte)(UNUSED_BITS | _joyPadRegister | buttons);
         }
 
+        /// <summary>
+        /// Presses a button and requests a joypad interrupt when its selected input line falls.
+        /// </summary>
         public void ButtonDown(JoypadButtons button)
         {
             var previousState = !Helpers.TestBit(_joyPadState, (int)button);
@@ -63,6 +78,9 @@
             }
         }
 
+        /// <summary>
+        /// Releases a button by restoring its active-low input line high.
+        /// </summary>
         public void ButtonUp(JoypadButtons button)
         {
             Helpers.SetBit(ref _joyPadState, (int)button, true);

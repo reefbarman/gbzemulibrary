@@ -16,17 +16,21 @@ namespace GBZEmuLibrary
         private readonly Dictionary<int, IMemoryUnit> _memoryUnitLookup = new Dictionary<int, IMemoryUnit>();
 
         private readonly WorkRAM _workRAM = new WorkRAM();
+        private readonly SerialRegisters _serialRegisters;
 
         private readonly MainMemory _mainMemory = new MainMemory();
+        private GBCMode _mode;
 
         /// <summary>
         /// Builds the fixed address-to-device lookup used by CPU, DMA, and debugger memory accesses.
         /// </summary>
         public MMU(Cartridge cart, GPU gpu, Timer timer, DivideRegister divideRegister, Joypad joypad, APU apu, SerialRegisters serialRegisters)
         {
+            _serialRegisters = serialRegisters;
+
             var memoryUnits = new List<IMemoryUnit>
             {
-                cart, gpu, _workRAM, joypad, serialRegisters, divideRegister, timer, apu, new DMAController()
+                cart, gpu, _workRAM, joypad, serialRegisters, divideRegister, timer, apu, new DMAController(), new UnmappedIO()
             };
 
             MessageBus.Instance.OnReadByte = ReadByte;
@@ -51,11 +55,13 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Initializes mode-dependent work RAM behavior.
+        /// Initializes mode-dependent memory and I/O register behavior.
         /// </summary>
         public void Init(GBCMode mode)
         {
+            _mode = mode;
             _workRAM.Init(mode);
+            _serialRegisters.Init(mode);
         }
 
         /// <summary>
@@ -63,6 +69,14 @@ namespace GBZEmuLibrary
         /// </summary>
         public byte ReadByte(int address)
         {
+            // CGB-only I/O registers are inaccessible in DMG mode and expose the unused-register pull-up value.
+            if (_mode == GBCMode.NoGBC &&
+                address >= MemorySchema.CGB_IO_REGISTERS_START &&
+                address < MemorySchema.CGB_IO_REGISTERS_END)
+            {
+                return 0xFF;
+            }
+
             if (address < MemorySchema.ROM_END)
             {
                 if (_mainMemory.InBootROM)
@@ -97,6 +111,15 @@ namespace GBZEmuLibrary
         /// </summary>
         public void WriteByte(byte data, int address)
         {
+            // DMG hardware ignores writes to the CGB-only I/O window; FF50 remains the shared boot-ROM disable latch.
+            if (_mode == GBCMode.NoGBC &&
+                address >= MemorySchema.CGB_IO_REGISTERS_START &&
+                address < MemorySchema.CGB_IO_REGISTERS_END &&
+                address != MemorySchema.BOOT_ROM_DISABLE_REGISTER)
+            {
+                return;
+            }
+
             if (address == MemorySchema.CPU_SPEED_SWITCH_REGISTER)
             {
                 OnPendingSpeedSwitch?.Invoke(data);

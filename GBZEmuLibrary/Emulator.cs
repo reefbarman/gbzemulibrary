@@ -131,11 +131,11 @@ namespace GBZEmuLibrary
 
                 useBootRom = useBootRom && BootROM.TrySetBootMode(gbcBootRom, config.BootMode.IsSet(BootMode.Short));
 
+                _mmu.Init(mode);
                 _apu.Reset();
                 _timerState.Reset(useBootRom, mode);
                 _cpu.Reset(useBootRom, mode);
                 _gpu.Reset(mode != GBCMode.NoGBC);
-                _mmu.Init(mode);
 
                 _hasStarted = true;
                 _running = true;

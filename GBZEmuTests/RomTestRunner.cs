@@ -133,8 +133,16 @@ internal sealed class RomTestRunner : IDisposable
             (byte)(state.HL >> 8) != 21 ||
             (byte)state.HL != 34)
         {
-            throw new InvalidOperationException(
-                $"Fibonacci fingerprint mismatch: B={(byte)(state.BC >> 8):X2}, C={(byte)state.BC:X2}, D={(byte)(state.DE >> 8):X2}, E={(byte)state.DE:X2}, H={(byte)(state.HL >> 8):X2}, L={(byte)state.HL:X2}.");
+            var serialDiagnostic = SerialOutput.Trim();
+            var message =
+                $"Fibonacci fingerprint mismatch: B={(byte)(state.BC >> 8):X2}, C={(byte)state.BC:X2}, D={(byte)(state.DE >> 8):X2}, E={(byte)state.DE:X2}, H={(byte)(state.HL >> 8):X2}, L={(byte)state.HL:X2}.";
+
+            if (serialDiagnostic.Length > 0)
+            {
+                message += $" Serial output: {serialDiagnostic}";
+            }
+
+            throw new InvalidOperationException(message);
         }
 
         return state;
