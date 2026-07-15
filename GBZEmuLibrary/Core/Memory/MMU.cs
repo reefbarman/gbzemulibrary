@@ -16,6 +16,7 @@ namespace GBZEmuLibrary
         private readonly Dictionary<int, IMemoryUnit> _memoryUnitLookup = new Dictionary<int, IMemoryUnit>();
 
         private readonly WorkRAM _workRAM = new WorkRAM();
+        private readonly APU _apu;
         private readonly SerialRegisters _serialRegisters;
 
         private readonly MainMemory _mainMemory = new MainMemory();
@@ -26,6 +27,7 @@ namespace GBZEmuLibrary
         /// </summary>
         public MMU(Cartridge cart, GPU gpu, Timer timer, DivideRegister divideRegister, Joypad joypad, APU apu, SerialRegisters serialRegisters)
         {
+            _apu = apu;
             _serialRegisters = serialRegisters;
 
             var memoryUnits = new List<IMemoryUnit>
@@ -61,6 +63,8 @@ namespace GBZEmuLibrary
         {
             _mode = mode;
             _workRAM.Init(mode);
+            // APU mode must be selected before Emulator.Start applies its post-boot reset profile.
+            _apu.Init(mode);
             _serialRegisters.Init(mode);
         }
 

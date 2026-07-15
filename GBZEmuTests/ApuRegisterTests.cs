@@ -37,10 +37,14 @@ public sealed class ApuRegisterTests
     /// <summary>
     /// Powers off the APU and verifies ordinary register writes are ignored until NR52 powers it on again.
     /// </summary>
-    [Fact]
-    public void PoweredOffApuIgnoresOrdinaryRegisterWrites()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void PoweredOffApuIgnoresOrdinaryRegisterWrites(int mode)
     {
         var apu = new APU();
+        apu.Init((GBCMode)mode);
         apu.Reset();
 
         apu.WriteByte(0x00, APUSchema.SOUND_ENABLED);
@@ -48,6 +52,29 @@ public sealed class ApuRegisterTests
 
         Assert.Equal(0x70, apu.ReadByte(APUSchema.SOUND_ENABLED));
         Assert.Equal(0x00, apu.ReadByte(APUSchema.SQUARE_1_VOLUME_ENVELOPE));
+    }
+
+    /// <summary>
+    /// Verifies powered-off length writes never restore square duty bits in either hardware mode.
+    /// DMG applies only the hidden length value, while CGB ignores the entire write.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void PoweredOffLengthWritesDoNotRestoreDutyBits(int mode)
+    {
+        var apu = new APU();
+        apu.Init((GBCMode)mode);
+        apu.Reset();
+
+        apu.WriteByte(0x00, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0xFF, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0xFF, APUSchema.SQUARE_2_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+
+        Assert.Equal(0x3F, apu.ReadByte(APUSchema.SQUARE_1_DUTY_LENGTH_LOAD));
+        Assert.Equal(0x3F, apu.ReadByte(APUSchema.SQUARE_2_DUTY_LENGTH_LOAD));
     }
 
     /// <summary>

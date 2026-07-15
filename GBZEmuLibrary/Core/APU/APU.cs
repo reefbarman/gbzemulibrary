@@ -12,6 +12,7 @@ namespace GBZEmuLibrary
         private readonly NoiseGenerator _channel4;
 
         private bool _powered;
+        private bool _gbcMode;
 
         private readonly float _maxCyclesPerSample;
         private float _cycleCounter;
@@ -42,6 +43,15 @@ namespace GBZEmuLibrary
             _channel2 = new SquareWaveGenerator();
             _channel3 = new WaveGenerator();
             _channel4 = new NoiseGenerator();
+        }
+
+        /// <summary>
+        /// Selects revision-specific APU behavior for the active hardware mode.
+        /// </summary>
+        public void Init(GBCMode mode)
+        {
+            // Both GBCSupport and GBCOnly represent execution on CGB hardware; cartridge compatibility is separate.
+            _gbcMode = mode != GBCMode.NoGBC;
         }
 
         public void ToggleChannel(Sound.Channel channel, bool enabled)
@@ -104,11 +114,35 @@ namespace GBZEmuLibrary
             WriteByte(0xF1, 0xFF26);
         }
 
+        /// <summary>
+        /// Writes an audio register while enforcing NR52 power gating and revision-specific off-state length behavior.
+        /// </summary>
         public void WriteByte(byte data, int address)
         {
-            //TODO CGB may not write to length counters when powered off
-            if (!_powered && !(address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END) && Array.IndexOf(APUSchema.REGISTERS_ALWAYS_WRITTEN, address) == -1)
+            if (!_powered &&
+                address != APUSchema.SOUND_ENABLED &&
+                !(address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END))
             {
+                if (!_gbcMode)
+                {
+                    // DMG length counters remain writable while powered off, without restoring backing register state.
+                    switch (address)
+                    {
+                        case APUSchema.SQUARE_1_DUTY_LENGTH_LOAD:
+                            _channel1.SetLength(Helpers.GetBits(data, 6));
+                            return;
+                        case APUSchema.SQUARE_2_DUTY_LENGTH_LOAD:
+                            _channel2.SetLength(Helpers.GetBits(data, 6));
+                            return;
+                        case APUSchema.WAVE_3_LENGTH_LOAD:
+                            _channel3.SetLength(data);
+                            return;
+                        case APUSchema.NOISE_4_LENGTH_LOAD:
+                            _channel4.SetLength(Helpers.GetBits(data, 6));
+                            return;
+                    }
+                }
+
                 return;
             }
 
