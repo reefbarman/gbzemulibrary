@@ -18,6 +18,7 @@ namespace GBZEmuLibrary
         public bool CustomPalette => _header.CustomPalette;
 
         private readonly BootROM _bootROM;
+        private readonly Func<long> _getUnixTimestamp;
         private byte[] _cartMemory;
 
         private CartridgeHeader _header;
@@ -49,9 +50,10 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Creates a cartridge whose header can inspect the boot ROM owned by the same emulator instance.
         /// </summary>
-        public Cartridge(BootROM bootROM)
+        public Cartridge(BootROM bootROM, Func<long> getUnixTimestamp = null)
         {
             _bootROM = bootROM;
+            _getUnixTimestamp = getUnixTimestamp ?? (() => DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         }
 
         /// <summary>
@@ -73,6 +75,14 @@ namespace GBZEmuLibrary
                         ? MBC2RamSize
                         : CartridgeSchema.RAM_BANK_SIZE * _header.RAMBanks;
                     _externalRAM = new ExternalRAM(saveLocation, Path.GetFileName(file), ramSize);
+                    if (_mbc3RTC != null)
+                    {
+                        var rtcData = _externalRAM.ReadRTCTrailer();
+                        if (rtcData != null)
+                        {
+                            _mbc3RTC.Load(rtcData, _getUnixTimestamp());
+                        }
+                    }
 
                     return true;
                 }
@@ -87,7 +97,18 @@ namespace GBZEmuLibrary
 
         public void Terminate()
         {
+            if (_externalRAM == null)
+            {
+                return;
+            }
+
+            if (_mbc3RTC != null)
+            {
+                _externalRAM.WriteRTCTrailer(_mbc3RTC.Save(_getUnixTimestamp()));
+            }
+
             _externalRAM.Dispose();
+            _externalRAM = null;
         }
 
         public bool CanReadWriteByte(int address)

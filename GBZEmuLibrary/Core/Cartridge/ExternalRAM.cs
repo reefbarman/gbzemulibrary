@@ -2,6 +2,9 @@
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Provides file-backed cartridge RAM while preserving optional controller metadata appended after raw RAM bytes.
+    /// </summary>
     internal class ExternalRAM
     {
         public bool Enabled
@@ -42,6 +45,45 @@ namespace GBZEmuLibrary
             }
 
             Length = externalRAMSize;
+        }
+
+        /// <summary>
+        /// Reads a recognized 44- or 48-byte RTC trailer stored immediately after the declared RAM region.
+        /// </summary>
+        public byte[] ReadRTCTrailer()
+        {
+            var trailerLength = _externalRAM.Length - Length;
+            if (trailerLength != 44 && trailerLength != MBC3RTC.PersistenceSize)
+            {
+                return null;
+            }
+
+            var data = new byte[trailerLength];
+            _externalRAM.Position = Length;
+            var offset = 0;
+            while (offset < data.Length)
+            {
+                var read = _externalRAM.Read(data, offset, data.Length - offset);
+                if (read == 0)
+                {
+                    return null;
+                }
+
+                offset += read;
+            }
+
+            return data;
+        }
+
+        /// <summary>
+        /// Writes a normalized RTC trailer after raw RAM without changing the RAM prefix or save filename.
+        /// </summary>
+        public void WriteRTCTrailer(byte[] data)
+        {
+            _externalRAM.Position = Length;
+            _externalRAM.Write(data, 0, data.Length);
+            _externalRAM.SetLength(Length + data.Length);
+            _externalRAM.Flush();
         }
 
         public void Dispose()

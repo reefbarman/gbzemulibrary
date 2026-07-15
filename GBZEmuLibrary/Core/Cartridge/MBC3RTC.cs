@@ -1,8 +1,9 @@
+using System;
+
 namespace GBZEmuLibrary
 {
     /// <summary>
-    /// Emulates the MBC3 real-time clock's live registers, latched read snapshot, halt state, and day carry.
-    /// Persistence across emulator sessions is handled separately from this in-session clock state.
+    /// Emulates MBC3 live/latched clock registers, halt and carry state, plus BGB-compatible persistence data.
     /// </summary>
     internal sealed class MBC3RTC
     {
@@ -11,7 +12,13 @@ namespace GBZEmuLibrary
         internal const byte HoursRegister = 0x0A;
         internal const byte DaysLowRegister = 0x0B;
         internal const byte DaysHighRegister = 0x0C;
+        internal const int PersistenceSize = 48;
 
+        private const int LegacyPersistenceSize = 44;
+        private const int SecondsPerMinute = 60;
+        private const int SecondsPerHour = 60 * SecondsPerMinute;
+        private const int SecondsPerDay = 24 * SecondsPerHour;
+        private const int DaysPerCycle = 512;
         private const byte HaltMask = 0x40;
         private const byte CarryMask = 0x80;
 
@@ -66,24 +73,57 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            switch (register)
+            if (register == SecondsRegister)
             {
-                case SecondsRegister:
-                    value &= 0x3F;
-                    _subSecondClocks = 0;
-                    break;
-                case MinutesRegister:
-                    value &= 0x3F;
-                    break;
-                case HoursRegister:
-                    value &= 0x1F;
-                    break;
-                case DaysHighRegister:
-                    value &= 0xC1;
-                    break;
+                _subSecondClocks = 0;
             }
 
-            _liveRegisters[RegisterIndex(register)] = value;
+            _liveRegisters[RegisterIndex(register)] = MaskRegister(register, value);
+        }
+
+        /// <summary>
+        /// Serializes live and latched registers plus a UTC timestamp using the BGB-compatible 48-byte RTC trailer.
+        /// </summary>
+        public byte[] Save(long unixTimestamp)
+        {
+            var data = new byte[PersistenceSize];
+            for (var index = 0; index < _liveRegisters.Length; index++)
+            {
+                WriteInt32(data, index * 4, _liveRegisters[index]);
+                WriteInt32(data, 20 + (index * 4), _latchedRegisters[index]);
+            }
+
+            WriteInt64(data, 40, unixTimestamp);
+            return data;
+        }
+
+        /// <summary>
+        /// Restores a BGB-compatible 44- or 48-byte RTC trailer and applies elapsed UTC seconds to the live clock.
+        /// </summary>
+        public bool Load(byte[] data, long currentUnixTimestamp)
+        {
+            if (data == null || (data.Length != LegacyPersistenceSize && data.Length != PersistenceSize))
+            {
+                return false;
+            }
+
+            for (var index = 0; index < _liveRegisters.Length; index++)
+            {
+                _liveRegisters[index] = MaskRegister((byte)(SecondsRegister + index), (byte)ReadInt32(data, index * 4));
+                _latchedRegisters[index] = MaskRegister((byte)(SecondsRegister + index), (byte)ReadInt32(data, 20 + (index * 4)));
+            }
+
+            _subSecondClocks = 0;
+            var savedTimestamp = data.Length == PersistenceSize
+                ? ReadInt64(data, 40)
+                : (long)(uint)ReadInt32(data, 40);
+            if (savedTimestamp >= 0 && currentUnixTimestamp >= 0 &&
+                currentUnixTimestamp > savedTimestamp && !IsHalted())
+            {
+                AdvanceSeconds(currentUnixTimestamp - savedTimestamp);
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -97,6 +137,97 @@ namespace GBZEmuLibrary
         private static int RegisterIndex(byte register)
         {
             return register - SecondsRegister;
+        }
+
+        private static byte MaskRegister(byte register, byte value)
+        {
+            switch (register)
+            {
+                case SecondsRegister:
+                case MinutesRegister:
+                    return (byte)(value & 0x3F);
+                case HoursRegister:
+                    return (byte)(value & 0x1F);
+                case DaysHighRegister:
+                    return (byte)(value & 0xC1);
+                default:
+                    return value;
+            }
+        }
+
+        private bool IsHalted()
+        {
+            return (_liveRegisters[RegisterIndex(DaysHighRegister)] & HaltMask) != 0;
+        }
+
+        private void AdvanceSeconds(long seconds)
+        {
+            // Invalid masked register values have special one-tick behavior; normalize them before bulk arithmetic.
+            while (seconds > 0 && HasOutOfRangeTime())
+            {
+                IncrementSecond();
+                seconds--;
+            }
+
+            if (seconds == 0)
+            {
+                return;
+            }
+
+            var daysHighIndex = RegisterIndex(DaysHighRegister);
+            var day = _liveRegisters[RegisterIndex(DaysLowRegister)] |
+                      ((_liveRegisters[daysHighIndex] & 0x01) << 8);
+            var currentSecondsWithinDay = _liveRegisters[RegisterIndex(SecondsRegister)] +
+                                          (_liveRegisters[RegisterIndex(MinutesRegister)] * SecondsPerMinute) +
+                                          (_liveRegisters[RegisterIndex(HoursRegister)] * SecondsPerHour);
+            var combinedSecondsWithinDay = currentSecondsWithinDay + (seconds % SecondsPerDay);
+            var totalDays = day + (seconds / SecondsPerDay) + (combinedSecondsWithinDay / SecondsPerDay);
+            var wrappedDay = (int)(totalDays % DaysPerCycle);
+            var secondsWithinDay = (int)(combinedSecondsWithinDay % SecondsPerDay);
+
+            _liveRegisters[RegisterIndex(SecondsRegister)] = (byte)(secondsWithinDay % SecondsPerMinute);
+            _liveRegisters[RegisterIndex(MinutesRegister)] = (byte)(secondsWithinDay / SecondsPerMinute % SecondsPerMinute);
+            _liveRegisters[RegisterIndex(HoursRegister)] = (byte)(secondsWithinDay / SecondsPerHour);
+            _liveRegisters[RegisterIndex(DaysLowRegister)] = (byte)wrappedDay;
+            _liveRegisters[daysHighIndex] = (byte)((_liveRegisters[daysHighIndex] & 0xC0) | (wrappedDay >> 8));
+            if (totalDays >= DaysPerCycle)
+            {
+                _liveRegisters[daysHighIndex] |= CarryMask;
+            }
+        }
+
+        private bool HasOutOfRangeTime()
+        {
+            return _liveRegisters[RegisterIndex(SecondsRegister)] > 59 ||
+                   _liveRegisters[RegisterIndex(MinutesRegister)] > 59 ||
+                   _liveRegisters[RegisterIndex(HoursRegister)] > 23;
+        }
+
+        private static int ReadInt32(byte[] data, int offset)
+        {
+            return data[offset] |
+                   (data[offset + 1] << 8) |
+                   (data[offset + 2] << 16) |
+                   (data[offset + 3] << 24);
+        }
+
+        private static long ReadInt64(byte[] data, int offset)
+        {
+            return (uint)ReadInt32(data, offset) | ((long)ReadInt32(data, offset + 4) << 32);
+        }
+
+        private static void WriteInt32(byte[] data, int offset, int value)
+        {
+            data[offset] = (byte)value;
+            data[offset + 1] = (byte)(value >> 8);
+            data[offset + 2] = (byte)(value >> 16);
+            data[offset + 3] = (byte)(value >> 24);
+        }
+
+        private static void WriteInt64(byte[] data, int offset, long value)
+        {
+            WriteInt32(data, offset, (int)value);
+            WriteInt32(data, offset + 4, (int)(value >> 32));
         }
 
         private void IncrementSecond()

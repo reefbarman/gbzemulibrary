@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using GBZEmuLibrary;
 
 namespace GBZEmuTests;
@@ -136,6 +137,104 @@ public sealed class CartridgeTests
             }
 
             second.Terminate();
+        }
+        finally
+        {
+            Directory.Delete(saveDirectory, true);
+        }
+    }
+
+    /// <summary>
+    /// Verifies timer-capable MBC3 saves append BGB-compatible RTC metadata after raw RAM and apply elapsed UTC time
+    /// on reload without changing the saved latch until the cartridge receives another latch sequence.
+    /// </summary>
+    [Fact]
+    public void Mbc3RtcPersistsAfterRawRamAndCatchesUpOnReload()
+    {
+        using var rom = CreateMbc3BankedRom();
+        var saveDirectory = Path.Combine(Path.GetTempPath(), $"gbzemu-mbc3-rtc-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(saveDirectory);
+        long unixTimestamp = 10_000;
+
+        try
+        {
+            var first = new Cartridge(new BootROM(), () => unixTimestamp);
+            Assert.True(first.LoadFile(rom.Path, saveDirectory));
+            first.WriteByte(0x0A, 0x0000);
+            first.WriteByte(0x5A, 0xA000);
+            first.WriteByte(MBC3RTC.SecondsRegister, 0x4000);
+            first.WriteByte(10, 0xA000);
+            first.WriteByte(0, 0x6000);
+            first.WriteByte(1, 0x6000);
+            first.Terminate();
+
+            var savePath = Path.Combine(saveDirectory, $"{Path.GetFileName(rom.Path)}.sav");
+            var saveData = File.ReadAllBytes(savePath);
+            Assert.Equal((4 * CartridgeSchema.RAM_BANK_SIZE) + MBC3RTC.PersistenceSize, saveData.Length);
+            Assert.Equal(0x5A, saveData[0]);
+            Assert.Equal(10, BinaryPrimitives.ReadInt32LittleEndian(saveData.AsSpan(4 * CartridgeSchema.RAM_BANK_SIZE, 4)));
+            Assert.Equal(unixTimestamp, BinaryPrimitives.ReadInt64LittleEndian(saveData.AsSpan(saveData.Length - 8, 8)));
+
+            unixTimestamp += 90;
+            var second = new Cartridge(new BootROM(), () => unixTimestamp);
+            Assert.True(second.LoadFile(rom.Path, saveDirectory));
+            second.WriteByte(0x0A, 0x0000);
+            second.WriteByte(MBC3RTC.SecondsRegister, 0x4000);
+            Assert.Equal(10, second.ReadByte(0xA000));
+
+            second.WriteByte(0, 0x6000);
+            second.WriteByte(1, 0x6000);
+            Assert.Equal(40, second.ReadByte(0xA000));
+            second.WriteByte(MBC3RTC.MinutesRegister, 0x4000);
+            Assert.Equal(1, second.ReadByte(0xA000));
+            second.WriteByte(0, 0x4000);
+            Assert.Equal(0x5A, second.ReadByte(0xA000));
+            second.Terminate();
+        }
+        finally
+        {
+            Directory.Delete(saveDirectory, true);
+        }
+    }
+
+    /// <summary>
+    /// Verifies timer-only MBC3 cartridges persist a trailer without RAM and corrupt trailers are replaced safely.
+    /// </summary>
+    [Fact]
+    public void Mbc3RtcHandlesZeroRamAndCorruptTrailers()
+    {
+        using var rom = CreateCartridge(0x0F, 0x00, 0x00);
+        var saveDirectory = Path.Combine(Path.GetTempPath(), $"gbzemu-mbc3-rtc-zero-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(saveDirectory);
+        const long unixTimestamp = 20_000;
+
+        try
+        {
+            var first = new Cartridge(new BootROM(), () => unixTimestamp);
+            Assert.True(first.LoadFile(rom.Path, saveDirectory));
+            first.WriteByte(0x0A, 0x0000);
+            first.WriteByte(MBC3RTC.SecondsRegister, 0x4000);
+            first.WriteByte(7, 0xA000);
+            first.WriteByte(0, 0x6000);
+            first.WriteByte(1, 0x6000);
+            first.Terminate();
+            first.Terminate();
+
+            var savePath = Path.Combine(saveDirectory, $"{Path.GetFileName(rom.Path)}.sav");
+            var saveData = File.ReadAllBytes(savePath);
+            Assert.Equal(MBC3RTC.PersistenceSize, saveData.Length);
+            Assert.Equal(7, BinaryPrimitives.ReadInt32LittleEndian(saveData.AsSpan(0, 4)));
+
+            File.WriteAllBytes(savePath, saveData[..20]);
+            var second = new Cartridge(new BootROM(), () => unixTimestamp + 100);
+            Assert.True(second.LoadFile(rom.Path, saveDirectory));
+            second.WriteByte(0x0A, 0x0000);
+            second.WriteByte(MBC3RTC.SecondsRegister, 0x4000);
+            second.WriteByte(0, 0x6000);
+            second.WriteByte(1, 0x6000);
+            Assert.Equal(0, second.ReadByte(0xA000));
+            second.Terminate();
+            Assert.Equal(MBC3RTC.PersistenceSize, new FileInfo(savePath).Length);
         }
         finally
         {
