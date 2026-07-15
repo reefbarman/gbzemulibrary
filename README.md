@@ -277,7 +277,7 @@ GBZEmuTests/                    xUnit debug and ROM-conformance harness
 ## Current limitations
 
 - The conformance suite still has failures, primarily in cycle/dot-accurate PPU, APU, DMA, interrupt, and hardware-revision behavior. `mooneye/acceptance/halt_ime0_nointr_timing` is currently deferred: resolving its remaining one-cycle discrepancy requires coordinated HALT wake, interrupt-polling, and VBlank phase modeling rather than another local timing adjustment. It remains a visible failing test instead of being suppressed. The core remains experimental while these failures remain.
-- Boot-ROM data is not included; hosts must provide firmware at runtime or use skip-boot initialization. Boot-state test variants without matching firmware/revision state remain known failures.
+- Boot-ROM data is not included; hosts must provide firmware at runtime or use skip-boot initialization. DMG skip-boot restores deterministic DMG ABC P1, interrupt-request, and powered-APU state, but it does not yet reproduce the firmware-exit PPU phase; `mooneye/acceptance/boot_hwio-dmgABCmgb` therefore remains visibly red at its STAT check. Boot-state variants for other hardware revisions also remain known failures.
 - Cartridge behavior is partial: MBC3 RTC/latching/persistence and MBC3 external-RAM bank selection remain incomplete.
 - The internal `MessageBus` remains a static singleton, so only one live `Emulator` instance is supported per process. Sequential instances safely replace interrupt, memory, and HBlank callbacks.
 - The public buffers and emulation state are not thread-safe.

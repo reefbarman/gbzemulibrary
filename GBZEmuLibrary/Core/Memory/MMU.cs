@@ -153,9 +153,12 @@ namespace GBZEmuLibrary
                 return;
             }
 
+            // These deterministic values are shared by DMG ABC and the current CGB skip-boot profile.
+            WriteByte(0x00, MemorySchema.JOYPAD_REGISTER);
             WriteByte(0x00, 0xFF05);
             WriteByte(0x00, 0xFF06);
             WriteByte(0x00, 0xFF07);
+            WriteByte(0x01, MemorySchema.INTERRUPT_REQUEST_REGISTER);
             WriteByte(0x91, 0xFF40);
             WriteByte(0x00, 0xFF42);
             WriteByte(0x00, 0xFF43);

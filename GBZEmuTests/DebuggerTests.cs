@@ -83,6 +83,21 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
+    /// Verifies that firmware-free DMG startup restores deterministic P1, IF, and NR52 values produced by DMG ABC firmware.
+    /// </summary>
+    [Fact]
+    public void DmgSkipRestoresPostBootIoState()
+    {
+        using var rom = TestRom.Create(0x00);
+        var emulator = EmulatorFactory.Start(rom);
+
+        Assert.Equal(0xCF, emulator.Debug.PeekByte(MemorySchema.JOYPAD_REGISTER));
+        Assert.Equal(0xE1, emulator.Debug.PeekByte(MemorySchema.INTERRUPT_REQUEST_REGISTER));
+        Assert.Equal(0xF1, emulator.Debug.PeekByte(APUSchema.SOUND_ENABLED));
+        emulator.Terminate();
+    }
+
+    /// <summary>
     /// Starts an internal-clock serial transfer and verifies the debug byte event plus immediate completion.
     /// Test ROM protocols depend on this intentional fast path instead of emulating link timing frame by frame.
     /// </summary>

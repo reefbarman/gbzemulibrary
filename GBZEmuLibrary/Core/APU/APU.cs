@@ -76,6 +76,9 @@ namespace GBZEmuLibrary
             return outSamples;
         }
 
+        /// <summary>
+        /// Restores the shared post-boot audio register and channel state used by current DMG and CGB skip profiles.
+        /// </summary>
         public void Reset()
         {
             _powered = true;
@@ -97,9 +100,8 @@ namespace GBZEmuLibrary
             WriteByte(0xBF, 0xFF23);
             WriteByte(0x77, 0xFF24);
             WriteByte(0xF3, 0xFF25);
+            // The firmware leaves NR52 powered with channel 1 active; do not power off after this sequence.
             WriteByte(0xF1, 0xFF26);
-
-            _powered = false;
         }
 
         public void WriteByte(byte data, int address)
@@ -149,7 +151,7 @@ namespace GBZEmuLibrary
                 case APUSchema.SQUARE_1_FREQUENCY_MSB:
                     // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB
 
-                    freqLowerBits = ReadByte(APUSchema.SQUARE_1_FREQUENCY_LSB);
+                    freqLowerBits = _memory[APUSchema.SQUARE_1_FREQUENCY_LSB - MemorySchema.APU_REGISTERS_START];
                     freqHighBits = Helpers.GetBits(data, 3) << 8;
 
                     _channel1.SetFrequency(freqHighBits + freqLowerBits);
@@ -191,7 +193,7 @@ namespace GBZEmuLibrary
                 case APUSchema.SQUARE_2_FREQUENCY_MSB:
                     // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB
 
-                    freqLowerBits = ReadByte(APUSchema.SQUARE_2_FREQUENCY_LSB);
+                    freqLowerBits = _memory[APUSchema.SQUARE_2_FREQUENCY_LSB - MemorySchema.APU_REGISTERS_START];
                     freqHighBits = Helpers.GetBits(data, 3) << 8;
 
                     _channel2.SetFrequency(freqHighBits + freqLowerBits);
@@ -232,7 +234,7 @@ namespace GBZEmuLibrary
                 case APUSchema.WAVE_3_FREQUENCY_MSB:
                     // Register Format TL-- -FFF Trigger, Length enable, Frequency MSB
 
-                    freqLowerBits = ReadByte(APUSchema.WAVE_3_FREQUENCY_LSB);
+                    freqLowerBits = _memory[APUSchema.WAVE_3_FREQUENCY_LSB - MemorySchema.APU_REGISTERS_START];
                     freqHighBits = Helpers.GetBits(data, 3) << 8;
 
                     _channel3.SetFrequency(freqHighBits + freqLowerBits);
@@ -321,6 +323,9 @@ namespace GBZEmuLibrary
             return address >= MemorySchema.APU_REGISTERS_START && address < MemorySchema.APU_REGISTERS_END;
         }
 
+        /// <summary>
+        /// Reads an audio register with the Game Boy's writable, status, and read-high bit behavior.
+        /// </summary>
         public byte ReadByte(int address)
         {
             var realByte = ReadByteInternal(address);
@@ -339,7 +344,7 @@ namespace GBZEmuLibrary
                     return realByte;
 
                 case APUSchema.SQUARE_1_FREQUENCY_LSB:
-                    return lastByte;
+                    return lastByteORed;
 
                 case APUSchema.SQUARE_1_FREQUENCY_MSB:
                     return realByte;
@@ -354,7 +359,7 @@ namespace GBZEmuLibrary
                     return lastByteORed;
 
                 case APUSchema.SQUARE_2_FREQUENCY_LSB:
-                    return lastByte;
+                    return lastByteORed;
 
                 case APUSchema.SQUARE_2_FREQUENCY_MSB:
                     return lastByteORed;
@@ -369,7 +374,7 @@ namespace GBZEmuLibrary
                     return lastByteORed;
 
                 case APUSchema.WAVE_3_FREQUENCY_LSB:
-                    return lastByte;
+                    return lastByteORed;
 
                 case APUSchema.WAVE_3_FREQUENCY_MSB:
                     return lastByteORed;
@@ -404,6 +409,9 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Applies host-visible read masks to the last value written to each audio register.
+        /// </summary>
         private byte ReadByteLast(int address)
         {
             var lastByte = _memory[address - MemorySchema.APU_REGISTERS_START];
