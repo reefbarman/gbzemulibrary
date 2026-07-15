@@ -4,7 +4,7 @@ GBZEmuLibrary is an embeddable Game Boy and Game Boy Color emulator core written
 
 The library is intended to sit behind a host such as Unity or another C# engine: the host advances emulation, uploads the framebuffer to its own texture, submits audio to its own mixer, and forwards input events.
 
-> **Project status:** experimental and compatibility-driven. The core contains substantial DMG/CGB functionality, but the repository has no automated test suite or published compatibility matrix. See [Current limitations](#current-limitations) before integrating it.
+> **Project status:** experimental and compatibility-driven. The repository includes an automated 276-ROM conformance suite; 72 cases currently pass and 204 failures are tracked with explicit root-cause categories. This is not a game compatibility matrix. See [Automated testing](#automated-testing) and [Current limitations](#current-limitations) before integrating it.
 
 ## Highlights
 
@@ -54,6 +54,7 @@ The solution contains:
 
 - `GBZEmuLibrary/GBZEmuLibrary.csproj`: engine-neutral `netstandard2.0` library with no package dependencies.
 - `GBZEmuFrontend/GBZEmuFrontend.csproj`: `net10.0` test frontend using Raylib-cs 8.0.0.
+- `GBZEmuTests/GBZEmuTests.csproj`: serialized `net10.0` xUnit harness for debug tooling and test-ROM conformance.
 
 The library assembly is written to:
 
@@ -62,6 +63,41 @@ GBZEmuLibrary/bin/Release/netstandard2.0/GBZEmuLibrary.dll
 ```
 
 Current Unity versions can reference that DLL as a managed plug-in. The core has no Unity or Raylib dependency; Raylib is confined to the separate frontend project.
+
+## Automated testing
+
+Run the complete suite:
+
+```sh
+dotnet test GBZEmuTests/GBZEmuTests.csproj -c Release
+```
+
+The harness discovers every `.gb`/`.gbc` file under `GBZEmuTests/Fixtures/` and currently runs 276 ROMs from Blargg, Mooneye, dmg-acid2/cgb-acid2, SameSuite, and mealybug-tearoom-tests. It supports serial text, Blargg's `$A000` memory protocol, the Fibonacci register fingerprint used by Mooneye/SameSuite, and exact framebuffer comparison. Tests are serialized because the core supports one live emulator per process.
+
+Current evidence from the committed baseline:
+
+| Suite     | Passing |   Total |
+| --------- | ------: | ------: |
+| Blargg    |      29 |      58 |
+| Mooneye   |      41 |     103 |
+| acid2     |       0 |       2 |
+| SameSuite |       2 |      78 |
+| mealybug  |       0 |      35 |
+| **Total** |  **72** | **276** |
+
+`GBZEmuTests/KnownFailures.json` makes the suite green-by-contract without hiding gaps: an unexpected failure fails CI, and an unexpected pass also fails until its baseline entry is removed. Every entry includes a stable failure signature and root-cause category. `GBZEmuTests/ExpectedRomIds.txt` locks the reviewed fixture inventory so missing, duplicate, or silently added ROMs fail the suite. Fixture provenance, pins, licenses, and Blargg's explicit licensing ambiguity are documented in `GBZEmuTests/Fixtures/README.md`.
+
+## Debugging API
+
+`Emulator.Debug` exposes runtime diagnostics without adding host-framework dependencies:
+
+- `GetCpuState()` and `GetPpuState()` return immutable snapshots including registers, flags, interrupt state, PPU mode, and cycle counters.
+- `PeekByte(address)` / `PokeByte(value, address)` route through the MMU and therefore preserve hardware side effects.
+- `SerialByteTransferred` captures the serial debug convention. Internal-clock transfers complete immediately; external-clock transfers remain pending because no link partner supplies clock edges. Link-cable timing and serial interrupts are not emulated.
+- `Trace` provides a bounded 4,096-entry pre-fetch CPU ring buffer with instruction-range and PC-breakpoint controls.
+- `RequestStop()` / `Resume()` cooperatively stop inside the current frame so breakpoint state can be inspected exactly.
+
+Debug state methods require a successfully started, non-terminated emulator. `Update()` returns immediately while stopped.
 
 ## Test frontend
 
@@ -189,13 +225,13 @@ Do not commit proprietary boot ROMs, commercial ROMs, or generated save files to
 
 The cartridge header parser recognizes these controller families. Recognition does not imply complete hardware compatibility:
 
-| Cartridge family | Implemented path                                   | Important caveats                                                                                                  |
-| ---------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| ROM only         | Direct ROM access and optional external RAM file.  | Compatibility is not covered by automated tests.                                                                   |
-| MBC1             | ROM/RAM bank switching and external RAM enable.    | Hardware edge cases remain compatibility-dependent.                                                                |
-| MBC2             | ROM bank selection and RAM-enable commands.        | MBC2's built-in nibble RAM is not modeled, so cartridge RAM is nonfunctional.                                      |
-| MBC3             | ROM bank switching and bank-0 external RAM access. | Banked external RAM and real-time-clock register selection, latching, and persistence are not implemented.         |
-| MBC5             | ROM bank switching and bank-0 external RAM access. | Banked external RAM is nonfunctional, and the 2 MiB ROM buffer prevents larger MBC5 images from loading correctly. |
+| Cartridge family | Implemented path                                                        | Important caveats                                                                                          |
+| ---------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| ROM only         | Direct ROM access and optional external RAM file.                       | Game compatibility remains unverified.                                                                     |
+| MBC1             | Independent BANK1/BANK2/mode mapping, RAM banking, and MBC1M detection. | All 13 committed Mooneye MBC1 cases pass.                                                                  |
+| MBC2             | A8-gated ROM/RAM commands and persistent 512×4-bit internal RAM.        | All 7 committed Mooneye MBC2 cases pass.                                                                   |
+| MBC3             | ROM bank switching and bank-0 external RAM access.                      | Banked external RAM and real-time-clock register selection, latching, and persistence are not implemented. |
+| MBC5             | 9-bit ROM bank switching and RAM-bank selection.                        | All 8 committed Mooneye MBC5 ROM-geometry cases pass; broader game compatibility remains unverified.       |
 
 The header parser also detects DMG-only, CGB-compatible, and CGB-only ROM flags and includes the CGB work-RAM, VRAM, palette, speed-switch, and DMA paths.
 
@@ -228,6 +264,9 @@ The MMU precomputes an address-to-device map for cartridge space, VRAM/OAM and g
 ```text
 GBZEmuLibrary/
 ├── Emulator.cs                 Public host facade
+├── EmulatorDebugger.cs         Debug snapshots, memory access, serial events, and stop controls
+├── DebugState.cs               Immutable CPU and PPU debug snapshots
+├── TraceBuffer.cs              Bounded pre-fetch CPU trace and PC breakpoint settings
 ├── Core/
 │   ├── APU/                    Audio channels, envelopes, and sample generation
 │   ├── CPU/                    CPU state, instructions, interrupts, and timing
@@ -242,17 +281,18 @@ GBZEmuLibrary/
 │   └── Timer.cs                Programmable timer
 └── GBZEmuLibrary.csproj        SDK-style netstandard2.0 library project
 GBZEmuFrontend/                 Cross-platform Raylib-cs test host
+GBZEmuTests/                    xUnit debug and ROM-conformance harness
 ```
 
 ## Current limitations
 
-- No automated tests, CI configuration, conformance results, or game compatibility matrix are included.
-- Boot-ROM data is not included; hosts must provide firmware at runtime or use skip-boot initialization.
-- Cartridge behavior is partial: notably no MBC2 RAM, no MBC3 RTC, nonfunctional MBC3/MBC5 external-RAM bank selection, and a 2 MiB ROM-image cap.
-- The internal `MessageBus` is a static singleton. Multiple `Emulator` instances overwrite callbacks and accumulate subscriptions, so only one live instance should be used per process.
+- The conformance harness tracks 204 known failures. Most remaining failures require cycle/dot-accurate PPU, APU, timer, DMA, interrupt, or hardware-revision behavior; the core remains experimental despite the green baseline.
+- Boot-ROM data is not included; hosts must provide firmware at runtime or use skip-boot initialization. Boot-state test variants without matching firmware/revision state remain known failures.
+- Cartridge behavior is partial: MBC3 RTC/latching/persistence and MBC3 external-RAM bank selection remain incomplete.
+- The internal `MessageBus` remains a static singleton, so only one live `Emulator` instance is supported per process. Sequential instances safely replace interrupt, memory, and HBlank callbacks.
 - The public buffers and emulation state are not thread-safe.
 - The host owns real-time pacing and audio underrun/overrun handling; the core advances one approximately 59.7275 Hz hardware frame per `Update()`.
-- STOP behavior is incomplete, and serial/link-cable emulation is not implemented (the serial test convention writes characters to standard output).
+- STOP behavior is incomplete. Serial debug transfers are exposed through `Emulator.Debug.SerialByteTransferred`; internal-clock starts complete immediately, while external-clock starts remain pending. Serial timing, interrupts, and link-cable emulation are not implemented.
 - The included frontend is deliberately minimal: no debugger UI, rewind, save states, configurable input mapping, or engine-specific adapter is included; ROM selection is limited to the configured directory picker.
 
 ## Legal and license status

@@ -1,0 +1,1024 @@
+{
+  "Failures": [
+    {
+      "Id": "acid2/cgb/cgb-acid2",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "acid2/dmg/dmg-acid2",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "blargg/cgb_sound/cgb_sound",
+      "FailureSignature": "Blargg status 1: cgb_sound",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/cgb_sound/rom_singles/01-registers",
+      "FailureSignature": "Blargg status 2: 01-registers",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/cgb_sound/rom_singles/05-sweep_details",
+      "FailureSignature": "Blargg status 7: 05-sweep details",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/cgb_sound/rom_singles/08-len_ctr_during_power",
+      "FailureSignature": "Blargg status 1: 08-len ctr during power",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/cgb_sound/rom_singles/09-wave_read_while_on",
+      "FailureSignature": "Blargg status 1: 09-wave read while on",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/cgb_sound/rom_singles/11-regs_after_power",
+      "FailureSignature": "Blargg status 4: 11-regs after power",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/cgb_sound/rom_singles/12-wave",
+      "FailureSignature": "Blargg status 2: 12-wave",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/dmg_sound/dmg_sound",
+      "FailureSignature": "Blargg status 1: dmg_sound",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/dmg_sound/rom_singles/01-registers",
+      "FailureSignature": "Blargg status 2: 01-registers",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/dmg_sound/rom_singles/05-sweep_details",
+      "FailureSignature": "Blargg status 7: 05-sweep details",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/dmg_sound/rom_singles/09-wave_read_while_on",
+      "FailureSignature": "Blargg status 1: 09-wave read while on",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/dmg_sound/rom_singles/10-wave_trigger_while_on",
+      "FailureSignature": "Blargg status 1: 10-wave trigger while on",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/dmg_sound/rom_singles/12-wave_write_while_on",
+      "FailureSignature": "Blargg status 1: 12-wave write while on",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "blargg/halt_bug",
+      "FailureSignature": "ROM did not report a Blargg memory result within 3600 frames.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "blargg/instr_timing/instr_timing",
+      "FailureSignature": "Serial result: instr_timing",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "blargg/interrupt_time/interrupt_time",
+      "FailureSignature": "ROM did not report a serial result within 3600 frames. Output: ",
+      "RootCause": "Interrupt dispatch and service timing differs from hardware at machine-cycle granularity, so the ROM never reaches its serial completion report."
+    },
+    {
+      "Id": "blargg/mem_timing-2/mem_timing",
+      "FailureSignature": "ROM did not report a serial result within 3600 frames. Output: ",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "blargg/mem_timing-2/rom_singles/01-read_timing",
+      "FailureSignature": "ROM did not report a serial result within 3600 frames. Output: ",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "blargg/mem_timing-2/rom_singles/02-write_timing",
+      "FailureSignature": "ROM did not report a serial result within 3600 frames. Output: ",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "blargg/mem_timing-2/rom_singles/03-modify_timing",
+      "FailureSignature": "ROM did not report a serial result within 3600 frames. Output: ",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "blargg/mem_timing/individual/01-read_timing",
+      "FailureSignature": "Serial result: 01-read_timing",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "blargg/mem_timing/mem_timing",
+      "FailureSignature": "Serial result: mem_timing",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "blargg/oam_bug/oam_bug",
+      "FailureSignature": "Blargg status 1: oam_bug",
+      "RootCause": "DMG OAM corruption behavior and its instruction/scanline timing window are not implemented."
+    },
+    {
+      "Id": "blargg/oam_bug/rom_singles/1-lcd_sync",
+      "FailureSignature": "Blargg status 2: 1-lcd_sync",
+      "RootCause": "DMG OAM corruption behavior and its instruction/scanline timing window are not implemented."
+    },
+    {
+      "Id": "blargg/oam_bug/rom_singles/2-causes",
+      "FailureSignature": "Blargg status 2: 2-causes",
+      "RootCause": "DMG OAM corruption behavior and its instruction/scanline timing window are not implemented."
+    },
+    {
+      "Id": "blargg/oam_bug/rom_singles/4-scanline_timing",
+      "FailureSignature": "Blargg status 3: 4-scanline_timing",
+      "RootCause": "DMG OAM corruption behavior and its instruction/scanline timing window are not implemented."
+    },
+    {
+      "Id": "blargg/oam_bug/rom_singles/5-timing_bug",
+      "FailureSignature": "Blargg status 2: 5-timing_bug",
+      "RootCause": "DMG OAM corruption behavior and its instruction/scanline timing window are not implemented."
+    },
+    {
+      "Id": "blargg/oam_bug/rom_singles/7-timing_effect",
+      "FailureSignature": "Blargg status 1: 7-timing_effect",
+      "RootCause": "DMG OAM corruption behavior and its instruction/scanline timing window are not implemented."
+    },
+    {
+      "Id": "blargg/oam_bug/rom_singles/8-instr_effect",
+      "FailureSignature": "Blargg status 2: 8-instr_effect",
+      "RootCause": "DMG OAM corruption behavior and its instruction/scanline timing window are not implemented."
+    },
+    {
+      "Id": "mealybug/roms/dma/hdma_during_halt-C",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "DMA bus blocking, restart, and transfer timing are not modeled at the hardware cycle granularity required by this test."
+    },
+    {
+      "Id": "mealybug/roms/dma/hdma_timing-C",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "DMA bus blocking, restart, and transfer timing are not modeled at the hardware cycle granularity required by this test."
+    },
+    {
+      "Id": "mealybug/roms/mbc/mbc3_rtc",
+      "FailureSignature": "ROM did not reach a Mooneye breakpoint within 600 frames.",
+      "RootCause": "MBC3 RTC registers, latching, and persistence are not implemented."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m2_win_en_toggle",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_bgp_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_bgp_change_sprites",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_bg_en_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_bg_en_change2",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_bg_map_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_bg_map_change2",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_obj_en_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_obj_en_change_variant",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_obj_size_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_obj_size_change_scx",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_tile_sel_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_tile_sel_change2",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_tile_sel_win_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_tile_sel_win_change2",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_win_en_change_multiple",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_win_en_change_multiple_wx",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_win_map_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_lcdc_win_map_change2",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_obp0_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_scx_high_5_bits",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_scx_high_5_bits_change2",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_scx_low_3_bits",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_scy_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_scy_change2",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_window_timing",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_window_timing_wx_0",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_wx_4_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_wx_4_change_sprites",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_wx_5_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/m3_wx_6_change",
+      "FailureSignature": "Framebuffer mismatch",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mealybug/roms/ppu/win_without_bg",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=00, C=FD, D=C0, E=A0, H=C0, L=12.",
+      "RootCause": "The scanline renderer does not model mid-scanline PPU register changes and pixel-pipeline timing required by this framebuffer oracle."
+    },
+    {
+      "Id": "mooneye/acceptance/add_sp_e_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/bits/unused_hwio-GS",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_div-S",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_div-dmg0",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_div-dmgABCmgb",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_div2-S",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_hwio-S",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_hwio-dmg0",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_hwio-dmgABCmgb",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_regs-dmg0",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_regs-mgb",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_regs-sgb",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/boot_regs-sgb2",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "This hardware-revision boot-state test is run without its matching boot ROM and revision-specific initial state."
+    },
+    {
+      "Id": "mooneye/acceptance/call_cc_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/call_cc_timing2",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/call_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/call_timing2",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/di_timing-GS",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "mooneye/acceptance/div_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "mooneye/acceptance/ei_sequence",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "mooneye/acceptance/halt_ime0_nointr_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "mooneye/acceptance/halt_ime1_timing2-GS",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "mooneye/acceptance/if_ie_registers",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/interrupts/ie_push",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "mooneye/acceptance/intr_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "mooneye/acceptance/jp_cc_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/jp_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/ld_hl_sp_e_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/oam_dma/reg_read",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "DMA bus blocking, restart, and transfer timing are not modeled at the hardware cycle granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/oam_dma/sources-GS",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "DMA bus blocking, restart, and transfer timing are not modeled at the hardware cycle granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/oam_dma_restart",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "DMA bus blocking, restart, and transfer timing are not modeled at the hardware cycle granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/oam_dma_start",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "DMA bus blocking, restart, and transfer timing are not modeled at the hardware cycle granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/oam_dma_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "DMA bus blocking, restart, and transfer timing are not modeled at the hardware cycle granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/pop_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/ppu/hblank_ly_scx_timing-GS",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/ppu/intr_2_mode0_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/ppu/intr_2_mode0_timing_sprites",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/ppu/intr_2_mode3_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/ppu/intr_2_oam_ok_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/ppu/lcdon_timing-GS",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/ppu/lcdon_write_timing-GS",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/ppu/stat_irq_blocking",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/ppu/stat_lyc_onoff",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/ppu/vblank_stat_intr-GS",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "mooneye/acceptance/push_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/rapid_di_ei",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "mooneye/acceptance/ret_cc_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/ret_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/reti_intr_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "mooneye/acceptance/reti_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "mooneye/acceptance/rst_timing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
+    },
+    {
+      "Id": "mooneye/acceptance/serial/boot_sclk_align-dmgABCmgb",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "The debug serial device completes immediately and does not model serial clock alignment or interrupt timing."
+    },
+    {
+      "Id": "mooneye/acceptance/timer/div_write",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "mooneye/acceptance/timer/rapid_toggle",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "mooneye/acceptance/timer/tim00",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "mooneye/acceptance/timer/tim01_div_trigger",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "mooneye/acceptance/timer/tim10",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "mooneye/acceptance/timer/tim10_div_trigger",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "mooneye/acceptance/timer/tim11",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "mooneye/acceptance/timer/tima_reload",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "mooneye/acceptance/timer/tima_write_reloading",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "mooneye/acceptance/timer/tma_write_reloading",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_align",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_align_cpu",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_duty",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_duty_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_extra_length_clocking-cgb0B",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_freq_change",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_freq_change_timing-A",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_freq_change_timing-cgb0BC",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_freq_change_timing-cgbDE",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_nrx2_glitch",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_nrx2_speed_change",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_restart",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_restart_nrx2_glitch",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_stop_div",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_stop_restart",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_sweep",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_sweep_restart",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_sweep_restart_2",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_volume",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_1/channel_1_volume_div",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_align",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_align_cpu",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_duty",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_duty_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_extra_length_clocking-cgb0B",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_freq_change",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_nrx2_glitch",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_nrx2_speed_change",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_restart",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_restart_nrx2_glitch",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_stop_div",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_stop_restart",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_volume",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_2/channel_2_volume_div",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_and_glitch",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_extra_length_clocking-cgb0",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_extra_length_clocking-cgbB",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_first_sample",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_freq_change_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_restart_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_restart_during_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_restart_stop_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_shift_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_shift_skip_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_stop_div",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_wave_ram_locked_write",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_3/channel_3_wave_ram_sync",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_align",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_delay",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_equivalent_frequencies",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_extra_length_clocking-cgb0B",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_freq_change",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_frequency_alignment",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_lfsr",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_lfsr15",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_lfsr_15_7",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_lfsr_7_15",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_lfsr_restart",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_lfsr_restart_fast",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/channel_4/channel_4_volume_div",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/div_trigger_volume_10",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/div_write_trigger",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/div_write_trigger_10",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/div_write_trigger_volume",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/apu/div_write_trigger_volume_10",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "APU register, power, frame-sequencer, wave RAM, or channel edge behavior is not cycle/revision accurate for this case."
+    },
+    {
+      "Id": "samesuite/dma/gbc_dma_cont",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CGB GDMA/HDMA register masking, transfer, or LCD-mode timing is incomplete."
+    },
+    {
+      "Id": "samesuite/dma/gdma_addr_mask",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CGB GDMA/HDMA register masking, transfer, or LCD-mode timing is incomplete."
+    },
+    {
+      "Id": "samesuite/dma/hdma_lcd_off",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CGB GDMA/HDMA register masking, transfer, or LCD-mode timing is incomplete."
+    },
+    {
+      "Id": "samesuite/dma/hdma_mode0",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "CGB GDMA/HDMA register masking, transfer, or LCD-mode timing is incomplete."
+    },
+    {
+      "Id": "samesuite/interrupt/ei_delay_halt",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=00, C=6B, D=40, E=F0, H=E0, L=05.",
+      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
+    },
+    {
+      "Id": "samesuite/ppu/blocking_bgpi_increase",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "PPU mode timing and CGB register access blocking are modeled per scanline rather than at the dot granularity required by this test."
+    },
+    {
+      "Id": "samesuite/sgb/command_mlt_req",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Super Game Boy command transport and multiplayer controller behavior are not implemented."
+    },
+    {
+      "Id": "samesuite/sgb/command_mlt_req_1_incrementing",
+      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
+      "RootCause": "Super Game Boy command transport and multiplayer controller behavior are not implemented."
+    }
+  ]
+}

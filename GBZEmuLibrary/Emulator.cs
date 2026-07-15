@@ -21,13 +21,17 @@ namespace GBZEmuLibrary
         private readonly DivideRegister _divideRegister;
         private readonly Joypad _joypad;
         private readonly APU _apu;
+        private readonly SerialRegisters _serialRegisters;
         private readonly MMU _mmu;
         private readonly CPU _cpu;
+
+        public EmulatorDebugger Debug { get; }
 
         private int _clocksThisUpdate;
         private int _clocksThisFrame;
         private bool _hasStarted;
         private bool _running;
+        private bool _interruptUpdatePending;
 
         public Emulator()
         {
@@ -37,9 +41,11 @@ namespace GBZEmuLibrary
             _divideRegister = new DivideRegister();
             _joypad = new Joypad();
             _apu = new APU();
-            _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu);
+            _serialRegisters = new SerialRegisters();
+            _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu, _serialRegisters);
             _cpu = new CPU(_mmu);
             _cpu.OnClockTick += UpdateSystems;
+            Debug = new EmulatorDebugger(_cpu, _mmu, _gpu, _serialRegisters, () => _running);
         }
 
         public bool Start(Config config)
@@ -140,17 +146,39 @@ namespace GBZEmuLibrary
 
         public void Update()
         {
+            if (Debug.StopRequested)
+            {
+                return;
+            }
+
             do
             {
                 _clocksThisUpdate = 0;
 
-                _cpu.Process();
-                _cpu.UpdateInterrupts();
+                if (_interruptUpdatePending)
+                {
+                    _cpu.UpdateInterrupts();
+                    _interruptUpdatePending = false;
+                }
+
+                if (_cpu.Process())
+                {
+                    _interruptUpdatePending = true;
+
+                    if (!Debug.StopRequested)
+                    {
+                        _cpu.UpdateInterrupts();
+                        _interruptUpdatePending = false;
+                    }
+                }
 
                 _clocksThisFrame += _clocksThisUpdate;
-            } while (_clocksThisFrame < Display.CLOCK_CYCLES_PER_FRAME);
+            } while (_clocksThisFrame < Display.CLOCK_CYCLES_PER_FRAME && !Debug.StopRequested);
 
-            _clocksThisFrame -= Display.CLOCK_CYCLES_PER_FRAME;
+            if (_clocksThisFrame >= Display.CLOCK_CYCLES_PER_FRAME)
+            {
+                _clocksThisFrame -= Display.CLOCK_CYCLES_PER_FRAME;
+            }
         }
 
         public Color[,] GetScreenData()

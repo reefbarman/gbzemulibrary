@@ -19,7 +19,8 @@ These instructions apply to the entire repository.
 - `GBZEmuLibrary/Core/BootROM.cs`: runtime storage and validation for host-supplied boot-ROM bytes.
 - `GBZEmuLibrary/GBZEmuLibrary.csproj`: SDK-style `netstandard2.0` library project.
 - `GBZEmuFrontend/`: minimal cross-platform Raylib-cs test host for video, audio, input, ROMs, and boot ROMs.
-- `README.md`: user-facing behavior, integration contract, and known limitations.
+- `GBZEmuTests/`: serialized xUnit harness, debug-tooling tests, 276 test-ROM fixtures, framebuffer references, and known-failure baseline.
+- `README.md`: user-facing behavior, integration contract, evidence-based test results, and known limitations.
 
 ## Toolchain and compatibility constraints
 
@@ -55,9 +56,9 @@ When changing instruction or interrupt behavior:
 
 ### Shared message bus and instance lifetime
 
-`MessageBus` is a static singleton. Constructing another emulator overwrites some callbacks and adds more event subscriptions. The current architecture supports one live `Emulator` per process.
+`MessageBus` is a static singleton. Constructing another emulator replaces the interrupt, HBlank, and memory callback owners; sequential instances are covered by tests, but the current architecture still supports only one live `Emulator` per process.
 
-Do not claim multi-instance or thread-safe support without first removing this global coupling and adding coverage for lifecycle cleanup. If adding subscriptions, ensure they cannot leak across emulator lifetimes.
+Do not claim concurrent multi-instance or thread-safe support without first removing this global coupling and adding coverage for lifecycle cleanup. If adding subscriptions, preserve single-owner replacement semantics so callbacks cannot leak across emulator lifetimes.
 
 ### Public host contract
 
@@ -102,7 +103,8 @@ Treat these as compatibility-sensitive:
 ### Cartridges and saves
 
 - Header parsing recognizes ROM-only, MBC1, MBC2, MBC3, and MBC5 families, but support is partial.
-- Known gaps include MBC2 internal nibble RAM, MBC3 RTC/latching/persistence, nonfunctional MBC3/MBC5 external-RAM bank selection, and ROMs larger than the 2 MiB `_cartMemory` buffer.
+- MBC1 uses independent BANK1/BANK2/mode mapping with MBC1M detection; MBC2 includes persistent 512×4-bit RAM; MBC5 supports 9-bit ROM banking and dynamically sized ROM storage. The committed Mooneye MBC1/MBC2/MBC5 geometry cases pass.
+- Known gaps include MBC3 RTC/latching/persistence and MBC3 external-RAM bank selection; broader game compatibility remains unverified.
 - Save directories are not created automatically. Saves are file-backed and named `<ROM filename>.sav`.
 - Changes to bank masking, RAM enable, or save sizing must be checked against each affected MBC family.
 - Never commit commercial ROMs, proprietary boot ROMs, or user `.sav` files. Use redistributable emulator test ROMs only when their license permits it.
@@ -139,16 +141,25 @@ GBZEmuLibrary/bin/Release/netstandard2.0/GBZEmuLibrary.dll
 
 The frontend artifact is under `GBZEmuFrontend/bin/Release/net10.0/`. Raylib-cs supplies native binaries for supported macOS, Windows, and Linux runtime identifiers.
 
-There is currently no automated test project. For behavior changes:
+Run the serialized xUnit suite for behavior changes:
+
+```sh
+dotnet test GBZEmuTests/GBZEmuTests.csproj -c Release
+```
+
+The harness discovers all fixtures under `GBZEmuTests/Fixtures/` and enforces `KnownFailures.json` in both directions: unexpected failures and unexpected passes fail the run. The committed baseline contains 276 ROM cases (72 passing, 204 classified known failures) plus focused debug-tooling tests.
+
+For behavior changes:
 
 1. Build both Debug and Release when the toolchain is available.
-2. Add focused automated tests with legally redistributable fixtures when practical.
-3. Otherwise document the exact test ROM/game, boot mode, affected hardware mode, and observed result.
-4. Exercise at least one DMG path and one CGB path when shared CPU/MMU/PPU behavior changes.
-5. Check save creation/reload for cartridge changes and audio/video buffer contracts for facade changes.
-6. Keep smoke-test notes concise and checklist-based.
+2. Run focused tests while iterating, then the full Release suite.
+3. Add focused automated tests or legally redistributable fixtures for new behavior.
+4. Remove baseline entries when a ROM starts passing; do not leave surprise passes classified as failures.
+5. Exercise at least one DMG path and one CGB path when shared CPU/MMU/PPU behavior changes.
+6. Check save creation/reload for cartridge changes and audio/video buffer contracts for facade changes.
+7. Keep smoke-test notes concise and checklist-based.
 
-Recommended emulator validation areas include public-domain test ROM suites for CPU instructions, instruction timing, interrupts, memory behavior, PPU timing/rendering, and APU register/output behavior. Record suite names and individual pass/fail cases; do not summarize an unverified run as full compatibility.
+Fixture provenance and licensing are documented in `GBZEmuTests/Fixtures/README.md`. Blargg has no explicit upstream license; this repository commits those binaries with attribution by an explicit owner decision. Never generalize that exception to commercial ROMs, firmware, saves, or other unlicensed fixtures.
 
 ## Documentation requirements
 

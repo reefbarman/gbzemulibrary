@@ -14,13 +14,27 @@ namespace GBZEmuLibrary
         public GBCMode GBCMode => _header.GBCMode;
         public bool CustomPalette => _header.CustomPalette;
 
-        private readonly byte[] _cartMemory = new byte[CartridgeSchema.MAX_CART_SIZE];
+        private byte[] _cartMemory;
 
         private CartridgeHeader _header;
         private ExternalRAM _externalRAM;
 
+        private const int MBC2RamSize = 512;
+        private static readonly byte[] NintendoLogo =
+        {
+            0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B,
+            0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+            0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E,
+            0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+            0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC,
+            0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E
+        };
+
         private int _romBank = 1;
         private int _ramBank;
+        private byte _mbc1Bank1;
+        private byte _mbc1Bank2;
+        private bool _mbc1Multicart;
 
         private BankingMode _bankMode;
 
@@ -32,10 +46,13 @@ namespace GBZEmuLibrary
                 {
                     var cart = File.ReadAllBytes(Path.Combine(Directory.GetCurrentDirectory(), file));
                     _header = new CartridgeHeader(cart);
+                    _cartMemory = cart;
+                    _mbc1Multicart = IsMBC1Multicart(cart);
 
-                    Array.Copy(cart, _cartMemory, _header.Length);
-
-                    _externalRAM = new ExternalRAM(saveLocation, Path.GetFileName(file), CartridgeSchema.RAM_BANK_SIZE * _header.RAMBanks);
+                    var ramSize = _header.BankingMode == CartridgeSchema.MBCMode.MBC2
+                        ? MBC2RamSize
+                        : CartridgeSchema.RAM_BANK_SIZE * _header.RAMBanks;
+                    _externalRAM = new ExternalRAM(saveLocation, Path.GetFileName(file), ramSize);
 
                     return true;
                 }
@@ -72,10 +89,17 @@ namespace GBZEmuLibrary
         {
             if (address < MemorySchema.ROM_END)
             {
+                if (_header.BankingMode == CartridgeSchema.MBCMode.MBC1)
+                {
+                    var bank = address < CartridgeSchema.ROM_BANK_SIZE ? GetMBC1LowerROMBank() : GetMBC1UpperROMBank();
+                    var offset = address % CartridgeSchema.ROM_BANK_SIZE;
+                    return _cartMemory[(bank * CartridgeSchema.ROM_BANK_SIZE) + offset];
+                }
+
                 if (address >= CartridgeSchema.ROM_BANK_SIZE)
                 {
                     address = (address - CartridgeSchema.ROM_BANK_SIZE) + (_romBank * CartridgeSchema.ROM_BANK_SIZE);
-                    address %= _header.Length; //TODO determine if this is correct
+                    address %= _header.Length;
                 }
 
                 return _cartMemory[address];
@@ -83,7 +107,15 @@ namespace GBZEmuLibrary
 
             if (address >= MemorySchema.EXTERNAL_RAM_START && address < MemorySchema.EXTERNAL_RAM_END)
             {
-                address = (address - MemorySchema.EXTERNAL_RAM_START) + ((_bankMode == BankingMode.RAMBank ? _ramBank : 0) * CartridgeSchema.RAM_BANK_SIZE);
+                if (_header.BankingMode == CartridgeSchema.MBCMode.MBC2)
+                {
+                    return _externalRAM.Enabled
+                        ? (byte)(0xF0 | _externalRAM.ReadByte((address - MemorySchema.EXTERNAL_RAM_START) & 0x1FF))
+                        : (byte)0xFF;
+                }
+
+                var ramBank = GetExternalRAMBank();
+                address = (address - MemorySchema.EXTERNAL_RAM_START) + (ramBank * CartridgeSchema.RAM_BANK_SIZE);
 
                 if (address < _externalRAM.Length && _externalRAM.Enabled)
                 {
@@ -100,20 +132,28 @@ namespace GBZEmuLibrary
         {
             if (address < MemorySchema.ROM_END)
             {
+                if (_header.BankingMode == CartridgeSchema.MBCMode.MBC2 && address < 0x4000)
+                {
+                    if (Helpers.TestBit(address, 8))
+                    {
+                        SetROMBank(Helpers.GetBits(data, 4));
+                    }
+                    else
+                    {
+                        _externalRAM.Enabled = Helpers.GetBits(data, 4) == 0x0A;
+                    }
+
+                    return;
+                }
+
                 //TODO determine how to get rid of magic numbers
                 if (address < 0x2000)
                 {
                     switch (_header.BankingMode)
                     {
                         case CartridgeSchema.MBCMode.MBC1:
-                        case CartridgeSchema.MBCMode.MBC2:
                         case CartridgeSchema.MBCMode.MBC3:
                         case CartridgeSchema.MBCMode.MBC5:
-                            if (_header.BankingMode == CartridgeSchema.MBCMode.MBC2 && Helpers.TestBit((ushort)address, 4))
-                            {
-                                return;
-                            }
-
                             _externalRAM.Enabled = Helpers.GetBits(data, 4) == 0x0A;
                             break;
                     }
@@ -128,41 +168,19 @@ namespace GBZEmuLibrary
                             break;
 
                         case CartridgeSchema.MBCMode.MBC1:
-                            //Override the lower 5 bits of the ROM Bank
-                            newBank = _romBank;
-
-                            Helpers.ResetLowBits(ref newBank, 5);
-                            newBank |= Helpers.GetBits(data, 5);
-
-                            SetROMBank(newBank);
+                            _mbc1Bank1 = Helpers.GetBits(data, 5);
                             break;
 
-                        case CartridgeSchema.MBCMode.MBC2:
-                            SetROMBank(Helpers.GetBits(data, 4));
-                            break;
 
                         case CartridgeSchema.MBCMode.MBC3:
                             SetROMBank(Helpers.GetBits(data, 7));
                             break;
 
                         case CartridgeSchema.MBCMode.MBC5:
-                            if (address < 0x3000)
-                            {
-                                //Override the lower 5 bits of the ROM Bank
-                                newBank = _romBank;
-
-                                Helpers.ResetLowBits(ref newBank, 8);
-                                newBank |= Helpers.GetBits(data, 8);
-
-                                SetROMBank(newBank);
-                            }
-                            else
-                            {
-                                newBank = _romBank;
-                                Helpers.SetBit(ref newBank, 9, Helpers.TestBit(data, 1));
-                                SetROMBank(newBank);
-                            }
-
+                            newBank = address < 0x3000
+                                ? (_romBank & 0x100) | data
+                                : (_romBank & 0x0FF) | ((data & 0x01) << 8);
+                            SetROMBank(newBank);
                             break;
 
                         default:
@@ -174,29 +192,16 @@ namespace GBZEmuLibrary
                     switch (_header.BankingMode)
                     {
                         case CartridgeSchema.MBCMode.MBC1:
-                            if (_bankMode == BankingMode.ROMBank)
-                            {
-                                //Override the bits 5-6 of the romBank
-                                int newBank = _romBank;
-
-                                Helpers.ResetHighBits(ref newBank, 3);
-                                newBank |= (byte)(data << 5);
-
-                                SetROMBank(newBank);
-                            }
-                            else
-                            {
-                                _ramBank = _header.RAMBanks == 0 ? 0 : Helpers.GetBits(data, 2) % _header.RAMBanks;
-                            }
+                            _mbc1Bank2 = Helpers.GetBits(data, 2);
                             break;
 
                         case CartridgeSchema.MBCMode.MBC3:
                             //TODO RTC register select
-                            _ramBank = Helpers.GetBits(data, 2) % _header.RAMBanks;
+                            _ramBank = _header.RAMBanks == 0 ? 0 : Helpers.GetBits(data, 2) % _header.RAMBanks;
                             break;
 
                         case CartridgeSchema.MBCMode.MBC5:
-                            _ramBank = Helpers.GetBits(data, 4) % _header.RAMBanks;
+                            _ramBank = _header.RAMBanks == 0 ? 0 : Helpers.GetBits(data, 4) % _header.RAMBanks;
                             break;
                     }
                 }
@@ -210,13 +215,107 @@ namespace GBZEmuLibrary
             }
             else if (address >= MemorySchema.EXTERNAL_RAM_START && address < MemorySchema.EXTERNAL_RAM_END && _externalRAM.Enabled)
             {
-                address = (address - MemorySchema.EXTERNAL_RAM_START) + ((_bankMode == BankingMode.RAMBank ? _ramBank : 0) * CartridgeSchema.RAM_BANK_SIZE);
+                if (_header.BankingMode == CartridgeSchema.MBCMode.MBC2)
+                {
+                    _externalRAM.WriteByte((byte)(data & 0x0F), (address - MemorySchema.EXTERNAL_RAM_START) & 0x1FF);
+                    return;
+                }
+
+                var ramBank = GetExternalRAMBank();
+                address = (address - MemorySchema.EXTERNAL_RAM_START) + (ramBank * CartridgeSchema.RAM_BANK_SIZE);
 
                 if (address < _externalRAM.Length)
                 {
                     _externalRAM.WriteByte(data, address);
                 }
             }
+        }
+
+        private int GetMBC1LowerROMBank()
+        {
+            if (_bankMode == BankingMode.ROMBank)
+            {
+                return 0;
+            }
+
+            var shift = _mbc1Multicart ? 4 : 5;
+            return NormalizeMBC1ROMBank(_mbc1Bank2 << shift);
+        }
+
+        private int GetMBC1UpperROMBank()
+        {
+            var bank1 = _mbc1Bank1 == 0 ? 1 : _mbc1Bank1;
+            if (_mbc1Multicart)
+            {
+                bank1 &= 0x0F;
+            }
+
+            var shift = _mbc1Multicart ? 4 : 5;
+            return NormalizeMBC1ROMBank((_mbc1Bank2 << shift) | bank1);
+        }
+
+        private int NormalizeMBC1ROMBank(int bank)
+        {
+            var bankCount = _header.ROMBanks;
+            return (bankCount & (bankCount - 1)) == 0
+                ? bank & (bankCount - 1)
+                : bank % bankCount;
+        }
+
+        private int GetMBC1RAMBank()
+        {
+            if (_bankMode == BankingMode.ROMBank || _header.RAMBanks == 0)
+            {
+                return 0;
+            }
+
+            return _mbc1Bank2 % _header.RAMBanks;
+        }
+
+        private int GetExternalRAMBank()
+        {
+            if (_header.BankingMode == CartridgeSchema.MBCMode.MBC1)
+            {
+                return GetMBC1RAMBank();
+            }
+
+            if (_header.BankingMode == CartridgeSchema.MBCMode.MBC5)
+            {
+                return _ramBank;
+            }
+
+            return _bankMode == BankingMode.RAMBank ? _ramBank : 0;
+        }
+
+        private bool IsMBC1Multicart(byte[] cart)
+        {
+            if (_header.BankingMode != CartridgeSchema.MBCMode.MBC1 || cart.Length != 0x100000)
+            {
+                return false;
+            }
+
+            var validLogoCount = 0;
+            for (var subCartridge = 0; subCartridge < 4; subCartridge++)
+            {
+                var logoOffset = (subCartridge * 0x40000) + 0x104;
+                var validLogo = true;
+
+                for (var i = 0; i < NintendoLogo.Length; i++)
+                {
+                    if (cart[logoOffset + i] != NintendoLogo[i])
+                    {
+                        validLogo = false;
+                        break;
+                    }
+                }
+
+                if (validLogo)
+                {
+                    validLogoCount++;
+                }
+            }
+
+            return validLogoCount >= 3;
         }
 
         private void SetROMBank(int bank)

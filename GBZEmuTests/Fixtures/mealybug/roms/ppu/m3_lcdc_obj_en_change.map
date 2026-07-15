@@ -1,0 +1,84 @@
+ROM0 bank #0:
+  SECTION: $0040-$0042 ($0003 bytes) ["vblank"]
+  SECTION: $0048-$004a ($0003 bytes) ["lcdc"]
+  SECTION: $0100-$0103 ($0004 bytes) ["boot"]
+  SECTION: $0150-$06af ($0560 bytes) ["main"]
+           $0150 = main
+           $062d = vblank_handler
+           $0637 = vblank_handler.continue
+           $063b = lcdc_handler
+           $0641 = lcdc_handler.delay
+           $0668 = sprite_data
+    SLACK: $3a96 bytes
+
+ROMX bank #1:
+  SECTION: $4000-$4911 ($0912 bytes) ["utils"]
+           $4000 = oldskooloutlinethick_tile_data
+           $4800 = wait_vblank
+           $4807 = reset_oam
+           $480e = reset_oam.loop
+           $4813 = reset_registers
+           $4824 = reset_vram
+           $4828 = reset_vram.loop
+           $482e = oam_copy
+           $4831 = oam_copy.loop
+           $4838 = copy_font
+           $483e = copy_font.loop
+           $4846 = fill_vram_9800
+           $4849 = fill_vram_9800.loop
+           $484f = fill_vram_9c00
+           $4852 = fill_vram_9c00.loop
+           $4858 = fill_vram_8000
+           $485b = fill_vram_8000.loop
+           $4861 = reset_tile_maps
+           $4879 = memset
+           $487a = memset.loop
+           $4882 = memcpy.loop
+           $4882 = memcpy
+           $4899 = Delay100000MCycles
+           $489c = Delay90000MCycles
+           $489f = Delay80000MCycles
+           $48a2 = Delay70000MCycles
+           $48a5 = Delay60000MCycles
+           $48a8 = Delay50000MCycles
+           $48ab = Delay40000MCycles
+           $48ae = Delay30000MCycles
+           $48b1 = Delay20000MCycles
+           $48b4 = Delay10000MCycles
+           $48b7 = Delay9000MCycles
+           $48ba = Delay8000MCycles
+           $48bd = Delay7000MCycles
+           $48c0 = Delay6000MCycles
+           $48c3 = Delay5000MCycles
+           $48c6 = Delay4000MCycles
+           $48c9 = Delay3000MCycles
+           $48cc = Delay2000MCycles
+           $48cf = Delay1000MCycles
+           $48d2 = Delay900MCycles
+           $48d5 = Delay800MCycles
+           $48d8 = Delay700MCycles
+           $48db = Delay600MCycles
+           $48de = Delay500MCycles
+           $48e1 = Delay400MCycles
+           $48e4 = Delay300MCycles
+           $48e7 = Delay200MCycles
+           $48ea = Delay100MCycles
+           $48ed = Delay90MCycles
+           $48f0 = Delay80MCycles
+           $48f3 = Delay70MCycles
+           $48f6 = Delay60MCycles
+           $48f9 = Delay50MCycles
+           $48fc = Delay40MCycles
+           $48ff = Delay30MCycles
+           $4902 = Delay20MCycles
+           $4905 = Delay10MCycles
+           $4906 = copy_obj_color_palette_data
+           $490a = copy_bg_color_palette_data
+           $490c = copy_bg_color_palette_data.loop
+    SLACK: $36ee bytes
+
+WRAM0 bank #0:
+  SECTION: $c000-$c000 ($0001 byte) ["wram"]
+           $c000 = counter
+    SLACK: $0fff bytes
+

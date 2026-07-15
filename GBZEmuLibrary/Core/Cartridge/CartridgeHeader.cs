@@ -88,6 +88,9 @@ namespace GBZEmuLibrary
 
             switch (cart[CartridgeSchema.ROM_BANK_NUM_LOC])
             {
+                case 0x00:
+                    ROMBanks = 2;
+                    break;
                 case 0x01:
                     ROMBanks = 4;
                     break;
@@ -101,10 +104,10 @@ namespace GBZEmuLibrary
                     ROMBanks = 32;
                     break;
                 case 0x05:
-                    ROMBanks = BankingMode == CartridgeSchema.MBCMode.MBC1 ? 63 : 64;
+                    ROMBanks = 64;
                     break;
                 case 0x06:
-                    ROMBanks = BankingMode == CartridgeSchema.MBCMode.MBC1 ? 125 : 128;
+                    ROMBanks = 128;
                     break;
                 case 0x07:
                     ROMBanks = 256;

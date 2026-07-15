@@ -1,0 +1,159 @@
+ROM0 bank #0:
+  SECTION: $0000-$0008 ($0009 bytes) ["title"]
+           $0000 = TestTitle
+  SECTION: $0100-$0103 ($0004 bytes) ["boot"]
+  SECTION: $0134-$013b ($0008 bytes) ["header_title"]
+  SECTION: $0143-$0143 ($0001 byte) ["cgb-mode"]
+  SECTION: $0147-$0149 ($0003 bytes) ["header-mbc-type"]
+           $0147 = MBCType
+  SECTION: $014a-$014f ($0006 bytes) ["header-remainder"]
+  SECTION: $0150-$0c47 ($0af8 bytes) ["run-test"]
+           $0150 = RunTest
+           $015f = TestSecondsIncrement
+           $0202 = TestMinutesWriteDoesNotResetCounter
+           $0300 = TestRegisterOverflows
+           $0798 = TestLatchingDoesNotResetCounter
+           $08a6 = TestDisablingTimerDoesNotResetCounter
+           $09f6 = TestSecondsWriteDoesNotDiscardElapsedTime
+           $0a86 = TestWrittenValueIsNotReadableUntilLatched
+           $0ae0 = TestOutOfBoundsWriteAndIncrement
+           $0b67 = TestRegisterSizes
+    SLACK: $34e9 bytes
+
+ROMX bank #1:
+  SECTION: $4000-$49f4 ($09f5 bytes) ["lib"]
+           $4000 = OldSkoolOutlineThick
+           $4800 = WaitVBlank.loop_2
+           $4800 = WaitVBlank
+           $4807 = LcdOffSafe
+           $4813 = MemCopy.loop
+           $4813 = MemCopy
+           $481c = LoadFont8000
+           $4821 = LoadFont
+           $4824 = LoadFont.skip
+           $482e = MemSet
+           $482f = MemSet.loop
+           $4837 = MemSetSmall.loop
+           $4837 = MemSetSmall
+           $483c = LoadObjectPalette
+           $4840 = LoadBackgroundPalette
+           $4842 = LoadPalette
+           $4846 = LoadPalette.loop
+           $484c = ResetDisplay
+           $4885 = ResetDisplay.notCGB
+           $489d = ShadesOfGrayPalette
+           $48a5 = ShadesOfGrayPalette.end
+           $48a5 = PrintNewLine
+           $48b4 = PrintNewLine.scroll_check
+           $48ca = PrintNewLine.scrolling
+           $48d1 = PrintNewLine.loop_7
+           $48d1 = PrintNewLine.erase_loop
+           $48e3 = PrintCharacter
+           $48ef = PrintCharacter.loop_8
+           $4908 = PrintDecimal
+           $491a = PrintDecimal.one_hundreds
+           $4921 = PrintDecimal.tens
+           $4925 = PrintDecimal.tens_loop
+           $4931 = PrintDecimal.units
+           $4938 = PrintHexU16
+           $493d = PrintHexU16NoDollar
+           $4945 = PrintHexU8
+           $494c = PrintHexU8NoDollar
+           $4953 = PrintHexNibble
+           $495e = PrintHexNibble.letter
+           $4963 = PrintString.loop
+           $4963 = PrintString
+           $496c = ResetCursor
+           $497b = Delay100000MCycles
+           $497e = Delay90000MCycles
+           $4981 = Delay80000MCycles
+           $4984 = Delay70000MCycles
+           $4987 = Delay60000MCycles
+           $498a = Delay50000MCycles
+           $498d = Delay40000MCycles
+           $4990 = Delay30000MCycles
+           $4993 = Delay20000MCycles
+           $4996 = Delay10000MCycles
+           $4999 = Delay9000MCycles
+           $499c = Delay8000MCycles
+           $499f = Delay7000MCycles
+           $49a2 = Delay6000MCycles
+           $49a5 = Delay5000MCycles
+           $49a8 = Delay4000MCycles
+           $49ab = Delay3000MCycles
+           $49ae = Delay2000MCycles
+           $49b1 = Delay1000MCycles
+           $49b4 = Delay900MCycles
+           $49b7 = Delay800MCycles
+           $49ba = Delay700MCycles
+           $49bd = Delay600MCycles
+           $49c0 = Delay500MCycles
+           $49c3 = Delay400MCycles
+           $49c6 = Delay300MCycles
+           $49c9 = Delay200MCycles
+           $49cc = Delay100MCycles
+           $49cf = Delay90MCycles
+           $49d2 = Delay80MCycles
+           $49d5 = Delay70MCycles
+           $49d8 = Delay60MCycles
+           $49db = Delay50MCycles
+           $49de = Delay40MCycles
+           $49e1 = Delay30MCycles
+           $49e4 = Delay20MCycles
+           $49e7 = Delay10MCycles
+           $49e8 = SerialSendByte
+           $49ee = SerialSendByte.loop
+  SECTION: $49f5-$4b97 ($01a3 bytes) ["main"]
+           $49f5 = Main
+           $4a29 = Main.string_9
+           $4a2b = Main.skip_extra_new_line
+           $4a2b = Main.end_9
+           $4a33 = Main.string_10
+           $4a35 = Main.end_10
+           $4a3b = NotCGB
+           $4a46 = NotCGB.string_11
+           $4a53 = NotCGB.end_11
+           $4a5b = CompareResults
+           $4a6a = CompareResults.loop
+           $4a8a = CompareResults.matched
+           $4a92 = CompareResults.string_12
+           $4a96 = CompareResults.continue
+           $4a96 = CompareResults.end_12
+           $4aac = CompareResults.noExtraLine
+           $4abb = CompareResults.string_13
+           $4ac2 = CompareResults.end_13
+           $4ac3 = CompareResults.failed
+           $4acb = CompareResults.string_14
+           $4ad2 = CompareResults.end_14
+           $4ad3 = DisplayResults
+           $4ada = DisplayResults.loop
+           $4ae8 = DisplayResults.string_15
+           $4aec = DisplayResults.end_15
+           $4af7 = DisplayResults.loop_17
+           $4afd = DisplayResults.loop_18
+           $4b04 = DisplayResults.forever
+           $4b06 = Quit
+           $4b0b = Quit.loop_20
+           $4b26 = Quit.failed
+           $4b2d = Quit.sendSerialResult
+           $4b45 = Quit.loop_21
+           $4b4d = Quit.forever
+           $4b4f = PrintPaleHexU8NoDollar
+           $4b5a = PrintPaleHexNibble
+           $4b61 = GeneratePaleHexDigits
+           $4b69 = GeneratePaleHexDigits.numbersLoop
+           $4b7d = GeneratePaleHexDigits.lettersLoop
+  SECTION: $4b98-$4bcb ($0034 bytes) ["correct-results"]
+           $4b98 = CorrectResults
+    SLACK: $3434 bytes
+
+WRAM0 bank #0:
+  SECTION: $c000-$c0ff ($0100 bytes) ["results"]
+           $c000 = Results
+           $c0fe = ResultCounter
+           $c0ff = TestResult
+  SECTION: $c100-$c102 ($0003 bytes) ["print_cursor"]
+           $c100 = wPrintCursorAddress
+           $c102 = wPrintScrolling
+    SLACK: $0efd bytes
+

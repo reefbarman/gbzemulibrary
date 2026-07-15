@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text;
 
 namespace GBZEmuLibrary
 {
@@ -17,11 +16,11 @@ namespace GBZEmuLibrary
 
         private readonly MainMemory _mainMemory = new MainMemory();
 
-        public MMU(Cartridge cart, GPU gpu, Timer timer, DivideRegister divideRegister, Joypad joypad, APU apu)
+        public MMU(Cartridge cart, GPU gpu, Timer timer, DivideRegister divideRegister, Joypad joypad, APU apu, SerialRegisters serialRegisters)
         {
             var memoryUnits = new List<IMemoryUnit>
             {
-                cart, gpu, _workRAM, joypad, divideRegister, timer, apu, new DMAController()
+                cart, gpu, _workRAM, joypad, serialRegisters, divideRegister, timer, apu, new DMAController()
             };
 
             MessageBus.Instance.OnReadByte = ReadByte;
@@ -78,12 +77,6 @@ namespace GBZEmuLibrary
 
         public void WriteByte(byte data, int address)
         {
-            //TODO improve this interface
-            if (address == 0xFF02 && data == 0x81)
-            {
-                Console.Write(Encoding.ASCII.GetString(new[] { ReadByte(0xFF01) }));
-            }
-
             if (address == MemorySchema.CPU_SPEED_SWITCH_REGISTER)
             {
                 OnPendingSpeedSwitch?.Invoke(data);

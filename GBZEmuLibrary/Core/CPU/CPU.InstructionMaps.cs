@@ -76,7 +76,7 @@ namespace GBZEmuLibrary
                 { InsSet.DECA,     () => Decrement(ref _registers.A) },
                 { InsSet.LDAn,     () => LoadImmediate(out _registers.A) },
                 { InsSet.CCF,      () => { SetFlag(InsSchema.FLAG_C, !TestFlag(InsSchema.FLAG_C)); SetFlag(InsSchema.FLAG_H, false); SetFlag(InsSchema.FLAG_N, false); } },
-                { InsSet.LDBB,     () => Load(ref _registers.B, _registers.B) },
+                { InsSet.LDBB,     LoadBB },
                 { InsSet.LDBC,     () => Load(ref _registers.B, _registers.C) },
                 { InsSet.LDBD,     () => Load(ref _registers.B, _registers.D) },
                 { InsSet.LDBE,     () => Load(ref _registers.B, _registers.E) },

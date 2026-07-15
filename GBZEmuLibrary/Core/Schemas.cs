@@ -80,6 +80,8 @@
         public const int RESTRICTED_RAM_START = SPRITE_ATTRIBUTE_TABLE_END;
         public const int RESTRICTED_RAM_END = 0xFF00;
         public const int JOYPAD_REGISTER = RESTRICTED_RAM_END;
+        public const int SERIAL_DATA_REGISTER = 0xFF01;
+        public const int SERIAL_CONTROL_REGISTER = 0xFF02;
         public const int DIVIDE_REGISTER = 0xFF04;
         public const int TIMER_START = 0xFF05;
         public const int TIMA = TIMER_START;

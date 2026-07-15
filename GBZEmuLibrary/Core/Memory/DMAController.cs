@@ -17,7 +17,7 @@ namespace GBZEmuLibrary
 
         public DMAController()
         {
-            MessageBus.Instance.OnHBlank += OnHBlank;
+            MessageBus.Instance.OnHBlank = OnHBlank;
         }
 
         public void WriteByte(byte data, int address)

@@ -302,6 +302,15 @@ namespace GBZEmuLibrary
             }
         }
 
+        internal PpuDebugState GetDebugState()
+        {
+            return new PpuDebugState(
+                (byte)ScanLine,
+                _gpuRegisters[(int)Registers.LCDControl],
+                _gpuRegisters[(int)Registers.LCDStatus],
+                _cycleCounter);
+        }
+
         public Color[,] GetScreenData()
         {
             return _screenData;

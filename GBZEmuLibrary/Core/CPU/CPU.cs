@@ -15,8 +15,9 @@ namespace GBZEmuLibrary
         private ushort _pc;
         private StackPointer _sp;
         private Registers _registers;
-        private int _pendingInterruptDisabled;
-        private int _pendingInterruptEnabled;
+        private int _pendingInterruptDisabled = -1;
+        private int _pendingInterruptEnabled = -1;
+        private ulong _instructionCount;
 
         private Dictionary<byte, Action> _instructions;
         private Dictionary<byte, Action> _instructionsCB;
@@ -41,19 +42,22 @@ namespace GBZEmuLibrary
                 _pc = pc;
             };
 
-            MessageBus.Instance.OnRequestInterrupt += i => _interruptHandler.RequestInterrupt(i);
+            MessageBus.Instance.OnRequestInterrupt = i => _interruptHandler.RequestInterrupt(i);
 
             InitInstructions();
         }
 
-        public void Process()
+        public bool Process()
         {
-            Debug();
-
             if (_interruptHandler.Halted)
             {
                 IncrementClock();
-                return;
+                return true;
+            }
+
+            if (Debug())
+            {
+                return false;
             }
 
             var instruction = ReadByte(_pc++);
@@ -73,6 +77,8 @@ namespace GBZEmuLibrary
                 throw new NotImplementedException($"Instruction not implemented: {instruction:X}");
             }
 
+            _instructionCount++;
+
             // we are trying to disable interrupts, however interrupts get disabled after the next instruction
             //TODO determine if disabling is handled different https://github.com/AntonioND/giibiiadvance/blob/master/docs/TCAGBD.pdf (section 3.3)
             if (_pendingInterruptDisabled >= 0 && _pendingInterruptDisabled-- == 0)
@@ -84,6 +90,8 @@ namespace GBZEmuLibrary
             {
                 _interruptHandler.InterruptsEnabled = true;
             }
+
+            return true;
         }
 
         public void UpdateInterrupts()
@@ -94,6 +102,9 @@ namespace GBZEmuLibrary
         public void Reset(bool usingBootROM, GBCMode gbcMode)
         {
             _gbcMode = gbcMode;
+            _pendingInterruptDisabled = -1;
+            _pendingInterruptEnabled = -1;
+            _instructionCount = 0;
 
             if (usingBootROM)
             {
