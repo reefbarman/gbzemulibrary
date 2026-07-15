@@ -14,6 +14,7 @@ namespace GBZEmuLibrary
         internal CartridgeSchema.MBCMode BankingMode { get; private set; } = CartridgeSchema.MBCMode.NoMBC;
         internal int ROMBanks { get; private set; } = 1;
         internal int RAMBanks { get; private set; } = 1;
+        internal bool HasRTC { get; private set; }
         internal bool CustomPalette { get; private set; }
 
         private bool _nintendoCart = false;
@@ -58,6 +59,7 @@ namespace GBZEmuLibrary
         private void ParseMBCMode(byte[] cart)
         {
             var code = cart[CartridgeSchema.MBC_MODE_LOC];
+            HasRTC = code == 0x0F || code == 0x10;
 
             switch (code)
             {

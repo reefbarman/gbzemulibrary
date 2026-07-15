@@ -124,7 +124,6 @@ public sealed class CartridgeTests
             }
 
             first.Debug.PokeByte(0x08, 0x4000);
-            Assert.Equal(0xFF, first.Debug.PeekByte(0xA000));
             first.Debug.PokeByte(0x88, 0xA000);
             first.Terminate();
 

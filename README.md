@@ -215,13 +215,13 @@ Do not commit proprietary boot ROMs, commercial ROMs, or generated save files to
 
 The cartridge header parser recognizes these controller families. Recognition does not imply complete hardware compatibility:
 
-| Cartridge family | Implemented path                                                        | Important caveats                                                                                    |
-| ---------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| ROM only         | Direct ROM access and optional external RAM file.                       | Game compatibility remains unverified.                                                               |
-| MBC1             | Independent BANK1/BANK2/mode mapping, RAM banking, and MBC1M detection. | All 13 committed Mooneye MBC1 cases pass.                                                            |
-| MBC2             | A8-gated ROM/RAM commands and persistent 512×4-bit internal RAM.        | All 7 committed Mooneye MBC2 cases pass.                                                             |
-| MBC3             | ROM bank switching and persistent external RAM-bank selection.          | Real-time-clock registers, latching, advancement, and persistence are not implemented.               |
-| MBC5             | 9-bit ROM bank switching and RAM-bank selection.                        | All 8 committed Mooneye MBC5 ROM-geometry cases pass; broader game compatibility remains unverified. |
+| Cartridge family | Implemented path                                                            | Important caveats                                                                                    |
+| ---------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| ROM only         | Direct ROM access and optional external RAM file.                           | Game compatibility remains unverified.                                                               |
+| MBC1             | Independent BANK1/BANK2/mode mapping, RAM banking, and MBC1M detection.     | All 13 committed Mooneye MBC1 cases pass.                                                            |
+| MBC2             | A8-gated ROM/RAM commands and persistent 512×4-bit internal RAM.            | All 7 committed Mooneye MBC2 cases pass.                                                             |
+| MBC3             | ROM/RAM banking plus cycle-driven RTC registers, latching, halt, and carry. | RTC state and wall-clock catch-up are not persisted across emulator sessions.                        |
+| MBC5             | 9-bit ROM bank switching and RAM-bank selection.                            | All 8 committed Mooneye MBC5 ROM-geometry cases pass; broader game compatibility remains unverified. |
 
 The header parser also detects DMG-only, CGB-compatible, and CGB-only ROM flags and includes the CGB work-RAM, VRAM, palette, speed-switch, and DMA paths.
 
@@ -278,7 +278,7 @@ GBZEmuTests/                    xUnit debug and ROM-conformance harness
 
 - The conformance suite still has failures, primarily in cycle/dot-accurate PPU, APU, DMA, interrupt, and hardware-revision behavior. `mooneye/acceptance/halt_ime0_nointr_timing` is currently deferred: resolving its remaining one-cycle discrepancy requires coordinated HALT wake, interrupt-polling, and VBlank phase modeling rather than another local timing adjustment. It remains a visible failing test instead of being suppressed. The core remains experimental while these failures remain.
 - Boot-ROM data is not included; hosts must provide firmware at runtime or use skip-boot initialization. DMG skip-boot restores deterministic DMG ABC P1, interrupt-request, and powered-APU state, but it does not yet reproduce the firmware-exit PPU phase; `mooneye/acceptance/boot_hwio-dmgABCmgb` therefore remains visibly red at its STAT check. Boot-state variants for other hardware revisions also remain known failures.
-- Cartridge behavior is partial: MBC3 external-RAM banking is implemented, but RTC registers, latching, clock advancement, halt/carry behavior, and persistence remain incomplete.
+- Cartridge behavior is partial: MBC3 RTC registers advance from emulated hardware clocks and support latching, halt, and day carry, but RTC state and wall-clock catch-up are not persisted across emulator sessions.
 - Separate `Emulator` instances can run concurrently; their interrupt, MMU/DMA, HBlank, and boot-ROM state is instance-scoped.
 - A single `Emulator` instance and its reused public buffers are not thread-safe. Coordinate calls to one instance and copy output buffers before consuming them asynchronously.
 - The host owns real-time pacing and audio underrun/overrun handling; the core advances one approximately 59.7275 Hz hardware frame per `Update()`.

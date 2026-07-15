@@ -219,6 +219,7 @@ namespace GBZEmuLibrary
             cycles /= _cpu.SpeedFactor;
             _clocksThisUpdate += cycles;
 
+            _cartridge.Update(cycles);
             _gpu.Update(cycles);
             _apu.Update(cycles);
         }

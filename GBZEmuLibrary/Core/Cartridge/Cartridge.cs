@@ -22,6 +22,7 @@ namespace GBZEmuLibrary
 
         private CartridgeHeader _header;
         private ExternalRAM _externalRAM;
+        private MBC3RTC _mbc3RTC;
 
         private const int MBC2RamSize = 512;
         private static readonly byte[] NintendoLogo =
@@ -37,6 +38,8 @@ namespace GBZEmuLibrary
         private int _romBank = 1;
         private int _ramBank;
         private byte _mbc3RamRtcSelect;
+        private byte _mbc3LatchValue;
+        private bool _mbc3LatchPrimed;
         private byte _mbc1Bank1;
         private byte _mbc1Bank2;
         private bool _mbc1Multicart;
@@ -64,6 +67,7 @@ namespace GBZEmuLibrary
                     _header = new CartridgeHeader(cart, _bootROM);
                     _cartMemory = cart;
                     _mbc1Multicart = IsMBC1Multicart(cart);
+                    _mbc3RTC = _header.HasRTC ? new MBC3RTC() : null;
 
                     var ramSize = _header.BankingMode == CartridgeSchema.MBCMode.MBC2
                         ? MBC2RamSize
@@ -135,8 +139,9 @@ namespace GBZEmuLibrary
 
                 if (!TryGetExternalRAMBank(out var ramBank))
                 {
-                    // MBC3 RTC registers are selected through this window but are not implemented yet.
-                    return 0xFF;
+                    return _externalRAM.Enabled && _mbc3RTC != null && MBC3RTC.IsRegister(_mbc3RamRtcSelect)
+                        ? _mbc3RTC.Read(_mbc3RamRtcSelect)
+                        : (byte)0xFF;
                 }
 
                 address = (address - MemorySchema.EXTERNAL_RAM_START) + (ramBank * CartridgeSchema.RAM_BANK_SIZE);
@@ -238,6 +243,16 @@ namespace GBZEmuLibrary
                     {
                         _bankMode = (BankingMode)Helpers.GetBits(data, 1);
                     }
+                    else if (_header.BankingMode == CartridgeSchema.MBCMode.MBC3)
+                    {
+                        if (_mbc3LatchPrimed && _mbc3LatchValue == 0x00 && data == 0x01)
+                        {
+                            _mbc3RTC?.Latch();
+                        }
+
+                        _mbc3LatchValue = data;
+                        _mbc3LatchPrimed = true;
+                    }
                 }
             }
             else if (address >= MemorySchema.EXTERNAL_RAM_START && address < MemorySchema.EXTERNAL_RAM_END && _externalRAM.Enabled)
@@ -250,7 +265,11 @@ namespace GBZEmuLibrary
 
                 if (!TryGetExternalRAMBank(out var ramBank))
                 {
-                    // Do not alias unsupported MBC3 RTC or invalid selections onto persistent RAM.
+                    if (_mbc3RTC != null && MBC3RTC.IsRegister(_mbc3RamRtcSelect))
+                    {
+                        _mbc3RTC.Write(_mbc3RamRtcSelect, data);
+                    }
+
                     return;
                 }
 
@@ -261,6 +280,14 @@ namespace GBZEmuLibrary
                     _externalRAM.WriteByte(data, address);
                 }
             }
+        }
+
+        /// <summary>
+        /// Advances a timer-capable MBC3 cartridge from base-speed Game Boy clocks.
+        /// </summary>
+        public void Update(int clocks)
+        {
+            _mbc3RTC?.Update(clocks);
         }
 
         private int GetMBC1LowerROMBank()

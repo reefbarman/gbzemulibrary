@@ -134,7 +134,8 @@ internal sealed class RomManifest
         else if (relativePath.StartsWith("mealybug/roms/", StringComparison.Ordinal))
         {
             test.Hardware = HardwareMode.Cgb;
-            test.MaxFrames = 600;
+            // The RTC fixture contains approximately 20 emulated seconds of deliberate delay loops.
+            test.MaxFrames = relativePath == "mealybug/roms/mbc/mbc3_rtc.gb" ? 1800 : 600;
 
             if (relativePath.StartsWith("mealybug/roms/ppu/", StringComparison.Ordinal) &&
                 relativePath != "mealybug/roms/ppu/win_without_bg.gb")
