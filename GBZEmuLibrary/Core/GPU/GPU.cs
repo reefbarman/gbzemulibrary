@@ -90,7 +90,7 @@ namespace GBZEmuLibrary
             set
             {
                 _gpuRegisters[(int)Registers.Scanline] = (byte)value;
-                CheckCoincidence();
+                UpdateCoincidenceFlag();
             }
         }
 
@@ -122,7 +122,8 @@ namespace GBZEmuLibrary
 
         private int _cycleCounter;
         private bool _pendingVBlankInterrupt;
-        private bool _lycInterruptLineHigh;
+        private bool _statInterruptLineHigh;
+        private bool _dmgVBlankMode2InterruptSource;
 
         private bool _gbcMode = false;
 
@@ -144,7 +145,8 @@ namespace GBZEmuLibrary
         public void Reset(bool gbcMode)
         {
             _gbcMode = gbcMode;
-            _lycInterruptLineHigh = false;
+            _statInterruptLineHigh = false;
+            _dmgVBlankMode2InterruptSource = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
         }
 
@@ -156,7 +158,7 @@ namespace GBZEmuLibrary
             if (!IsLCDEnabled())
             {
                 _cycleCounter = 0;
-                ScanLine = 0;
+                _gpuRegisters[(int)Registers.Scanline] = 0;
                 SetStatusRegister(LCDStatus.HBlank);
 
                 return;
@@ -164,28 +166,20 @@ namespace GBZEmuLibrary
 
             _cycleCounter += cycles;
 
-            var requestInterrupt = false;
-
             switch (GetStatusMode())
             {
                 case LCDStatus.HBlank:
-                    requestInterrupt = HandleHBlank();
+                    HandleHBlank();
                     break;
                 case LCDStatus.VBlank:
-                    requestInterrupt = HandleVBlank();
+                    HandleVBlank();
                     break;
                 case LCDStatus.SearchingSpritesAttributes:
                     HandleSearchingSpritesAttributes();
                     break;
                 case LCDStatus.TransferringDataToLCDDriver:
-                    requestInterrupt = TransferringDataToLCDDriver();
+                    TransferringDataToLCDDriver();
                     break;
-            }
-
-            //Request interrupt if mode has changed
-            if (requestInterrupt)
-            {
-                _messageBus.RequestInterrupt(Interrupts.LCD);
             }
         }
 
@@ -275,14 +269,21 @@ namespace GBZEmuLibrary
 
                 switch (address)
                 {
+                    case (int)Registers.LCDControl:
+                        WriteLcdControl(data);
+                        break;
                     case (int)Registers.LCDStatus:
-                        // Mode and coincidence bits are read-only; CheckCoincidence is authoritative for bit 2.
+                        // Mode and coincidence bits are read-only; UpdateCoincidenceFlag is authoritative for bit 2.
                         _gpuRegisters[address] = (byte)((_gpuRegisters[address] & 0x07) | (data & 0x78));
-                        CheckCoincidence();
+                        UpdateStatInterruptLine();
                         break;
                     case (int)Registers.LCDYCoord:
                         _gpuRegisters[address] = data;
-                        CheckCoincidence();
+                        if (IsLCDEnabled())
+                        {
+                            UpdateCoincidenceFlag();
+                            UpdateStatInterruptLine();
+                        }
                         break;
                     default:
                         _gpuRegisters[address] = data;
@@ -343,26 +344,69 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Updates the read-only STAT coincidence flag and requests LCD only on a new enabled LY=LYC rising edge.
+        /// Applies LCD enable transitions that reset LY while pausing or restarting the LY=LYC comparison clock.
         /// </summary>
-        private void CheckCoincidence()
+        private void WriteLcdControl(byte data)
+        {
+            var wasEnabled = IsLCDEnabled();
+            _gpuRegisters[(int)Registers.LCDControl] = data;
+            var isEnabled = IsLCDEnabled();
+
+            if (wasEnabled == isEnabled)
+            {
+                return;
+            }
+
+            if (!isEnabled)
+            {
+                // Reset LY and mode while retaining the frozen coincidence source as STAT edge history.
+                _gpuRegisters[(int)Registers.Scanline] = 0;
+                SetStatusRegister(LCDStatus.HBlank);
+                return;
+            }
+
+            UpdateCoincidenceFlag();
+            UpdateStatInterruptLine();
+        }
+
+        /// <summary>
+        /// Updates the read-only STAT coincidence flag after LY or LYC changes while its comparison clock runs.
+        /// </summary>
+        private void UpdateCoincidenceFlag()
         {
             var coincidence = ScanLine == _gpuRegisters[(int)Registers.LCDYCoord];
             Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, coincidence);
+        }
 
-            var interruptLineHigh = coincidence && IsInterruptEnabled(LCDStatusBits.CoincidenceInterruptEnabled);
-            if (interruptLineHigh && !_lycInterruptLineHigh)
+        /// <summary>
+        /// Tracks the shared STAT source line and requests an LCD interrupt on an enabled low-to-high transition.
+        /// </summary>
+        private void UpdateStatInterruptLine()
+        {
+            var lcdEnabled = IsLCDEnabled();
+            var status = _gpuRegisters[(int)Registers.LCDStatus];
+            var mode = GetStatusMode();
+            var modeSourceActive = lcdEnabled &&
+                (mode == LCDStatus.HBlank && IsInterruptEnabled(LCDStatusBits.HBlankInterruptEnabled) ||
+                 mode == LCDStatus.VBlank && IsInterruptEnabled(LCDStatusBits.VBlankInterruptEnabled) ||
+                 (mode == LCDStatus.SearchingSpritesAttributes || _dmgVBlankMode2InterruptSource) &&
+                    IsInterruptEnabled(LCDStatusBits.SearchingSpriteAttributesInterruptEnabled));
+            var coincidenceSourceActive =
+                Helpers.TestBit(status, (int)LCDStatusBits.Coincidence) &&
+                IsInterruptEnabled(LCDStatusBits.CoincidenceInterruptEnabled);
+            var interruptLineHigh = modeSourceActive || coincidenceSourceActive;
+
+            // LCD-off freezes coincidence and its edge history, but the stopped comparison clock cannot request IRQs.
+            if (lcdEnabled && interruptLineHigh && !_statInterruptLineHigh)
             {
                 _messageBus.RequestInterrupt(Interrupts.LCD);
             }
 
-            _lycInterruptLineHigh = interruptLineHigh;
+            _statInterruptLineHigh = interruptLineHigh;
         }
 
-        private bool HandleHBlank()
+        private void HandleHBlank()
         {
-            var requestInterrupt = false;
-
             if (_cycleCounter >= HBLANK_CLOCKS)
             {
                 _cycleCounter -= HBLANK_CLOCKS;
@@ -373,21 +417,16 @@ namespace GBZEmuLibrary
                 {
                     _pendingVBlankInterrupt = true;
                     SetStatusRegister(LCDStatus.VBlank);
-                    requestInterrupt |= IsInterruptEnabled(LCDStatusBits.VBlankInterruptEnabled);
                 }
                 else
                 {
                     SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
                 }
             }
-
-            return requestInterrupt;
         }
 
-        private bool HandleVBlank()
+        private void HandleVBlank()
         {
-            var requestInterrupt = false;
-
             if (_cycleCounter >= SCANLINE_DRAW_CLOCKS)
             {
                 _cycleCounter -= SCANLINE_DRAW_CLOCKS;
@@ -397,18 +436,24 @@ namespace GBZEmuLibrary
                 if (ScanLine > Display.VERTICAL_RESOLUTION + 9) //TODO figure out what the magic number is about?
                 {
                     ScanLine = 0;
-
                     SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
-                    requestInterrupt |= IsInterruptEnabled(LCDStatusBits.SearchingSpriteAttributesInterruptEnabled);
+                }
+                else
+                {
+                    UpdateStatInterruptLine();
                 }
             }
             else if (_pendingVBlankInterrupt && _cycleCounter >= 4)
             {
                 _pendingVBlankInterrupt = false;
                 _messageBus.RequestInterrupt(Interrupts.VBlank);
-            }
 
-            return requestInterrupt;
+                // DMG hardware pulses the mode-2 STAT source with the VBlank request at line 144.
+                _dmgVBlankMode2InterruptSource = !_gbcMode;
+                UpdateStatInterruptLine();
+                _dmgVBlankMode2InterruptSource = false;
+                UpdateStatInterruptLine();
+            }
         }
 
         private void HandleSearchingSpritesAttributes()
@@ -421,16 +466,13 @@ namespace GBZEmuLibrary
             }
         }
 
-        private bool TransferringDataToLCDDriver()
+        private void TransferringDataToLCDDriver()
         {
-            var requestInterrupt = false;
-
             if (_cycleCounter >= TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS)
             {
                 _cycleCounter -= TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
 
                 SetStatusRegister(LCDStatus.HBlank);
-                requestInterrupt = IsInterruptEnabled(LCDStatusBits.HBlankInterruptEnabled);
 
                 if (ScanLine < Display.VERTICAL_RESOLUTION)
                 {
@@ -439,8 +481,6 @@ namespace GBZEmuLibrary
 
                 DrawScanLine();
             }
-
-            return requestInterrupt;
         }
 
         private bool IsLCDEnabled()
@@ -652,6 +692,7 @@ namespace GBZEmuLibrary
 
             Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], 0, bit0);
             Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], 1, bit1);
+            UpdateStatInterruptLine();
         }
 
         private LCDStatus GetStatusMode()
