@@ -14,6 +14,16 @@
         private byte _joyPadState = 0xFF;
         private byte _joyPadRegister = SELECT_MASK;
 
+        private readonly MessageBus _messageBus;
+
+        /// <summary>
+        /// Creates a joypad connected to the interrupt bus for its owning emulator.
+        /// </summary>
+        public Joypad(MessageBus messageBus)
+        {
+            _messageBus = messageBus;
+        }
+
         /// <summary>
         /// Stores the two writable active-low button-group selection lines.
         /// </summary>
@@ -74,7 +84,7 @@
 
             if (requestInterrupt)
             {
-                MessageBus.Instance.RequestInterrupt(Interrupts.Joypad);
+                _messageBus.RequestInterrupt(Interrupts.Joypad);
             }
         }
 

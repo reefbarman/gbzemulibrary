@@ -72,7 +72,7 @@ Run the complete suite:
 dotnet test GBZEmuTests/GBZEmuTests.csproj -c Release
 ```
 
-The harness discovers every `.gb`/`.gbc` file under `GBZEmuTests/Fixtures/`, including suites from Blargg, Mooneye, dmg-acid2/cgb-acid2, SameSuite, and mealybug-tearoom-tests. It supports serial text, Blargg's `$A000` memory protocol, the Fibonacci register fingerprint used by Mooneye/SameSuite, and exact framebuffer comparison. Tests are serialized because the core supports one live emulator per process.
+The harness discovers every `.gb`/`.gbc` file under `GBZEmuTests/Fixtures/`, including suites from Blargg, Mooneye, dmg-acid2/cgb-acid2, SameSuite, and mealybug-tearoom-tests. It supports serial text, Blargg's `$A000` memory protocol, the Fibonacci register fingerprint used by Mooneye/SameSuite, and exact framebuffer comparison. ROM cases are interleaved across four xUnit classes so separate emulator instances can run in parallel while each shard remains serial.
 
 Each ROM is a normal test case: passing ROMs are green and failing ROMs are red in Test Explorer and `dotnet test` output. The complete suite therefore remains failing while conformance gaps exist; use test filters or Test Explorer selections for focused iteration. `GBZEmuTests/ExpectedRomIds.txt` locks the reviewed fixture inventory so missing, duplicate, or silently added ROMs fail the suite. Current test output is the authoritative source for pass/failure results. Fixture provenance, pins, licenses, and Blargg's explicit licensing ambiguity are documented in `GBZEmuTests/Fixtures/README.md`.
 
@@ -152,7 +152,7 @@ emulator.ButtonUp(JoypadButtons.A);
 emulator.Terminate();
 ```
 
-`SaveLocation` must already exist. If it is null or empty, saves are placed in the process working directory. `BootROM` bytes take precedence over `BootROMPath` when both are set. An `Emulator` instance supports one successful `Start()`; create a new instance to load or restart a ROM.
+`SaveLocation` must already exist. If it is null or empty, saves are placed in the process working directory. `BootROM` bytes take precedence over `BootROMPath` when both are set. An `Emulator` instance supports one successful `Start()`; create a new instance to load or restart a ROM. Separate instances may run concurrently because their hardware bus and boot-ROM state are isolated. Give concurrent battery-backed cartridges distinct save paths unless the host coordinates access to the shared save file.
 
 ### Video
 
@@ -247,7 +247,7 @@ Emulator facade
 
 The CPU is the timing source. Instruction and memory operations emit clock ticks, and `Emulator.UpdateSystems()` advances the divider, timer, GPU, and APU by the corresponding cycle count. `Update()` continues processing instructions until it reaches the nominal per-frame clock budget.
 
-The MMU precomputes an address-to-device map for cartridge space, VRAM/OAM and graphics registers, work RAM, joypad, divider/timer, audio, DMA, and fallback main memory. An internal `MessageBus` connects interrupt requests, DMA memory access, and HBlank notifications.
+The MMU precomputes an address-to-device map for cartridge space, VRAM/OAM and graphics registers, work RAM, joypad, divider/timer, audio, DMA, and fallback main memory. Each emulator owns an internal `MessageBus` that connects its interrupt requests, DMA memory access, and HBlank notifications without process-global callbacks.
 
 ## Repository layout
 
@@ -264,7 +264,7 @@ GBZEmuLibrary/
 │   ├── GPU/                    DMG/CGB scanline renderer and public RGB color
 │   ├── Memory/                 MMU, RAM, and DMA routing
 │   ├── BootMode.cs             Public boot-mode flags
-│   ├── BootROM.cs              Runtime host-supplied boot-ROM storage
+│   ├── BootROM.cs              Per-instance host-supplied boot-ROM storage
 │   ├── Joypad.cs               Input register and joypad interrupts
 │   ├── MessageBus.cs           Internal subsystem event bus
 │   ├── Schemas.cs              Public constants and internal hardware map
@@ -279,8 +279,8 @@ GBZEmuTests/                    xUnit debug and ROM-conformance harness
 - The conformance suite still has failures, primarily in cycle/dot-accurate PPU, APU, DMA, interrupt, and hardware-revision behavior. `mooneye/acceptance/halt_ime0_nointr_timing` is currently deferred: resolving its remaining one-cycle discrepancy requires coordinated HALT wake, interrupt-polling, and VBlank phase modeling rather than another local timing adjustment. It remains a visible failing test instead of being suppressed. The core remains experimental while these failures remain.
 - Boot-ROM data is not included; hosts must provide firmware at runtime or use skip-boot initialization. DMG skip-boot restores deterministic DMG ABC P1, interrupt-request, and powered-APU state, but it does not yet reproduce the firmware-exit PPU phase; `mooneye/acceptance/boot_hwio-dmgABCmgb` therefore remains visibly red at its STAT check. Boot-state variants for other hardware revisions also remain known failures.
 - Cartridge behavior is partial: MBC3 external-RAM banking is implemented, but RTC registers, latching, clock advancement, halt/carry behavior, and persistence remain incomplete.
-- The internal `MessageBus` remains a static singleton, so only one live `Emulator` instance is supported per process. Sequential instances safely replace interrupt, memory, and HBlank callbacks.
-- The public buffers and emulation state are not thread-safe.
+- Separate `Emulator` instances can run concurrently; their interrupt, MMU/DMA, HBlank, and boot-ROM state is instance-scoped.
+- A single `Emulator` instance and its reused public buffers are not thread-safe. Coordinate calls to one instance and copy output buffers before consuming them asynchronously.
 - The host owns real-time pacing and audio underrun/overrun handling; the core advances one approximately 59.7275 Hz hardware frame per `Update()`.
 - STOP behavior is incomplete. Serial debug transfers are exposed through `Emulator.Debug.SerialByteTransferred`; internal-clock starts complete immediately, while external-clock starts remain pending. Serial timing, interrupts, and link-cable emulation are not implemented.
 - The included frontend is deliberately minimal: no debugger UI, rewind, save states, configurable input mapping, or engine-specific adapter is included; ROM selection is limited to the configured directory picker.

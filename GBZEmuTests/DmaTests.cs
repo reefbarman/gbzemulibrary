@@ -15,7 +15,7 @@ public sealed class DmaTests
     public void GeneralPurposeDmaCopiesCompleteBlocks()
     {
         var memory = new byte[MemorySchema.MAX_RAM_SIZE];
-        using var fixture = new DmaFixture(memory);
+        var fixture = new DmaFixture(memory);
         var dma = fixture.Controller;
         for (var index = 0; index < 0x20; index++)
         {
@@ -86,7 +86,7 @@ public sealed class DmaTests
     public void HBlankDmaCopiesOneBlockPerHBlank()
     {
         var memory = new byte[MemorySchema.MAX_RAM_SIZE];
-        using var fixture = new DmaFixture(memory);
+        var fixture = new DmaFixture(memory);
         var dma = fixture.Controller;
         for (var index = 0; index < 0x20; index++)
         {
@@ -103,13 +103,13 @@ public sealed class DmaTests
         Assert.Equal(0x00, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER) & 0x80);
         Assert.All(memory[0x8200..0x8220], value => Assert.Equal(0x00, value));
 
-        MessageBus.Instance.HBlankStarted();
+        fixture.HBlankStarted();
 
         Assert.Equal(memory[0xD000..0xD010], memory[0x8200..0x8210]);
         Assert.All(memory[0x8210..0x8220], value => Assert.Equal(0x00, value));
         Assert.Equal(0x00, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
 
-        MessageBus.Instance.HBlankStarted();
+        fixture.HBlankStarted();
 
         Assert.Equal(memory[0xD000..0xD020], memory[0x8200..0x8220]);
         Assert.Equal(0xFF, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
@@ -123,7 +123,7 @@ public sealed class DmaTests
     public void HBlankDmaCanBeCancelled()
     {
         var memory = new byte[MemorySchema.MAX_RAM_SIZE];
-        using var fixture = new DmaFixture(memory);
+        var fixture = new DmaFixture(memory);
         var dma = fixture.Controller;
         for (var index = 0; index < 0x20; index++)
         {
@@ -135,10 +135,10 @@ public sealed class DmaTests
         dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
         dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
         dma.WriteByte(0x81, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
-        MessageBus.Instance.HBlankStarted();
+        fixture.HBlankStarted();
 
         dma.WriteByte(0x00, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
-        MessageBus.Instance.HBlankStarted();
+        fixture.HBlankStarted();
 
         Assert.Equal(memory[0xC000..0xC010], memory[0x8000..0x8010]);
         Assert.All(memory[0x8010..0x8020], value => Assert.Equal(0x00, value));
@@ -146,31 +146,24 @@ public sealed class DmaTests
     }
 
     /// <summary>
-    /// Connects a DMA controller to deterministic memory and restores the process-global message-bus callbacks afterward.
+    /// Connects a DMA controller to deterministic memory through its own instance-scoped bus.
     /// </summary>
-    private sealed class DmaFixture : IDisposable
+    private sealed class DmaFixture
     {
-        private readonly Func<int, byte> _previousReadByte;
-        private readonly Action<byte, int> _previousWriteByte;
-        private readonly Action _previousHBlank;
+        private readonly MessageBus _messageBus = new MessageBus();
 
         public DmaFixture(byte[] memory)
         {
-            _previousReadByte = MessageBus.Instance.OnReadByte;
-            _previousWriteByte = MessageBus.Instance.OnWriteByte;
-            _previousHBlank = MessageBus.Instance.OnHBlank;
-            MessageBus.Instance.OnReadByte = address => memory[address];
-            MessageBus.Instance.OnWriteByte = (data, address) => memory[address] = data;
-            Controller = new DMAController();
+            _messageBus.OnReadByte = address => memory[address];
+            _messageBus.OnWriteByte = (data, address) => memory[address] = data;
+            Controller = new DMAController(_messageBus);
         }
 
         public DMAController Controller { get; }
 
-        public void Dispose()
+        public void HBlankStarted()
         {
-            MessageBus.Instance.OnReadByte = _previousReadByte;
-            MessageBus.Instance.OnWriteByte = _previousWriteByte;
-            MessageBus.Instance.OnHBlank = _previousHBlank;
+            _messageBus.HBlankStarted();
         }
     }
 }

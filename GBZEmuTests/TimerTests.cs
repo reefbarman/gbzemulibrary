@@ -116,34 +116,27 @@ public sealed class TimerTests
     [Fact]
     public void OverflowReloadsAfterFourClocksAndRequestsInterrupt()
     {
-        var timer = CreateTimer();
-        var previousRequestInterrupt = MessageBus.Instance.OnRequestInterrupt;
+        var messageBus = new MessageBus();
+        var timer = CreateTimer(messageBus: messageBus);
         var interruptRequested = false;
-        MessageBus.Instance.OnRequestInterrupt = interrupt => interruptRequested = interrupt == Interrupts.Timer;
+        messageBus.OnRequestInterrupt = interrupt => interruptRequested = interrupt == Interrupts.Timer;
 
-        try
-        {
-            timer.WriteDivider();
-            timer.WriteTimer(0x05, MemorySchema.TMC);
-            timer.WriteTimer(0xFF, MemorySchema.TIMA);
-            timer.WriteTimer(0x42, MemorySchema.TMA);
+        timer.WriteDivider();
+        timer.WriteTimer(0x05, MemorySchema.TMC);
+        timer.WriteTimer(0xFF, MemorySchema.TIMA);
+        timer.WriteTimer(0x42, MemorySchema.TMA);
 
-            timer.Update(16);
-            Assert.Equal(0, timer.ReadTimer(MemorySchema.TIMA));
-            Assert.False(interruptRequested);
+        timer.Update(16);
+        Assert.Equal(0, timer.ReadTimer(MemorySchema.TIMA));
+        Assert.False(interruptRequested);
 
-            timer.Update(3);
-            Assert.Equal(0, timer.ReadTimer(MemorySchema.TIMA));
-            Assert.False(interruptRequested);
+        timer.Update(3);
+        Assert.Equal(0, timer.ReadTimer(MemorySchema.TIMA));
+        Assert.False(interruptRequested);
 
-            timer.Update(1);
-            Assert.Equal(0x42, timer.ReadTimer(MemorySchema.TIMA));
-            Assert.True(interruptRequested);
-        }
-        finally
-        {
-            MessageBus.Instance.OnRequestInterrupt = previousRequestInterrupt;
-        }
+        timer.Update(1);
+        Assert.Equal(0x42, timer.ReadTimer(MemorySchema.TIMA));
+        Assert.True(interruptRequested);
     }
 
     /// <summary>
@@ -259,9 +252,9 @@ public sealed class TimerTests
     /// <summary>
     /// Creates a boot-skipped timer state for the requested hardware mode.
     /// </summary>
-    private static TimerState CreateTimer(GBCMode mode = GBCMode.NoGBC)
+    private static TimerState CreateTimer(GBCMode mode = GBCMode.NoGBC, MessageBus? messageBus = null)
     {
-        var timer = new TimerState();
+        var timer = new TimerState(messageBus ?? new MessageBus());
         timer.Reset(false, mode);
         return timer;
     }

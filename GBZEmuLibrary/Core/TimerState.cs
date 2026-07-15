@@ -25,6 +25,16 @@ namespace GBZEmuLibrary
         private bool _reloadedThisMachineCycle;
         private bool _gbcMode;
 
+        private readonly MessageBus _messageBus;
+
+        /// <summary>
+        /// Creates timer state connected to the interrupt bus for its owning emulator.
+        /// </summary>
+        public TimerState(MessageBus messageBus)
+        {
+            _messageBus = messageBus;
+        }
+
         /// <summary>
         /// Resets the counter and timer registers to the state produced by the selected startup path.
         /// </summary>
@@ -57,7 +67,7 @@ namespace GBZEmuLibrary
                 {
                     _tima = _tma;
                     _reloadedThisMachineCycle = true;
-                    MessageBus.Instance.RequestInterrupt(Interrupts.Timer);
+                    _messageBus.RequestInterrupt(Interrupts.Timer);
                 }
 
                 var oldTimerSignal = TimerSignal(_systemCounter, _tac);

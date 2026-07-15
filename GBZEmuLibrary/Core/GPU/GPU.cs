@@ -126,8 +126,14 @@ namespace GBZEmuLibrary
 
         private bool _gbcMode = false;
 
-        public GPU()
+        private readonly MessageBus _messageBus;
+
+        /// <summary>
+        /// Creates a PPU connected to the interrupt and HBlank bus for its owning emulator.
+        /// </summary>
+        public GPU(MessageBus messageBus)
         {
+            _messageBus = messageBus;
             _bgPaletteData = Enumerable.Repeat<byte>(0xFF, MathSchema.MAX_6_BIT_VALUE).ToArray();
             _spritePaletteData = Enumerable.Repeat<byte>(0xFF, MathSchema.MAX_6_BIT_VALUE).ToArray();
         }
@@ -179,7 +185,7 @@ namespace GBZEmuLibrary
             //Request interrupt if mode has changed
             if (requestInterrupt)
             {
-                MessageBus.Instance.RequestInterrupt(Interrupts.LCD);
+                _messageBus.RequestInterrupt(Interrupts.LCD);
             }
         }
 
@@ -347,7 +353,7 @@ namespace GBZEmuLibrary
             var interruptLineHigh = coincidence && IsInterruptEnabled(LCDStatusBits.CoincidenceInterruptEnabled);
             if (interruptLineHigh && !_lycInterruptLineHigh)
             {
-                MessageBus.Instance.RequestInterrupt(Interrupts.LCD);
+                _messageBus.RequestInterrupt(Interrupts.LCD);
             }
 
             _lycInterruptLineHigh = interruptLineHigh;
@@ -399,7 +405,7 @@ namespace GBZEmuLibrary
             else if (_pendingVBlankInterrupt && _cycleCounter >= 4)
             {
                 _pendingVBlankInterrupt = false;
-                MessageBus.Instance.RequestInterrupt(Interrupts.VBlank);
+                _messageBus.RequestInterrupt(Interrupts.VBlank);
             }
 
             return requestInterrupt;
@@ -428,7 +434,7 @@ namespace GBZEmuLibrary
 
                 if (ScanLine < Display.VERTICAL_RESOLUTION)
                 {
-                    MessageBus.Instance.HBlankStarted();
+                    _messageBus.HBlankStarted();
                 }
 
                 DrawScanLine();

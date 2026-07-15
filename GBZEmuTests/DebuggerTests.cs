@@ -294,21 +294,67 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
-    /// Constructs two emulators and verifies the process-global message bus targets only the newest instance.
-    /// This protects sequential-instance use while documenting that concurrent live instances are unsupported.
+    /// Runs two live emulators concurrently and verifies interrupts, memory, and execution remain instance-local.
     /// </summary>
     [Fact]
-    public void LatestEmulatorOwnsMessageBusCallbacks()
+    public async Task LiveEmulatorsRunConcurrentlyWithIsolatedHardwareState()
     {
         using var firstRom = TestRom.Create(0x00);
         using var secondRom = TestRom.Create(0x00);
         var first = EmulatorFactory.Start(firstRom);
         var second = EmulatorFactory.Start(secondRom);
 
-        MessageBus.Instance.RequestInterrupt(Interrupts.Timer);
+        first.Debug.PokeByte(0x11, 0xC000);
+        second.Debug.PokeByte(0x22, 0xC000);
+        first.Debug.PokeByte(0x10, MemorySchema.JOYPAD_REGISTER);
+        first.ButtonDown(JoypadButtons.A);
 
-        Assert.Equal(0, first.Debug.PeekByte(0xFF0F) & (1 << (int)Interrupts.Timer));
-        Assert.NotEqual(0, second.Debug.PeekByte(0xFF0F) & (1 << (int)Interrupts.Timer));
+        Assert.NotEqual(0, first.Debug.PeekByte(0xFF0F) & (1 << (int)Interrupts.Joypad));
+        Assert.Equal(0, second.Debug.PeekByte(0xFF0F) & (1 << (int)Interrupts.Joypad));
+
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await Task.WhenAll(
+            Task.Run(first.Update, cancellationToken),
+            Task.Run(second.Update, cancellationToken));
+
+        Assert.Equal(0x11, first.Debug.PeekByte(0xC000));
+        Assert.Equal(0x22, second.Debug.PeekByte(0xC000));
+        Assert.True(first.Debug.GetCpuState().TotalClockCycles >= Display.CLOCK_CYCLES_PER_FRAME);
+        Assert.True(second.Debug.GetCpuState().TotalClockCycles >= Display.CLOCK_CYCLES_PER_FRAME);
+        first.Terminate();
+        second.Terminate();
+    }
+
+    /// <summary>
+    /// Starts two live emulators with different firmware images and verifies each MMU retains its own boot overlay.
+    /// </summary>
+    [Fact]
+    public void LiveEmulatorsKeepBootRomSelectionIsolated()
+    {
+        using var firstRom = TestRom.Create(0x00);
+        using var secondRom = TestRom.Create(0x00);
+        var firstBootRom = new byte[0x100];
+        var secondBootRom = new byte[0x100];
+        firstBootRom[0] = 0x11;
+        secondBootRom[0] = 0x22;
+
+        var first = new Emulator();
+        var second = new Emulator();
+        Assert.True(first.Start(new Emulator.Config
+        {
+            ROMPath = firstRom.Path,
+            BootROM = firstBootRom,
+            BootMode = BootMode.DMG | BootMode.Force
+        }));
+        Assert.True(second.Start(new Emulator.Config
+        {
+            ROMPath = secondRom.Path,
+            BootROM = secondBootRom,
+            BootMode = BootMode.DMG | BootMode.Force
+        }));
+
+        Assert.Equal(0x11, first.Debug.PeekByte(0));
+        Assert.Equal(0x22, second.Debug.PeekByte(0));
         first.Terminate();
         second.Terminate();
     }

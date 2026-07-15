@@ -13,7 +13,7 @@ public sealed class GpuRegisterTests
     [Fact]
     public void LcdStatusRegisterAppliesHardwareReadAndWriteMasks()
     {
-        var gpu = new GPU();
+        var gpu = new GPU(new MessageBus());
         gpu.Reset(false);
 
         gpu.WriteByte(0x00, 0xFF41);
@@ -30,10 +30,10 @@ public sealed class GpuRegisterTests
     [Fact]
     public void LycCoincidenceInterruptRequiresANewRisingEdge()
     {
-        var gpu = new GPU();
+        var messageBus = new MessageBus();
+        var gpu = new GPU(messageBus);
         var interruptRequests = 0;
-        var previousRequestInterrupt = MessageBus.Instance.OnRequestInterrupt;
-        MessageBus.Instance.OnRequestInterrupt = interrupt =>
+        messageBus.OnRequestInterrupt = interrupt =>
         {
             if (interrupt == Interrupts.LCD)
             {
@@ -41,30 +41,23 @@ public sealed class GpuRegisterTests
             }
         };
 
-        try
-        {
-            gpu.Reset(false);
+        gpu.Reset(false);
 
-            gpu.WriteByte(0x01, 0xFF45);
-            gpu.WriteByte(0x40, 0xFF41);
-            gpu.WriteByte(0x00, 0xFF45);
+        gpu.WriteByte(0x01, 0xFF45);
+        gpu.WriteByte(0x40, 0xFF41);
+        gpu.WriteByte(0x00, 0xFF45);
 
-            Assert.Equal(1, interruptRequests);
-            Assert.NotEqual(0, gpu.ReadByte(0xFF41) & 0x04);
+        Assert.Equal(1, interruptRequests);
+        Assert.NotEqual(0, gpu.ReadByte(0xFF41) & 0x04);
 
-            gpu.Update(4);
-            gpu.Update(4);
+        gpu.Update(4);
+        gpu.Update(4);
 
-            Assert.Equal(1, interruptRequests);
+        Assert.Equal(1, interruptRequests);
 
-            gpu.WriteByte(0x01, 0xFF45);
-            gpu.WriteByte(0x00, 0xFF45);
+        gpu.WriteByte(0x01, 0xFF45);
+        gpu.WriteByte(0x00, 0xFF45);
 
-            Assert.Equal(2, interruptRequests);
-        }
-        finally
-        {
-            MessageBus.Instance.OnRequestInterrupt = previousRequestInterrupt;
-        }
+        Assert.Equal(2, interruptRequests);
     }
 }

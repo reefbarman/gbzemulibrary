@@ -17,6 +17,7 @@ namespace GBZEmuLibrary
 
         private readonly WorkRAM _workRAM = new WorkRAM();
         private readonly APU _apu;
+        private readonly BootROM _bootROM;
         private readonly SerialRegisters _serialRegisters;
 
         private readonly MainMemory _mainMemory = new MainMemory();
@@ -25,18 +26,19 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Builds the fixed address-to-device lookup used by CPU, DMA, and debugger memory accesses.
         /// </summary>
-        public MMU(Cartridge cart, GPU gpu, Timer timer, DivideRegister divideRegister, Joypad joypad, APU apu, SerialRegisters serialRegisters)
+        public MMU(Cartridge cart, GPU gpu, Timer timer, DivideRegister divideRegister, Joypad joypad, APU apu, SerialRegisters serialRegisters, BootROM bootROM, MessageBus messageBus)
         {
             _apu = apu;
+            _bootROM = bootROM;
             _serialRegisters = serialRegisters;
 
             var memoryUnits = new List<IMemoryUnit>
             {
-                cart, gpu, _workRAM, joypad, serialRegisters, divideRegister, timer, apu, new DMAController(), new UnmappedIO()
+                cart, gpu, _workRAM, joypad, serialRegisters, divideRegister, timer, apu, new DMAController(messageBus), new UnmappedIO()
             };
 
-            MessageBus.Instance.OnReadByte = ReadByte;
-            MessageBus.Instance.OnWriteByte = WriteByte;
+            messageBus.OnReadByte = ReadByte;
+            messageBus.OnWriteByte = WriteByte;
 
             for (var address = 0; address < MemorySchema.MAX_RAM_SIZE; address++)
             {
@@ -85,9 +87,9 @@ namespace GBZEmuLibrary
             {
                 if (_mainMemory.InBootROM)
                 {
-                    if (address < MemorySchema.BOOT_ROM_SECTION_1_END || BootROM.IsGBCSelected && address >= MemorySchema.BOOT_ROM_SECTION_2_START && address < MemorySchema.BOOT_ROM_SECTION_2_END)
+                    if (address < MemorySchema.BOOT_ROM_SECTION_1_END || _bootROM.IsGBCSelected && address >= MemorySchema.BOOT_ROM_SECTION_2_START && address < MemorySchema.BOOT_ROM_SECTION_2_END)
                     {
-                        return BootROM.Bytes[address];
+                        return _bootROM.Bytes[address];
                     }
                 }
             }

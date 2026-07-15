@@ -10,7 +10,7 @@ public sealed class JoypadTests
     [Fact]
     public void UnselectedButtonGroupsReadHigh()
     {
-        var joypad = new Joypad();
+        var joypad = new Joypad(new MessageBus());
 
         joypad.WriteByte(0xFF, MemorySchema.JOYPAD_REGISTER);
 
@@ -23,7 +23,7 @@ public sealed class JoypadTests
     [Fact]
     public void SelectedButtonGroupReturnsActiveLowInputs()
     {
-        var joypad = new Joypad();
+        var joypad = new Joypad(new MessageBus());
         joypad.ButtonDown(JoypadButtons.Right);
         joypad.ButtonDown(JoypadButtons.A);
 
@@ -40,7 +40,7 @@ public sealed class JoypadTests
     [Fact]
     public void BothSelectedButtonGroupsCombineActiveLowInputs()
     {
-        var joypad = new Joypad();
+        var joypad = new Joypad(new MessageBus());
         joypad.ButtonDown(JoypadButtons.Left);
         joypad.ButtonDown(JoypadButtons.A);
 

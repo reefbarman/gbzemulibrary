@@ -20,9 +20,15 @@ namespace GBZEmuLibrary
         private bool _transferring;
         private int _currentIndex;
 
-        public DMAController()
+        private readonly MessageBus _messageBus;
+
+        /// <summary>
+        /// Creates a DMA controller connected to the memory and HBlank bus for its owning emulator.
+        /// </summary>
+        public DMAController(MessageBus messageBus)
         {
-            MessageBus.Instance.OnHBlank = OnHBlank;
+            _messageBus = messageBus;
+            _messageBus.OnHBlank = OnHBlank;
         }
 
         /// <summary>
@@ -116,7 +122,7 @@ namespace GBZEmuLibrary
 
             for (var i = 0; i < (MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START); i++)
             {
-                MessageBus.Instance.WriteByte(MessageBus.Instance.ReadByte(address + i), MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + i);
+                _messageBus.WriteByte(_messageBus.ReadByte(address + i), MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + i);
             }
         }
 
@@ -178,8 +184,8 @@ namespace GBZEmuLibrary
             var offset = blockIndex * CGB_DMA_BLOCK_SIZE;
             for (var index = 0; index < CGB_DMA_BLOCK_SIZE; index++)
             {
-                MessageBus.Instance.WriteByte(
-                    MessageBus.Instance.ReadByte(GetSourceAddress() + offset + index),
+                _messageBus.WriteByte(
+                    _messageBus.ReadByte(GetSourceAddress() + offset + index),
                     GetDestinationAddress() + offset + index);
             }
         }

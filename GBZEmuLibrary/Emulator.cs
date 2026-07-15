@@ -22,6 +22,8 @@ namespace GBZEmuLibrary
 
 
         private readonly Cartridge _cartridge;
+        private readonly BootROM _bootROM;
+        private readonly MessageBus _messageBus;
         private readonly GPU _gpu;
         private readonly TimerState _timerState;
         private readonly Timer _timer;
@@ -40,20 +42,22 @@ namespace GBZEmuLibrary
         private bool _running;
 
         /// <summary>
-        /// Creates an emulator instance with isolated hardware state and shared internal-bus callback ownership.
+        /// Creates an emulator instance with isolated hardware, boot-ROM, and internal-bus state.
         /// </summary>
         public Emulator()
         {
-            _cartridge = new Cartridge();
-            _gpu = new GPU();
-            _timerState = new TimerState();
+            _bootROM = new BootROM();
+            _messageBus = new MessageBus();
+            _cartridge = new Cartridge(_bootROM);
+            _gpu = new GPU(_messageBus);
+            _timerState = new TimerState(_messageBus);
             _timer = new Timer(_timerState);
             _divideRegister = new DivideRegister(_timerState);
-            _joypad = new Joypad();
+            _joypad = new Joypad(_messageBus);
             _apu = new APU();
             _serialRegisters = new SerialRegisters();
-            _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu, _serialRegisters);
-            _cpu = new CPU(_mmu);
+            _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu, _serialRegisters, _bootROM, _messageBus);
+            _cpu = new CPU(_mmu, _messageBus);
             _cpu.OnClockTick += UpdateSystems;
             _cpu.OnSpeedSwitch += _timerState.WriteDivider;
             Debug = new EmulatorDebugger(_cpu, _mmu, _gpu, _serialRegisters, () => _running, Update);
@@ -74,15 +78,15 @@ namespace GBZEmuLibrary
                 throw new InvalidOperationException("An Emulator instance can only be started once. Create a new instance to load another ROM.");
             }
 
-            BootROM.Clear();
+            _bootROM.Clear();
 
             if (config.BootROM != null)
             {
-                BootROM.Load(config.BootROM);
+                _bootROM.Load(config.BootROM);
             }
             else if (!string.IsNullOrEmpty(config.BootROMPath))
             {
-                BootROM.Load(File.ReadAllBytes(config.BootROMPath));
+                _bootROM.Load(File.ReadAllBytes(config.BootROMPath));
             }
 
             var success = _cartridge.LoadFile(config.ROMPath, config.SaveLocation);
@@ -129,7 +133,7 @@ namespace GBZEmuLibrary
                     }
                 }
 
-                useBootRom = useBootRom && BootROM.TrySetBootMode(gbcBootRom, config.BootMode.IsSet(BootMode.Short));
+                useBootRom = useBootRom && _bootROM.TrySetBootMode(gbcBootRom, config.BootMode.IsSet(BootMode.Short));
 
                 _mmu.Init(mode);
                 _apu.Reset();

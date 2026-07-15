@@ -2,25 +2,31 @@
 
 namespace GBZEmuLibrary
 {
-    internal static class BootROM
+    /// <summary>
+    /// Stores and selects host-supplied boot-ROM images for one emulator instance.
+    /// </summary>
+    internal sealed class BootROM
     {
         public const int DMG_SIZE = 0x100;
         public const int GBC_SIZE = 0x900;
 
         private static readonly byte[] Empty = new byte[0];
 
-        private static byte[] _dmgBootROM;
-        private static byte[] _gbcBootROM;
+        private byte[] _dmgBootROM;
+        private byte[] _gbcBootROM;
 
-        public static byte[] Bytes { get; private set; } = Empty;
+        public byte[] Bytes { get; private set; } = Empty;
 
-        public static byte[] GBCBootROM => _gbcBootROM;
+        public byte[] GBCBootROM => _gbcBootROM;
 
-        public static bool HasGBCBootROM => _gbcBootROM != null;
+        public bool HasGBCBootROM => _gbcBootROM != null;
 
-        public static bool IsGBCSelected { get; private set; }
+        public bool IsGBCSelected { get; private set; }
 
-        public static void Clear()
+        /// <summary>
+        /// Clears all firmware images and active overlay selection for this emulator.
+        /// </summary>
+        public void Clear()
         {
             _dmgBootROM = null;
             _gbcBootROM = null;
@@ -28,7 +34,10 @@ namespace GBZEmuLibrary
             IsGBCSelected = false;
         }
 
-        public static void Load(byte[] data)
+        /// <summary>
+        /// Validates and stores a private copy of a DMG or CGB boot-ROM image.
+        /// </summary>
+        public void Load(byte[] data)
         {
             if (data == null)
             {
@@ -50,7 +59,10 @@ namespace GBZEmuLibrary
             throw new ArgumentException("Boot ROM must be a 256-byte DMG image or a 2304-byte CGB image.", nameof(data));
         }
 
-        public static bool TrySetBootMode(bool gbc, bool shortBoot)
+        /// <summary>
+        /// Selects a compatible firmware overlay, optionally applying the shortened DMG animation patch.
+        /// </summary>
+        public bool TrySetBootMode(bool gbc, bool shortBoot)
         {
             var source = gbc ? _gbcBootROM : _dmgBootROM;
 

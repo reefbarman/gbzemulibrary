@@ -17,6 +17,7 @@ namespace GBZEmuLibrary
         public GBCMode GBCMode => _header.GBCMode;
         public bool CustomPalette => _header.CustomPalette;
 
+        private readonly BootROM _bootROM;
         private byte[] _cartMemory;
 
         private CartridgeHeader _header;
@@ -42,6 +43,17 @@ namespace GBZEmuLibrary
 
         private BankingMode _bankMode;
 
+        /// <summary>
+        /// Creates a cartridge whose header can inspect the boot ROM owned by the same emulator instance.
+        /// </summary>
+        public Cartridge(BootROM bootROM)
+        {
+            _bootROM = bootROM;
+        }
+
+        /// <summary>
+        /// Loads cartridge bytes, parses controller metadata, and opens the cartridge's persistent RAM store.
+        /// </summary>
         public bool LoadFile(string file, string saveLocation)
         {
             if (File.Exists(file))
@@ -49,7 +61,7 @@ namespace GBZEmuLibrary
                 try
                 {
                     var cart = File.ReadAllBytes(Path.Combine(Directory.GetCurrentDirectory(), file));
-                    _header = new CartridgeHeader(cart);
+                    _header = new CartridgeHeader(cart, _bootROM);
                     _cartMemory = cart;
                     _mbc1Multicart = IsMBC1Multicart(cart);
 

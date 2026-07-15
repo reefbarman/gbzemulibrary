@@ -3,6 +3,9 @@ using System.Text;
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Parses host-visible and controller-specific metadata from a Game Boy cartridge header.
+    /// </summary>
     public class CartridgeHeader
     {
         public string Title { get; private set; }
@@ -16,7 +19,18 @@ namespace GBZEmuLibrary
         private bool _nintendoCart = false;
         private byte _titleHash;
 
+        /// <summary>
+        /// Parses cartridge metadata without an emulator-specific boot ROM for custom DMG palette lookup.
+        /// </summary>
         public CartridgeHeader(byte[] cart)
+            : this(cart, null)
+        {
+        }
+
+        /// <summary>
+        /// Parses cartridge metadata using the supplied instance boot ROM for custom DMG palette lookup.
+        /// </summary>
+        internal CartridgeHeader(byte[] cart, BootROM bootROM)
         {
             Length = cart.Length;
             ParseGBCMode(cart);
@@ -25,7 +39,7 @@ namespace GBZEmuLibrary
             ParseRAMBanks(cart);
             ParseLicenseCode(cart);
             ParseTitle(cart);
-            ParseCustomPalette(cart);
+            ParseCustomPalette(bootROM);
         }
 
         private void ParseGBCMode(byte[] cart)
@@ -191,13 +205,13 @@ namespace GBZEmuLibrary
             _titleHash = titleHash;
         }
 
-        private void ParseCustomPalette(byte[] cart)
+        private void ParseCustomPalette(BootROM bootROM)
         {
-            if (_nintendoCart && GBCMode == GBCMode.NoGBC && BootROM.HasGBCBootROM)
+            if (_nintendoCart && GBCMode == GBCMode.NoGBC && bootROM != null && bootROM.HasGBCBootROM)
             {
                 for (var i = MemorySchema.BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_START; i <= MemorySchema.BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_END; i++)
                 {
-                    if (_titleHash == BootROM.GBCBootROM[i])
+                    if (_titleHash == bootROM.GBCBootROM[i])
                     {
                         CustomPalette = true;
                         break;

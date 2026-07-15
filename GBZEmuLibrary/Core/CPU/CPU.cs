@@ -39,14 +39,17 @@ namespace GBZEmuLibrary
 
         private GBCMode _gbcMode = GBCMode.NoGBC;
 
-        public CPU(MMU mmu)
+        /// <summary>
+        /// Creates a CPU connected to the MMU and interrupt bus owned by the same emulator.
+        /// </summary>
+        public CPU(MMU mmu, MessageBus messageBus)
         {
             _mmu = mmu;
             _mmu.GetSpeedState = GetSpeedState;
             _mmu.OnPendingSpeedSwitch = OnPendingSpeedSwitch;
 
             _interruptHandler = new InterruptHandler(_mmu);
-            MessageBus.Instance.OnRequestInterrupt = i => _interruptHandler.RequestInterrupt(i);
+            messageBus.OnRequestInterrupt = i => _interruptHandler.RequestInterrupt(i);
 
             InitInstructions();
         }
