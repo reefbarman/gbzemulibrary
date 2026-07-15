@@ -13,6 +13,8 @@ namespace GBZEmuLibrary
         public ulong? StopInstruction { get; set; }
         public ushort? BreakProgramCounter { get; set; }
         public int Capacity => _entries.Length;
+
+        internal ushort[] BreakProgramCounters { get; set; }
         public int Count => _count;
 
         internal TraceBuffer(int capacity)
@@ -49,6 +51,29 @@ namespace GBZEmuLibrary
             return Enabled &&
                    instructionCount >= StartInstruction &&
                    (!StopInstruction.HasValue || instructionCount <= StopInstruction.Value);
+        }
+
+        internal bool ShouldBreak(ushort programCounter)
+        {
+            if (BreakProgramCounter.HasValue && BreakProgramCounter.Value == programCounter)
+            {
+                return true;
+            }
+
+            if (BreakProgramCounters == null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < BreakProgramCounters.Length; i++)
+            {
+                if (BreakProgramCounters[i] == programCounter)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         internal void Add(string entry)

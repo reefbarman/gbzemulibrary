@@ -19,7 +19,7 @@
                 _registers.HL,
                 _interruptHandler.InterruptsEnabled,
                 _pendingInterruptEnabled >= 0,
-                _pendingInterruptDisabled >= 0,
+                false,
                 _interruptHandler.Halted,
                 _doubleSpeed,
                 _totalClocks,
@@ -48,7 +48,7 @@
                 _traceBuffer.Add(ToString());
             }
 
-            if (_traceBuffer.BreakProgramCounter == _pc && !_mmu.InBootROM)
+            if (_traceBuffer.ShouldBreak(_pc) && !_mmu.InBootROM)
             {
                 BreakpointHit?.Invoke();
                 return true;

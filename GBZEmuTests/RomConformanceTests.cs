@@ -8,41 +8,14 @@ public sealed class RomConformanceTests
     }
 
     /// <summary>
-    /// Runs every discovered ROM through its configured oracle and compares the result bidirectionally with the
-    /// known-failure baseline. New failures and unexpected passes both fail so compatibility changes are explicit.
+    /// Runs each discovered test ROM through its configured oracle so Test Explorer reports its actual pass or failure.
     /// </summary>
     [Theory]
     [MemberData(nameof(TestCases))]
-    public void RomMatchesKnownFailureBaseline(string testId)
+    public void RomPassesConformanceOracle(string testId)
     {
         var test = RomManifest.Load().Tests.Single(entry => entry.Id == testId);
-        var knownFailure = KnownFailureRegistry.Load().Failures.SingleOrDefault(failure => failure.Id == test.Id);
-        string? actualFailure = null;
-
-        try
-        {
-            Run(test);
-        }
-        catch (Exception exception)
-        {
-            actualFailure = exception.Message;
-        }
-
-        if (KnownFailureRegistry.IsBaselineUpdateEnabled)
-        {
-            KnownFailureRegistry.RecordBaseline(test.Id, actualFailure);
-            return;
-        }
-
-        if (knownFailure == null)
-        {
-            Assert.True(actualFailure == null, $"Unexpected failure for {test.Id}: {actualFailure}");
-            return;
-        }
-
-        Assert.True(actualFailure != null, $"{test.Id} now passes; remove it from KnownFailures.json.");
-        Assert.Contains(knownFailure.FailureSignature, actualFailure, StringComparison.OrdinalIgnoreCase);
-        Assert.False(string.IsNullOrWhiteSpace(knownFailure.RootCause), $"Known failure {test.Id} must document a root cause.");
+        Run(test);
     }
 
     private static void Run(RomTestCase test)

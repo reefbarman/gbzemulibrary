@@ -38,7 +38,6 @@ namespace GBZEmuLibrary
         private int _clocksThisFrame;
         private bool _hasStarted;
         private bool _running;
-        private bool _interruptUpdatePending;
 
         /// <summary>
         /// Creates an emulator instance with isolated hardware state and shared internal-bus callback ownership.
@@ -57,7 +56,7 @@ namespace GBZEmuLibrary
             _cpu = new CPU(_mmu);
             _cpu.OnClockTick += UpdateSystems;
             _cpu.OnSpeedSwitch += _timerState.WriteDivider;
-            Debug = new EmulatorDebugger(_cpu, _mmu, _gpu, _serialRegisters, () => _running);
+            Debug = new EmulatorDebugger(_cpu, _mmu, _gpu, _serialRegisters, () => _running, Update);
         }
 
         /// <summary>
@@ -170,24 +169,7 @@ namespace GBZEmuLibrary
             do
             {
                 _clocksThisUpdate = 0;
-
-                if (_interruptUpdatePending)
-                {
-                    _cpu.UpdateInterrupts();
-                    _interruptUpdatePending = false;
-                }
-
-                if (_cpu.Process())
-                {
-                    _interruptUpdatePending = true;
-
-                    if (!Debug.StopRequested)
-                    {
-                        _cpu.UpdateInterrupts();
-                        _interruptUpdatePending = false;
-                    }
-                }
-
+                _cpu.Process();
                 _clocksThisFrame += _clocksThisUpdate;
             } while (_clocksThisFrame < Display.CLOCK_CYCLES_PER_FRAME && !Debug.StopRequested);
 

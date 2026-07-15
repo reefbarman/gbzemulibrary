@@ -1,5 +1,4 @@
 ﻿using System;
-using InsSchema = GBZEmuLibrary.InstructionSchema;
 
 namespace GBZEmuLibrary
 {
@@ -12,98 +11,122 @@ namespace GBZEmuLibrary
         Joypad
     }
 
-    internal class InterruptHandler
+    /// <summary>
+    /// Owns the Game Boy interrupt registers' priority, request, enable, and HALT wake behavior.
+    /// </summary>
+    internal sealed class InterruptHandler
     {
         private const int VBLANK_SERVICE_ROUTINE = 0x40;
         private const int LCD_SERVICE_ROUTINE = 0x48;
         private const int TIMER_SERVICE_ROUTINE = 0x50;
         private const int SERIAL_SERVICE_ROUTINE = 0x58;
         private const int JOYPAD_SERVICE_ROUTINE = 0x60;
-
-        public Action PushProgramCounter = null;
-        public Action<ushort, bool> UpdateProgramCounter = null;
-        public Action<int> IncrementClock = null;
+        private const int INTERRUPT_MASK = 0x1F;
 
         public bool InterruptsEnabled { get; set; }
         public bool Halted { get; set; }
 
-        private MMU _mmu;
+        private readonly MMU _mmu;
 
+        /// <summary>
+        /// Creates an interrupt controller backed by the MMU's IF and IE registers.
+        /// </summary>
         public InterruptHandler(MMU mmu)
         {
             _mmu = mmu;
         }
 
+        /// <summary>
+        /// Sets an IF request bit and wakes HALT when that interrupt is enabled.
+        /// </summary>
         public void RequestInterrupt(Interrupts interrupt)
         {
             UpdateRegister(interrupt, true);
 
-            var register = _mmu.ReadByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
+            var requested = _mmu.ReadByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
             var enabled = _mmu.ReadByte(MemorySchema.INTERRUPT_ENABLE_REGISTER_START);
 
-            if (Helpers.TestBit(register, (int)interrupt) && Helpers.TestBit(enabled, (int)interrupt) && Halted)
+            if (Helpers.TestBit(requested, (int)interrupt) &&
+                Helpers.TestBit(enabled, (int)interrupt) &&
+                Halted)
             {
                 Halted = false;
             }
         }
 
-        public void Update()
+        /// <summary>
+        /// Returns whether an enabled interrupt is currently requested.
+        /// </summary>
+        public bool HasPendingInterrupt()
         {
-            if (InterruptsEnabled)
-            {
-                var register = _mmu.ReadByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
-                var enabled = _mmu.ReadByte(MemorySchema.INTERRUPT_ENABLE_REGISTER_START);
-                if (register > 0)
-                {
-                    for (var i = 0; i <= (int)Interrupts.Joypad; i++)
-                    {
-                        if (Helpers.TestBit(register, i) && Helpers.TestBit(enabled, i))
-                        {
-                            ServiceInterrupt(i);
-                            return;
-                        }
-                    }
-                }
-            }
+            return PendingInterruptBits() != 0;
         }
 
-        private void ServiceInterrupt(int interrupt)
+        /// <summary>
+        /// Returns the highest-priority pending interrupt, or -1 when dispatch was cancelled.
+        /// </summary>
+        public int GetHighestPriorityPendingInterrupt()
         {
-            InterruptsEnabled = false;
+            var pending = PendingInterruptBits();
+            for (var interrupt = 0; interrupt <= (int)Interrupts.Joypad; interrupt++)
+            {
+                if (Helpers.TestBit(pending, interrupt))
+                {
+                    return interrupt;
+                }
+            }
 
+            return -1;
+        }
+
+        /// <summary>
+        /// Clears the selected interrupt's IF request bit after dispatch priority is resolved.
+        /// </summary>
+        public void ClearInterruptRequest(int interrupt)
+        {
             UpdateRegister((Interrupts)interrupt, false);
+        }
 
-            PushProgramCounter?.Invoke();
-
+        /// <summary>
+        /// Returns the service vector for the selected interrupt.
+        /// </summary>
+        public ushort GetServiceRoutine(int interrupt)
+        {
             switch ((Interrupts)interrupt)
             {
                 case Interrupts.VBlank:
-                    UpdateProgramCounter?.Invoke(VBLANK_SERVICE_ROUTINE, false);
-                    break;
+                    return VBLANK_SERVICE_ROUTINE;
                 case Interrupts.LCD:
-                    UpdateProgramCounter?.Invoke(LCD_SERVICE_ROUTINE, false);
-                    break;
+                    return LCD_SERVICE_ROUTINE;
                 case Interrupts.Timer:
-                    UpdateProgramCounter?.Invoke(TIMER_SERVICE_ROUTINE, false);
-                    break;
+                    return TIMER_SERVICE_ROUTINE;
                 case Interrupts.Serial:
-                    UpdateProgramCounter?.Invoke(SERIAL_SERVICE_ROUTINE, false);
-                    break;
+                    return SERIAL_SERVICE_ROUTINE;
                 case Interrupts.Joypad:
-                    UpdateProgramCounter?.Invoke(JOYPAD_SERVICE_ROUTINE, true);
-                    break;
+                    return JOYPAD_SERVICE_ROUTINE;
                 default:
-                    throw new IndexOutOfRangeException();
+                    throw new ArgumentOutOfRangeException(nameof(interrupt));
             }
-
-            IncrementClock?.Invoke(2);
         }
 
+        /// <summary>
+        /// Updates one IF request bit while preserving requests from other interrupt sources.
+        /// </summary>
         private void UpdateRegister(Interrupts interrupt, bool value)
         {
             var register = _mmu.ReadByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
             Helpers.SetBit(ref register, (int)interrupt, value);
             _mmu.WriteByte(register, MemorySchema.INTERRUPT_REQUEST_REGISTER);
+        }
+
+        /// <summary>
+        /// Returns the five hardware interrupt bits that are both requested in IF and enabled in IE.
+        /// </summary>
+        private byte PendingInterruptBits()
+        {
+            var requested = _mmu.ReadByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
+            var enabled = _mmu.ReadByte(MemorySchema.INTERRUPT_ENABLE_REGISTER_START);
+            return (byte)(requested & enabled & INTERRUPT_MASK);
         }
     }
 }

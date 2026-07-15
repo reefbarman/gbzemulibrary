@@ -3,6 +3,9 @@ using System.Collections.Generic;
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Routes the Game Boy address space to cartridges, hardware devices, and fallback memory.
+    /// </summary>
     internal class MMU
     {
         public Func<byte> GetSpeedState;
@@ -16,6 +19,9 @@ namespace GBZEmuLibrary
 
         private readonly MainMemory _mainMemory = new MainMemory();
 
+        /// <summary>
+        /// Builds the fixed address-to-device lookup used by CPU, DMA, and debugger memory accesses.
+        /// </summary>
         public MMU(Cartridge cart, GPU gpu, Timer timer, DivideRegister divideRegister, Joypad joypad, APU apu, SerialRegisters serialRegisters)
         {
             var memoryUnits = new List<IMemoryUnit>
@@ -44,11 +50,17 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Initializes mode-dependent work RAM behavior.
+        /// </summary>
         public void Init(GBCMode mode)
         {
             _workRAM.Init(mode);
         }
 
+        /// <summary>
+        /// Reads an address through its owning memory unit and applies register-specific read behavior.
+        /// </summary>
         public byte ReadByte(int address)
         {
             if (address < MemorySchema.ROM_END)
@@ -69,18 +81,32 @@ namespace GBZEmuLibrary
 
             if (_memoryUnitLookup.ContainsKey(address))
             {
-                return _memoryUnitLookup[address].ReadByte(address);
+                var value = _memoryUnitLookup[address].ReadByte(address);
+
+                // IF only implements the five interrupt request bits; unused bits are pulled high on reads.
+                return address == MemorySchema.INTERRUPT_REQUEST_REGISTER
+                    ? (byte)(value | 0xE0)
+                    : value;
             }
 
             throw new IndexOutOfRangeException();
         }
 
+        /// <summary>
+        /// Writes an address through its owning memory unit while preserving device side effects.
+        /// </summary>
         public void WriteByte(byte data, int address)
         {
             if (address == MemorySchema.CPU_SPEED_SWITCH_REGISTER)
             {
                 OnPendingSpeedSwitch?.Invoke(data);
                 return;
+            }
+
+            // IF stores only the five implemented request bits; unused bits are supplied by the read path.
+            if (address == MemorySchema.INTERRUPT_REQUEST_REGISTER)
+            {
+                data &= 0x1F;
             }
 
             if (_memoryUnitLookup.ContainsKey(address))
@@ -92,6 +118,9 @@ namespace GBZEmuLibrary
             throw new IndexOutOfRangeException();
         }
 
+        /// <summary>
+        /// Restores post-boot register defaults or enables the selected boot-ROM overlay.
+        /// </summary>
         public void Reset(bool usingBootROM)
         {
             _mainMemory.InBootROM = usingBootROM;

@@ -19,7 +19,7 @@ These instructions apply to the entire repository.
 - `GBZEmuLibrary/Core/BootROM.cs`: runtime storage and validation for host-supplied boot-ROM bytes.
 - `GBZEmuLibrary/GBZEmuLibrary.csproj`: SDK-style `netstandard2.0` library project.
 - `GBZEmuFrontend/`: minimal cross-platform Raylib-cs test host for video, audio, input, ROMs, and boot ROMs.
-- `GBZEmuTests/`: serialized xUnit harness, debug-tooling tests, test-ROM fixtures, framebuffer references, and known-failure baseline.
+- `GBZEmuTests/`: serialized xUnit harness, debug-tooling tests, test-ROM fixtures, and framebuffer references.
 - `README.md`: user-facing behavior, integration contract, evidence-based test results, and known limitations.
 
 ## Toolchain and compatibility constraints
@@ -148,17 +148,18 @@ Run the serialized xUnit suite for behavior changes:
 dotnet test GBZEmuTests/GBZEmuTests.csproj -c Release
 ```
 
-The harness discovers all fixtures under `GBZEmuTests/Fixtures/` and enforces `KnownFailures.json` in both directions: unexpected failures and unexpected passes fail the run. Treat `ExpectedRomIds.txt`, `KnownFailures.json`, and current test output as the authoritative sources for fixture and pass/failure counts.
+The harness discovers all fixtures under `GBZEmuTests/Fixtures/` and reports each ROM's actual oracle result. Passing ROMs pass and failing ROMs fail; the complete suite is expected to remain red until its conformance gaps are fixed. Treat `ExpectedRomIds.txt` and current test output as the authoritative sources for fixture inventory and results.
 
 For behavior changes:
 
 1. Build both Debug and Release when the toolchain is available.
 2. Run focused tests while iterating, then the full Release suite.
 3. Add focused automated tests or legally redistributable fixtures for new behavior.
-4. Remove baseline entries when a ROM starts passing; do not leave surprise passes classified as failures.
-5. Exercise at least one DMG path and one CGB path when shared CPU/MMU/PPU behavior changes.
-6. Check save creation/reload for cartridge changes and audio/video buffer contracts for facade changes.
-7. Keep smoke-test notes concise and checklist-based.
+4. Let newly passing ROMs turn green without requiring a baseline update.
+5. Skip a ROM only when it requires a deliberately unsupported hardware mode or test circumstance, and include a specific visible skip reason. Do not skip ordinary emulator correctness failures.
+6. Exercise at least one DMG path and one CGB path when shared CPU/MMU/PPU behavior changes.
+7. Check save creation/reload for cartridge changes and audio/video buffer contracts for facade changes.
+8. Keep smoke-test notes concise and checklist-based.
 
 Fixture provenance and licensing are documented in `GBZEmuTests/Fixtures/README.md`. Blargg has no explicit upstream license; this repository commits those binaries with attribution by an explicit owner decision. Never generalize that exception to commercial ROMs, firmware, saves, or other unlicensed fixtures.
 

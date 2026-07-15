@@ -26,7 +26,6 @@ namespace GBZEmuLibrary
         private ushort _pc;
         private StackPointer _sp;
         private Registers _registers;
-        private int _pendingInterruptDisabled = -1;
         private int _pendingInterruptEnabled = -1;
         private ulong _instructionCount;
 
@@ -34,6 +33,7 @@ namespace GBZEmuLibrary
         private Dictionary<byte, Action> _instructionsCB;
 
         private bool _haltSkip;
+        private bool _memoryCyclePending;
         private bool _pendingSpeedSwitch;
         private bool _doubleSpeed;
 
@@ -46,75 +46,85 @@ namespace GBZEmuLibrary
             _mmu.OnPendingSpeedSwitch = OnPendingSpeedSwitch;
 
             _interruptHandler = new InterruptHandler(_mmu);
-            _interruptHandler.IncrementClock += IncrementClock;
-            _interruptHandler.PushProgramCounter += () => { Push(_pc); };
-            _interruptHandler.UpdateProgramCounter += (pc, joypadInterrupt) =>
-            {
-                _pc = pc;
-            };
-
             MessageBus.Instance.OnRequestInterrupt = i => _interruptHandler.RequestInterrupt(i);
 
             InitInstructions();
         }
 
+        /// <summary>
+        /// Executes one instruction, HALT cycle, or interrupt-dispatch sequence.
+        /// </summary>
         public bool Process()
         {
-            if (_interruptHandler.Halted)
+            try
             {
-                IncrementClock();
+                if (_interruptHandler.Halted)
+                {
+                    IncrementClock();
+                    ServicePendingInterrupt(true);
+                    return true;
+                }
+
+                if (Debug())
+                {
+                    return false;
+                }
+
+                if (ServicePendingInterrupt(false))
+                {
+                    return true;
+                }
+
+                var instructionAddress = _pc;
+                var instruction = ReadByte(_pc++);
+
+                // An interrupt asserted during opcode fetch suppresses that instruction and uses the fetch as M1.
+                FlushPendingMemoryCycle();
+                if (_interruptHandler.InterruptsEnabled && _interruptHandler.HasPendingInterrupt())
+                {
+                    _pc = instructionAddress;
+                    ServicePendingInterrupt(true);
+                    return true;
+                }
+
+                if (_haltSkip)
+                {
+                    _pc = (ushort)(_pc - 1);
+                    _haltSkip = false;
+                }
+
+                if (_instructions.ContainsKey(instruction))
+                {
+                    _instructions[instruction]();
+                }
+                else
+                {
+                    throw new NotImplementedException($"Instruction not implemented: {instruction:X}");
+                }
+
+                _instructionCount++;
+
+                if (_pendingInterruptEnabled >= 0 && _pendingInterruptEnabled-- == 0)
+                {
+                    _interruptHandler.InterruptsEnabled = true;
+                }
+
                 return true;
             }
-
-            if (Debug())
+            finally
             {
-                return false;
+                FlushPendingMemoryCycle();
             }
-
-            var instruction = ReadByte(_pc++);
-
-            if (_haltSkip)
-            {
-                _pc = (ushort)(_pc - 1);
-                _haltSkip = false;
-            }
-
-            if (_instructions.ContainsKey(instruction))
-            {
-                _instructions[instruction]();
-            }
-            else
-            {
-                throw new NotImplementedException($"Instruction not implemented: {instruction:X}");
-            }
-
-            _instructionCount++;
-
-            // we are trying to disable interrupts, however interrupts get disabled after the next instruction
-            //TODO determine if disabling is handled different https://github.com/AntonioND/giibiiadvance/blob/master/docs/TCAGBD.pdf (section 3.3)
-            if (_pendingInterruptDisabled >= 0 && _pendingInterruptDisabled-- == 0)
-            {
-                _interruptHandler.InterruptsEnabled = false;
-            }
-
-            if (_pendingInterruptEnabled >= 0 && _pendingInterruptEnabled-- == 0)
-            {
-                _interruptHandler.InterruptsEnabled = true;
-            }
-
-            return true;
         }
 
-        public void UpdateInterrupts()
-        {
-            _interruptHandler.Update();
-        }
-
+        /// <summary>
+        /// Resets CPU registers, execution state, and startup values for the selected hardware mode.
+        /// </summary>
         public void Reset(bool usingBootROM, GBCMode gbcMode)
         {
             _gbcMode = gbcMode;
-            _pendingInterruptDisabled = -1;
             _pendingInterruptEnabled = -1;
+            _memoryCyclePending = false;
             _instructionCount = 0;
 
             if (usingBootROM)
@@ -135,6 +145,69 @@ namespace GBZEmuLibrary
             }
 
             _mmu.Reset(usingBootROM);
+        }
+
+        /// <summary>
+        /// Services the highest-priority pending interrupt with hardware-ordered internal and stack cycles.
+        /// </summary>
+        /// <param name="firstCycleElapsed">
+        /// Whether the first dispatch M-cycle was already consumed by HALT or an opcode fetch.
+        /// </param>
+        private bool ServicePendingInterrupt(bool firstCycleElapsed)
+        {
+            if (!_interruptHandler.InterruptsEnabled || !_interruptHandler.HasPendingInterrupt())
+            {
+                return false;
+            }
+
+            _interruptHandler.InterruptsEnabled = false;
+            _interruptHandler.Halted = false;
+
+            if (!firstCycleElapsed)
+            {
+                IncrementClock();
+            }
+
+            // Interrupt entry has one additional internal M-cycle before the two stack writes.
+            IncrementClock();
+            WriteByte((byte)(_pc >> 8), --_sp.SP);
+
+            // The upper-byte stack write can change IE, so priority and cancellation are resolved afterwards.
+            var interrupt = _interruptHandler.GetHighestPriorityPendingInterrupt();
+            WriteByte((byte)_pc, --_sp.SP);
+
+            if (interrupt < 0)
+            {
+                _pc = 0;
+            }
+            else
+            {
+                _interruptHandler.ClearInterruptRequest(interrupt);
+                _pc = _interruptHandler.GetServiceRoutine(interrupt);
+            }
+
+            IncrementClock();
+            return true;
+        }
+
+        /// <summary>
+        /// Implements DI by disabling IME immediately and cancelling a delayed EI that has not taken effect.
+        /// </summary>
+        private void DisableInterrupts()
+        {
+            _interruptHandler.InterruptsEnabled = false;
+            _pendingInterruptEnabled = -1;
+        }
+
+        /// <summary>
+        /// Implements EI's one-instruction delay without allowing repeated EI instructions to restart that delay.
+        /// </summary>
+        private void EnableInterruptsDelayed()
+        {
+            if (!_interruptHandler.InterruptsEnabled && _pendingInterruptEnabled < 0)
+            {
+                _pendingInterruptEnabled = 1;
+            }
         }
 
         private void ProcessExtended()

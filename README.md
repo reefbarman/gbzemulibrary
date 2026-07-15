@@ -4,7 +4,7 @@ GBZEmuLibrary is an embeddable Game Boy and Game Boy Color emulator core written
 
 The library is intended to sit behind a host such as Unity or another C# engine: the host advances emulation, uploads the framebuffer to its own texture, submits audio to its own mixer, and forwards input events.
 
-> **Project status:** experimental and compatibility-driven. The repository includes an automated ROM-conformance suite with an explicit known-failure baseline. This is not a game compatibility matrix. See [Automated testing](#automated-testing) and [Current limitations](#current-limitations) before integrating it.
+> **Project status:** experimental and compatibility-driven. The repository includes an automated ROM-conformance suite whose individual failures are reported directly by the test runner. This is not a game compatibility matrix. See [Automated testing](#automated-testing) and [Current limitations](#current-limitations) before integrating it.
 
 ## Highlights
 
@@ -74,7 +74,7 @@ dotnet test GBZEmuTests/GBZEmuTests.csproj -c Release
 
 The harness discovers every `.gb`/`.gbc` file under `GBZEmuTests/Fixtures/`, including suites from Blargg, Mooneye, dmg-acid2/cgb-acid2, SameSuite, and mealybug-tearoom-tests. It supports serial text, Blargg's `$A000` memory protocol, the Fibonacci register fingerprint used by Mooneye/SameSuite, and exact framebuffer comparison. Tests are serialized because the core supports one live emulator per process.
 
-`GBZEmuTests/KnownFailures.json` makes the suite green-by-contract without hiding gaps: an unexpected failure fails CI, and an unexpected pass also fails until its baseline entry is removed. Every entry includes a stable failure signature and root-cause category. `GBZEmuTests/ExpectedRomIds.txt` locks the reviewed fixture inventory so missing, duplicate, or silently added ROMs fail the suite. These files and current test output are the authoritative sources for fixture and pass/failure counts. Fixture provenance, pins, licenses, and Blargg's explicit licensing ambiguity are documented in `GBZEmuTests/Fixtures/README.md`.
+Each ROM is a normal test case: passing ROMs are green and failing ROMs are red in Test Explorer and `dotnet test` output. The complete suite therefore remains failing while conformance gaps exist; use test filters or Test Explorer selections for focused iteration. `GBZEmuTests/ExpectedRomIds.txt` locks the reviewed fixture inventory so missing, duplicate, or silently added ROMs fail the suite. Current test output is the authoritative source for pass/failure results. Fixture provenance, pins, licenses, and Blargg's explicit licensing ambiguity are documented in `GBZEmuTests/Fixtures/README.md`.
 
 ## Debugging API
 
@@ -84,6 +84,7 @@ The harness discovers every `.gb`/`.gbc` file under `GBZEmuTests/Fixtures/`, inc
 - `PeekByte(address)` / `PokeByte(value, address)` route through the MMU and therefore preserve hardware side effects.
 - `SerialByteTransferred` captures the serial debug convention. Internal-clock transfers complete immediately; external-clock transfers remain pending because no link partner supplies clock edges. Link-cable timing and serial interrupts are not emulated.
 - `Trace` provides a bounded 4,096-entry pre-fetch CPU ring buffer with instruction-range and PC-breakpoint controls.
+- `RunUntilProgramCounter(address, maxFrames)` executes a bounded number of frames and stops before fetching the target instruction, which is useful for deterministic test-ROM diagnostics.
 - `RequestStop()` / `Resume()` cooperatively stop inside the current frame so breakpoint state can be inspected exactly.
 
 Debug state methods require a successfully started, non-terminated emulator. `Update()` returns immediately while stopped.
@@ -275,7 +276,7 @@ GBZEmuTests/                    xUnit debug and ROM-conformance harness
 
 ## Current limitations
 
-- The conformance harness still tracks known failures, primarily in cycle/dot-accurate PPU, APU, DMA, interrupt, and hardware-revision behavior. The timer suite passes except for `rapid_toggle`, which also depends on interrupt-dispatch timing. The core remains experimental despite the green baseline.
+- The conformance suite still has failures, primarily in cycle/dot-accurate PPU, APU, DMA, interrupt, and hardware-revision behavior. `mooneye/acceptance/halt_ime0_nointr_timing` is currently deferred: resolving its remaining one-cycle discrepancy requires coordinated HALT wake, interrupt-polling, and VBlank phase modeling rather than another local timing adjustment. It remains a visible failing test instead of being suppressed. The core remains experimental while these failures remain.
 - Boot-ROM data is not included; hosts must provide firmware at runtime or use skip-boot initialization. Boot-state test variants without matching firmware/revision state remain known failures.
 - Cartridge behavior is partial: MBC3 RTC/latching/persistence and MBC3 external-RAM bank selection remain incomplete.
 - The internal `MessageBus` remains a static singleton, so only one live `Emulator` instance is supported per process. Sequential instances safely replace interrupt, memory, and HBlank callbacks.

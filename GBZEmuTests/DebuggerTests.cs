@@ -65,6 +65,24 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
+    /// Verifies that IF exposes only five writable request bits while its unused upper bits read high.
+    /// IE implements all eight bits, so its upper bits must remain writable and readable without the IF mask.
+    /// </summary>
+    [Fact]
+    public void InterruptRegistersExposeHardwareReadMasks()
+    {
+        using var rom = TestRom.Create(0x00);
+        var emulator = EmulatorFactory.Start(rom);
+
+        emulator.Debug.PokeByte(1 << (int)Interrupts.Serial, 0xFF0F);
+        emulator.Debug.PokeByte(0xA0, 0xFFFF);
+
+        Assert.Equal(0xE8, emulator.Debug.PeekByte(0xFF0F));
+        Assert.Equal(0xA0, emulator.Debug.PeekByte(0xFFFF));
+        emulator.Terminate();
+    }
+
+    /// <summary>
     /// Starts an internal-clock serial transfer and verifies the debug byte event plus immediate completion.
     /// Test ROM protocols depend on this intentional fast path instead of emulating link timing frame by frame.
     /// </summary>
@@ -105,11 +123,11 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
-    /// Stops from an instruction callback with an interrupt ready, then resumes at the deferred interrupt
-    /// checkpoint. The vector breakpoint proves the interrupt is serviced before the next opcode is fetched.
+    /// Stops with an interrupt ready, then verifies dispatch reaches the vector before another opcode executes.
+    /// Interrupt entry must consume five M-cycles and push the suppressed instruction's address in hardware order.
     /// </summary>
     [Fact]
-    public void ResumeCompletesPendingInterruptUpdateBeforeNextInstruction()
+    public void InterruptDispatchCompletesBeforeNextInstruction()
     {
         using var rom = TestRom.Create(0xFB, 0x40, 0x00);
         var emulator = EmulatorFactory.Start(rom);
@@ -123,15 +141,63 @@ public sealed class DebuggerTests
         Assert.Equal(0x0102, stoppedState.PC);
         Assert.True(stoppedState.InterruptsEnabled);
         Assert.NotEqual(0, emulator.Debug.PeekByte(0xFF0F) & (1 << (int)Interrupts.Timer));
+        var clocksBeforeDispatch = stoppedState.TotalClockCycles;
 
-        emulator.Debug.Trace.BreakProgramCounter = 0x0050;
-        emulator.Debug.Resume();
-        emulator.Update();
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0x0050, 1));
 
         Assert.True(emulator.Debug.IsStopped);
-        Assert.Equal(0x0050, emulator.Debug.GetCpuState().PC);
-        Assert.Equal((ulong)2, emulator.Debug.GetCpuState().ExecutedInstructionCount);
+        var dispatchedState = emulator.Debug.GetCpuState();
+        Assert.Equal(0x0050, dispatchedState.PC);
+        Assert.Equal(0xFFFC, dispatchedState.SP);
+        Assert.Equal((ulong)2, dispatchedState.ExecutedInstructionCount);
+        Assert.Equal((ulong)20, dispatchedState.TotalClockCycles - clocksBeforeDispatch);
+        Assert.Equal(0x02, emulator.Debug.PeekByte(0xFFFC));
+        Assert.Equal(0x01, emulator.Debug.PeekByte(0xFFFD));
         Assert.Equal(0, emulator.Debug.PeekByte(0xFF0F) & (1 << (int)Interrupts.Timer));
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Verifies that consecutive EI instructions preserve the first instruction's pending enable instead of
+    /// restarting the delay. The pending interrupt must preempt the opcode after the second EI.
+    /// </summary>
+    [Fact]
+    public void RepeatedEnableInterruptsDoesNotRestartDelay()
+    {
+        using var rom = TestRom.Create(0xFB, 0xFB, 0x40, 0x00); // EI; EI; LD B,B; NOP
+        var emulator = EmulatorFactory.Start(rom);
+        emulator.Debug.PokeByte(1 << (int)Interrupts.Timer, 0xFFFF);
+        emulator.Debug.PokeByte(1 << (int)Interrupts.Timer, 0xFF0F);
+
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0x0050, 1));
+
+        Assert.Equal(0x02, emulator.Debug.PeekByte(0xFFFC));
+        Assert.Equal(0x01, emulator.Debug.PeekByte(0xFFFD));
+        Assert.Equal((ulong)2, emulator.Debug.GetCpuState().ExecutedInstructionCount);
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Verifies that DI disables IME immediately and cancels an EI that is still waiting for its delayed enable.
+    /// The pending interrupt must remain requested rather than preempting the following instruction.
+    /// </summary>
+    [Fact]
+    public void DisableInterruptsCancelsPendingEnable()
+    {
+        using var rom = TestRom.Create(0xFB, 0xF3, 0x40, 0x00); // EI; DI; LD B,B; NOP
+        var emulator = EmulatorFactory.Start(rom);
+        emulator.Debug.PokeByte(1 << (int)Interrupts.Timer, 0xFFFF);
+        emulator.Debug.PokeByte(1 << (int)Interrupts.Timer, 0xFF0F);
+        emulator.Debug.LoadBBExecuted += emulator.Debug.RequestStop;
+
+        emulator.Update();
+
+        var state = emulator.Debug.GetCpuState();
+        Assert.True(emulator.Debug.IsStopped);
+        Assert.Equal(0x0103, state.PC);
+        Assert.False(state.InterruptsEnabled);
+        Assert.False(state.InterruptEnablePending);
+        Assert.NotEqual(0, emulator.Debug.PeekByte(0xFF0F) & (1 << (int)Interrupts.Timer));
         emulator.Terminate();
     }
 
@@ -144,13 +210,27 @@ public sealed class DebuggerTests
     {
         using var rom = TestRom.Create(0x00, 0x00, 0x00);
         var emulator = EmulatorFactory.Start(rom);
-        emulator.Debug.Trace.BreakProgramCounter = 0x0102;
-
-        emulator.Update();
-
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0x0102, 1));
         Assert.True(emulator.Debug.IsStopped);
         Assert.Equal(0x0102, emulator.Debug.GetCpuState().PC);
         Assert.Equal((ulong)2, emulator.Debug.GetCpuState().ExecutedInstructionCount);
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Verifies bounded breakpoint execution reports reached and timed-out addresses without running indefinitely.
+    /// </summary>
+    [Fact]
+    public void RunUntilProgramCounterHonorsFrameBudget()
+    {
+        using var rom = TestRom.Create(0x00, 0x18, 0xFD); // NOP; JR -3 loops through $0100 and $0101.
+        var emulator = EmulatorFactory.Start(rom);
+
+        Assert.Equal((ushort)0x0101, emulator.Debug.RunUntilAnyProgramCounter(new ushort[] { 0x0101, 0x0102 }, 1));
+        Assert.False(emulator.Debug.RunUntilProgramCounter(0x0103, 1));
+        Assert.False(emulator.Debug.IsStopped);
+        Assert.Throws<ArgumentException>(() => emulator.Debug.RunUntilAnyProgramCounter(Array.Empty<ushort>(), 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => emulator.Debug.RunUntilProgramCounter(0x0100, 0));
         emulator.Terminate();
     }
 
