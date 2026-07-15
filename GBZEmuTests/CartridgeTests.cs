@@ -49,6 +49,57 @@ public sealed class CartridgeTests
     }
 
     /// <summary>
+    /// Exercises every switchable ROM bank in the worldwide Pokémon Crystal MBC3 geometry and verifies both
+    /// boundaries of the 16 KiB window. Bank zero must remain fixed, while raw bank zero remaps to bank one.
+    /// </summary>
+    [Fact]
+    public void Mbc3PreservesCrystalSizedRomBankIntegrity()
+    {
+        using var rom = CreateMbc3BankedRom();
+        var emulator = EmulatorFactory.Start(rom);
+
+        Assert.Equal(0x00, emulator.Debug.PeekByte(0x0000));
+        Assert.Equal(0xFF, emulator.Debug.PeekByte(0x3FFF));
+
+        for (var bank = 1; bank < 128; bank++)
+        {
+            emulator.Debug.PokeByte((byte)bank, 0x2000);
+
+            Assert.Equal((byte)bank, emulator.Debug.PeekByte(0x4000));
+            Assert.Equal((byte)(bank ^ 0xFF), emulator.Debug.PeekByte(0x7FFF));
+            Assert.Equal(0x00, emulator.Debug.PeekByte(0x0000));
+            Assert.Equal(0xFF, emulator.Debug.PeekByte(0x3FFF));
+        }
+
+        emulator.Debug.PokeByte(0x00, 0x2000);
+        Assert.Equal(0x01, emulator.Debug.PeekByte(0x4000));
+
+        emulator.Debug.PokeByte(0x80, 0x2000);
+        Assert.Equal(0x01, emulator.Debug.PeekByte(0x4000));
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Verifies MBC3 RAM/RTC selection and latch writes do not alter the selected switchable ROM bank.
+    /// Crystal interleaves these controller operations with asset and code reads from banked ROM.
+    /// </summary>
+    [Fact]
+    public void Mbc3ControlWritesDoNotDisturbRomBank()
+    {
+        using var rom = CreateMbc3BankedRom();
+        var emulator = EmulatorFactory.Start(rom);
+        emulator.Debug.PokeByte(0x42, 0x2000);
+
+        emulator.Debug.PokeByte(0x03, 0x4000);
+        emulator.Debug.PokeByte(0x00, 0x6000);
+        emulator.Debug.PokeByte(0x01, 0x6000);
+
+        Assert.Equal(0x42, emulator.Debug.PeekByte(0x4000));
+        Assert.Equal(0xBD, emulator.Debug.PeekByte(0x7FFF));
+        emulator.Terminate();
+    }
+
+    /// <summary>
     /// Writes distinct values to two MBC5 RAM banks, restarts the emulator, and verifies both values reload.
     /// This protects bank isolation and persistent-save behavior rather than only testing the bank register itself.
     /// </summary>
@@ -156,6 +207,30 @@ public sealed class CartridgeTests
         bytes[0x147] = 0x01;
         bytes[0x148] = sizeCode;
         bytes[0x149] = 0x00;
+        File.WriteAllBytes(rom.Path, bytes);
+        return rom;
+    }
+
+    /// <summary>
+    /// Creates a synthetic 2 MiB MBC3+timer+RAM+battery cartridge matching worldwide Pokémon Crystal geometry.
+    /// Each bank has distinct boundary bytes so tests can detect incorrect selection, wrapping, or window offsets.
+    /// </summary>
+    private static TestRom CreateMbc3BankedRom()
+    {
+        const int bankCount = 128;
+        var rom = TestRom.Create(0x00);
+        var bytes = new byte[bankCount * CartridgeSchema.ROM_BANK_SIZE];
+        for (var bank = 0; bank < bankCount; bank++)
+        {
+            var offset = bank * CartridgeSchema.ROM_BANK_SIZE;
+            bytes[offset] = (byte)bank;
+            bytes[offset + CartridgeSchema.ROM_BANK_SIZE - 1] = (byte)(bank ^ 0xFF);
+        }
+
+        bytes[CartridgeSchema.GBC_MODE_LOC] = 0x80;
+        bytes[CartridgeSchema.MBC_MODE_LOC] = 0x10;
+        bytes[CartridgeSchema.ROM_BANK_NUM_LOC] = 0x06;
+        bytes[CartridgeSchema.RAM_BANK_NUM_LOC] = 0x03;
         File.WriteAllBytes(rom.Path, bytes);
         return rom;
     }
