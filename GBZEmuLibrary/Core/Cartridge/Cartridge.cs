@@ -3,6 +3,9 @@ using System.IO;
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Emulates cartridge ROM, external RAM, and memory-bank controller register decoding.
+    /// </summary>
     internal class Cartridge : IMemoryUnit
     {
         private enum BankingMode
@@ -32,6 +35,7 @@ namespace GBZEmuLibrary
 
         private int _romBank = 1;
         private int _ramBank;
+        private byte _mbc3RamRtcSelect;
         private byte _mbc1Bank1;
         private byte _mbc1Bank2;
         private bool _mbc1Multicart;
@@ -85,6 +89,9 @@ namespace GBZEmuLibrary
             return false;
         }
 
+        /// <summary>
+        /// Reads from the fixed or switchable ROM windows, external RAM, or the currently selected MBC register window.
+        /// </summary>
         public byte ReadByte(int address)
         {
             if (address < MemorySchema.ROM_END)
@@ -114,7 +121,12 @@ namespace GBZEmuLibrary
                         : (byte)0xFF;
                 }
 
-                var ramBank = GetExternalRAMBank();
+                if (!TryGetExternalRAMBank(out var ramBank))
+                {
+                    // MBC3 RTC registers are selected through this window but are not implemented yet.
+                    return 0xFF;
+                }
+
                 address = (address - MemorySchema.EXTERNAL_RAM_START) + (ramBank * CartridgeSchema.RAM_BANK_SIZE);
 
                 if (address < _externalRAM.Length && _externalRAM.Enabled)
@@ -128,6 +140,9 @@ namespace GBZEmuLibrary
             throw new IndexOutOfRangeException();
         }
 
+        /// <summary>
+        /// Writes external RAM or updates the active memory-bank controller registers for the addressed ROM range.
+        /// </summary>
         public void WriteByte(byte data, int address)
         {
             if (address < MemorySchema.ROM_END)
@@ -196,8 +211,8 @@ namespace GBZEmuLibrary
                             break;
 
                         case CartridgeSchema.MBCMode.MBC3:
-                            //TODO RTC register select
-                            _ramBank = _header.RAMBanks == 0 ? 0 : Helpers.GetBits(data, 2) % _header.RAMBanks;
+                            // Values 0x00-0x03 select RAM banks; 0x08-0x0C select RTC registers.
+                            _mbc3RamRtcSelect = data;
                             break;
 
                         case CartridgeSchema.MBCMode.MBC5:
@@ -221,7 +236,12 @@ namespace GBZEmuLibrary
                     return;
                 }
 
-                var ramBank = GetExternalRAMBank();
+                if (!TryGetExternalRAMBank(out var ramBank))
+                {
+                    // Do not alias unsupported MBC3 RTC or invalid selections onto persistent RAM.
+                    return;
+                }
+
                 address = (address - MemorySchema.EXTERNAL_RAM_START) + (ramBank * CartridgeSchema.RAM_BANK_SIZE);
 
                 if (address < _externalRAM.Length)
@@ -272,19 +292,37 @@ namespace GBZEmuLibrary
             return _mbc1Bank2 % _header.RAMBanks;
         }
 
-        private int GetExternalRAMBank()
+        /// <summary>
+        /// Resolves the external RAM bank selected by the active controller, returning false when MBC3 maps an RTC
+        /// or invalid selector into the external-memory window instead of RAM.
+        /// </summary>
+        private bool TryGetExternalRAMBank(out int ramBank)
         {
-            if (_header.BankingMode == CartridgeSchema.MBCMode.MBC1)
+            switch (_header.BankingMode)
             {
-                return GetMBC1RAMBank();
-            }
+                case CartridgeSchema.MBCMode.MBC1:
+                    ramBank = GetMBC1RAMBank();
+                    return true;
 
-            if (_header.BankingMode == CartridgeSchema.MBCMode.MBC5)
-            {
-                return _ramBank;
-            }
+                case CartridgeSchema.MBCMode.MBC3:
+                    if (_mbc3RamRtcSelect > 0x03)
+                    {
+                        // RTC selectors and undefined values are intentionally treated as non-RAM selections.
+                        ramBank = 0;
+                        return false;
+                    }
 
-            return _bankMode == BankingMode.RAMBank ? _ramBank : 0;
+                    ramBank = _header.RAMBanks == 0 ? 0 : _mbc3RamRtcSelect % _header.RAMBanks;
+                    return true;
+
+                case CartridgeSchema.MBCMode.MBC5:
+                    ramBank = _ramBank;
+                    return true;
+
+                default:
+                    ramBank = 0;
+                    return true;
+            }
         }
 
         private bool IsMBC1Multicart(byte[] cart)

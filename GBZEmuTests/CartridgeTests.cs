@@ -2,6 +2,9 @@ using GBZEmuLibrary;
 
 namespace GBZEmuTests;
 
+/// <summary>
+/// Verifies cartridge-controller banking, persistent RAM, and controller register decoding.
+/// </summary>
 public sealed class CartridgeTests
 {
     /// <summary>
@@ -97,6 +100,48 @@ public sealed class CartridgeTests
         Assert.Equal(0x42, emulator.Debug.PeekByte(0x4000));
         Assert.Equal(0xBD, emulator.Debug.PeekByte(0x7FFF));
         emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Writes distinct values to all four MBC3 RAM banks, confirms an RTC-register selection does not alias RAM,
+    /// then restarts the emulator and verifies every bank reloads from the save file.
+    /// </summary>
+    [Fact]
+    public void Mbc3RamBanksRemainDistinctAfterSaveReload()
+    {
+        using var rom = CreateMbc3BankedRom();
+        var saveDirectory = Path.Combine(Path.GetTempPath(), $"gbzemu-mbc3-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(saveDirectory);
+
+        try
+        {
+            var first = StartWithSaveDirectory(rom, saveDirectory);
+            first.Debug.PokeByte(0x0A, 0x0000);
+            for (var bank = 0; bank < 4; bank++)
+            {
+                first.Debug.PokeByte((byte)bank, 0x4000);
+                first.Debug.PokeByte((byte)(0x30 + bank), 0xA000);
+            }
+
+            first.Debug.PokeByte(0x08, 0x4000);
+            Assert.Equal(0xFF, first.Debug.PeekByte(0xA000));
+            first.Debug.PokeByte(0x88, 0xA000);
+            first.Terminate();
+
+            var second = StartWithSaveDirectory(rom, saveDirectory);
+            second.Debug.PokeByte(0x0A, 0x0000);
+            for (var bank = 0; bank < 4; bank++)
+            {
+                second.Debug.PokeByte((byte)bank, 0x4000);
+                Assert.Equal((byte)(0x30 + bank), second.Debug.PeekByte(0xA000));
+            }
+
+            second.Terminate();
+        }
+        finally
+        {
+            Directory.Delete(saveDirectory, true);
+        }
     }
 
     /// <summary>
