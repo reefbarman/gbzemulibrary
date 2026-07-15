@@ -2,8 +2,13 @@
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Emulates OAM DMA and the CGB general-purpose/HBlank DMA engines that copy data into VRAM.
+    /// </summary>
     internal class DMAController : IMemoryUnit
     {
+        private const int CGB_DMA_BLOCK_SIZE = 0x10;
+
         private byte _sourceHigh;
         private byte _sourceLow;
 
@@ -20,6 +25,9 @@ namespace GBZEmuLibrary
             MessageBus.Instance.OnHBlank = OnHBlank;
         }
 
+        /// <summary>
+        /// Updates an OAM or CGB VRAM DMA register and starts or stops a transfer when its control register is written.
+        /// </summary>
         public void WriteByte(byte data, int address)
         {
             switch (address)
@@ -48,7 +56,6 @@ namespace GBZEmuLibrary
 
                     if (_transferring && !Helpers.TestBit(data, 7))
                     {
-                        _dmaLengthMode |= 0x80;
                         StopTransfer();
                     }
                     else
@@ -113,65 +120,91 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Cancels an active HBlank transfer while preserving its remaining-block readback in HDMA5.
+        /// </summary>
         private void StopTransfer()
         {
-            _currentIndex = 0;
+            // Preserve the remaining-block value for inactive HDMA5 readback; a later transfer resets its own index.
+            _dmaLengthMode |= 0x80;
             _transferring = false;
         }
 
+        /// <summary>
+        /// Starts HDMA or completes GDMA immediately. CPU stall timing is not yet modeled.
+        /// </summary>
         private void StartTransfer()
         {
-            if (Helpers.TestBit(_dmaLengthMode, 7))
+            _currentIndex = 0;
+            var hBlankMode = Helpers.TestBit(_dmaLengthMode, 7);
+            _dmaLengthMode &= 0x7F;
+
+            if (hBlankMode)
             {
-                _currentIndex = 0;
                 _transferring = true;
-                _dmaLengthMode &= 0x7F;
+                return;
             }
-            else
+
+            var blockCount = _dmaLengthMode + 1;
+            for (var block = 0; block < blockCount; block++)
             {
-                for (var i = 0; i < GetLength(); i++)
-                {
-                    MessageBus.Instance.WriteByte(MessageBus.Instance.ReadByte(GetSourceAddress() + i), GetDestinationAddress() + i);
-                }
+                CopyBlock(block);
             }
+
+            _dmaLengthMode = 0xFF;
         }
 
+        /// <summary>
+        /// Returns the 16-byte-aligned CGB DMA source address encoded by HDMA1 and HDMA2.
+        /// </summary>
         private int GetSourceAddress()
         {
             return (_sourceHigh << 8) | (_sourceLow & 0xF0);
         }
 
+        /// <summary>
+        /// Returns the 16-byte-aligned VRAM destination address encoded by HDMA3 and HDMA4.
+        /// </summary>
         private int GetDestinationAddress()
         {
             return MemorySchema.VIDEO_RAM_START | (((_destinationHigh & 0x1F) << 8) | _destinationLow & 0xF0);
         }
 
-        private int GetLength()
+        /// <summary>
+        /// Copies one 16-byte CGB DMA block through the MMU so bank selection and device side effects are preserved.
+        /// </summary>
+        private void CopyBlock(int blockIndex)
         {
-            return (Helpers.GetBits(_dmaLengthMode, 7) / 0x10) - 1;
+            var offset = blockIndex * CGB_DMA_BLOCK_SIZE;
+            for (var index = 0; index < CGB_DMA_BLOCK_SIZE; index++)
+            {
+                MessageBus.Instance.WriteByte(
+                    MessageBus.Instance.ReadByte(GetSourceAddress() + offset + index),
+                    GetDestinationAddress() + offset + index);
+            }
         }
 
+        /// <summary>
+        /// Advances an active HBlank transfer by exactly one 16-byte block.
+        /// </summary>
         private void OnHBlank()
         {
-            if (_transferring)
+            if (!_transferring)
             {
-                var offset = _currentIndex * 0x10;
+                return;
+            }
 
-                for (var i = 0; i < GetLength(); i++)
-                {
-                    MessageBus.Instance.WriteByte(MessageBus.Instance.ReadByte(GetSourceAddress() + offset + i), GetDestinationAddress() + offset + i);
-                }
+            CopyBlock(_currentIndex);
+            _currentIndex++;
 
-                _currentIndex++;
-
-                var next = (_dmaLengthMode & 0x7F) - 1;
-                _dmaLengthMode = (byte)((_dmaLengthMode & 0x80) | next);
-
-                if (next <= 0)
-                {
-                    _dmaLengthMode = 0xFF;
-                    _transferring = false;
-                }
+            if (_dmaLengthMode == 0)
+            {
+                _dmaLengthMode = 0xFF;
+                _transferring = false;
+            }
+            else
+            {
+                _dmaLengthMode--;
             }
         }
     }

@@ -3,6 +3,9 @@ using System.Linq;
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Emulates the DMG/CGB pixel-processing unit, including VRAM, OAM, LCD registers, and scanline rendering.
+    /// </summary>
     internal class GPU : IMemoryUnit
     {
         private enum LCDStatus
@@ -119,6 +122,7 @@ namespace GBZEmuLibrary
 
         private int _cycleCounter;
         private bool _pendingVBlankInterrupt;
+        private bool _lycInterruptLineHigh;
 
         private bool _gbcMode = false;
 
@@ -128,12 +132,19 @@ namespace GBZEmuLibrary
             _spritePaletteData = Enumerable.Repeat<byte>(0xFF, MathSchema.MAX_6_BIT_VALUE).ToArray();
         }
 
+        /// <summary>
+        /// Resets mode-dependent PPU state for a new emulator run.
+        /// </summary>
         public void Reset(bool gbcMode)
         {
             _gbcMode = gbcMode;
+            _lycInterruptLineHigh = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
         }
 
+        /// <summary>
+        /// Advances PPU mode timing, scanline state, rendering, and LCD interrupt conditions by CPU-derived clocks.
+        /// </summary>
         public void Update(int cycles)
         {
             if (!IsLCDEnabled())
@@ -164,8 +175,6 @@ namespace GBZEmuLibrary
                     requestInterrupt = TransferringDataToLCDDriver();
                     break;
             }
-
-            Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, ScanLine == _gpuRegisters[(int)Registers.LCDYCoord]);
 
             //Request interrupt if mode has changed
             if (requestInterrupt)
@@ -245,6 +254,9 @@ namespace GBZEmuLibrary
             return ReadFromVRAMWithBank(address, _vRAMBank);
         }
 
+        /// <summary>
+        /// Writes VRAM, OAM, or an LCD register and applies its hardware side effects.
+        /// </summary>
         public void WriteByte(byte data, int address)
         {
             if (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START && address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END)
@@ -258,7 +270,9 @@ namespace GBZEmuLibrary
                 switch (address)
                 {
                     case (int)Registers.LCDStatus:
-                        _gpuRegisters[address] = (byte)(_gpuRegisters[address] & 0x07 | data & 0x78);
+                        // Mode and coincidence bits are read-only; CheckCoincidence is authoritative for bit 2.
+                        _gpuRegisters[address] = (byte)((_gpuRegisters[address] & 0x07) | (data & 0x78));
+                        CheckCoincidence();
                         break;
                     case (int)Registers.LCDYCoord:
                         _gpuRegisters[address] = data;
@@ -322,15 +336,21 @@ namespace GBZEmuLibrary
             return _screenData;
         }
 
+        /// <summary>
+        /// Updates the read-only STAT coincidence flag and requests LCD only on a new enabled LY=LYC rising edge.
+        /// </summary>
         private void CheckCoincidence()
         {
             var coincidence = ScanLine == _gpuRegisters[(int)Registers.LCDYCoord];
+            Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, coincidence);
 
-            //Request interrupt if mode has changed or a coincidence has occurred
-            if (coincidence && IsInterruptEnabled(LCDStatusBits.CoincidenceInterruptEnabled))
+            var interruptLineHigh = coincidence && IsInterruptEnabled(LCDStatusBits.CoincidenceInterruptEnabled);
+            if (interruptLineHigh && !_lycInterruptLineHigh)
             {
                 MessageBus.Instance.RequestInterrupt(Interrupts.LCD);
             }
+
+            _lycInterruptLineHigh = interruptLineHigh;
         }
 
         private bool HandleHBlank()
