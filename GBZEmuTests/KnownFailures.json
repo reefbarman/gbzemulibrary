@@ -421,11 +421,6 @@
       "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
     },
     {
-      "Id": "mooneye/acceptance/div_timing",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
-    },
-    {
       "Id": "mooneye/acceptance/ei_sequence",
       "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
       "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
@@ -436,22 +431,12 @@
       "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
     },
     {
-      "Id": "mooneye/acceptance/halt_ime1_timing2-GS",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
-    },
-    {
       "Id": "mooneye/acceptance/if_ie_registers",
       "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
       "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
     },
     {
       "Id": "mooneye/acceptance/interrupts/ie_push",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
-    },
-    {
-      "Id": "mooneye/acceptance/intr_timing",
       "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
       "RootCause": "HALT bug, delayed IME transitions, or interrupt-service sequencing is incomplete."
     },
@@ -494,11 +479,6 @@
       "Id": "mooneye/acceptance/oam_dma_timing",
       "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
       "RootCause": "DMA bus blocking, restart, and transfer timing are not modeled at the hardware cycle granularity required by this test."
-    },
-    {
-      "Id": "mooneye/acceptance/pop_timing",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "CPU instruction, memory-access, or interrupt timing differs from hardware at machine-cycle granularity."
     },
     {
       "Id": "mooneye/acceptance/ppu/hblank_ly_scx_timing-GS",
@@ -591,52 +571,7 @@
       "RootCause": "The debug serial device completes immediately and does not model serial clock alignment or interrupt timing."
     },
     {
-      "Id": "mooneye/acceptance/timer/div_write",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
-    },
-    {
       "Id": "mooneye/acceptance/timer/rapid_toggle",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
-    },
-    {
-      "Id": "mooneye/acceptance/timer/tim00",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
-    },
-    {
-      "Id": "mooneye/acceptance/timer/tim01_div_trigger",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
-    },
-    {
-      "Id": "mooneye/acceptance/timer/tim10",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
-    },
-    {
-      "Id": "mooneye/acceptance/timer/tim10_div_trigger",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
-    },
-    {
-      "Id": "mooneye/acceptance/timer/tim11",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
-    },
-    {
-      "Id": "mooneye/acceptance/timer/tima_reload",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
-    },
-    {
-      "Id": "mooneye/acceptance/timer/tima_write_reloading",
-      "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
-      "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
-    },
-    {
-      "Id": "mooneye/acceptance/timer/tma_write_reloading",
       "FailureSignature": "Fibonacci fingerprint mismatch: B=42, C=42, D=42, E=42, H=42, L=42.",
       "RootCause": "Timer divider-edge, TIMA reload, and register-write timing is not modeled with hardware-accurate edge semantics."
     },

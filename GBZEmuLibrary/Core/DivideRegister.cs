@@ -1,36 +1,42 @@
 ﻿namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Exposes the DIV register view of the shared system counter to the MMU.
+    /// </summary>
     internal class DivideRegister : IMemoryUnit
     {
-        private const int CYCLES_PER_DIVIDER_UPDATE = GameBoySchema.MAX_DMG_CLOCK_CYCLES / 16384;
+        private readonly TimerState _timerState;
 
-        private byte _register; //TODO does this get initialized to a special value?
-        private int _counter;
-
-        public void Update(int cycles)
+        /// <summary>
+        /// Creates the DIV register adapter for the supplied timer state.
+        /// </summary>
+        public DivideRegister(TimerState timerState)
         {
-            _counter += cycles;
-
-            while (_counter >= CYCLES_PER_DIVIDER_UPDATE)
-            {
-                _counter -= CYCLES_PER_DIVIDER_UPDATE;
-                _register++;
-            }
+            _timerState = timerState;
         }
 
+        /// <summary>
+        /// Resets the complete system counter, as any write to DIV does on hardware.
+        /// </summary>
         public void WriteByte(byte data, int address)
         {
-            _register = 0;
+            _timerState.WriteDivider();
         }
 
+        /// <summary>
+        /// Returns whether this device owns the DIV register address.
+        /// </summary>
         public bool CanReadWriteByte(int address)
         {
             return address == MemorySchema.DIVIDE_REGISTER;
         }
 
+        /// <summary>
+        /// Reads the visible upper byte of the shared system counter.
+        /// </summary>
         public byte ReadByte(int address)
         {
-            return _register;
+            return _timerState.ReadDivider();
         }
     }
 }

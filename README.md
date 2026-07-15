@@ -4,7 +4,7 @@ GBZEmuLibrary is an embeddable Game Boy and Game Boy Color emulator core written
 
 The library is intended to sit behind a host such as Unity or another C# engine: the host advances emulation, uploads the framebuffer to its own texture, submits audio to its own mixer, and forwards input events.
 
-> **Project status:** experimental and compatibility-driven. The repository includes an automated 276-ROM conformance suite; 72 cases currently pass and 204 failures are tracked with explicit root-cause categories. This is not a game compatibility matrix. See [Automated testing](#automated-testing) and [Current limitations](#current-limitations) before integrating it.
+> **Project status:** experimental and compatibility-driven. The repository includes an automated ROM-conformance suite with an explicit known-failure baseline. This is not a game compatibility matrix. See [Automated testing](#automated-testing) and [Current limitations](#current-limitations) before integrating it.
 
 ## Highlights
 
@@ -72,20 +72,9 @@ Run the complete suite:
 dotnet test GBZEmuTests/GBZEmuTests.csproj -c Release
 ```
 
-The harness discovers every `.gb`/`.gbc` file under `GBZEmuTests/Fixtures/` and currently runs 276 ROMs from Blargg, Mooneye, dmg-acid2/cgb-acid2, SameSuite, and mealybug-tearoom-tests. It supports serial text, Blargg's `$A000` memory protocol, the Fibonacci register fingerprint used by Mooneye/SameSuite, and exact framebuffer comparison. Tests are serialized because the core supports one live emulator per process.
+The harness discovers every `.gb`/`.gbc` file under `GBZEmuTests/Fixtures/`, including suites from Blargg, Mooneye, dmg-acid2/cgb-acid2, SameSuite, and mealybug-tearoom-tests. It supports serial text, Blargg's `$A000` memory protocol, the Fibonacci register fingerprint used by Mooneye/SameSuite, and exact framebuffer comparison. Tests are serialized because the core supports one live emulator per process.
 
-Current evidence from the committed baseline:
-
-| Suite     | Passing |   Total |
-| --------- | ------: | ------: |
-| Blargg    |      29 |      58 |
-| Mooneye   |      41 |     103 |
-| acid2     |       0 |       2 |
-| SameSuite |       2 |      78 |
-| mealybug  |       0 |      35 |
-| **Total** |  **72** | **276** |
-
-`GBZEmuTests/KnownFailures.json` makes the suite green-by-contract without hiding gaps: an unexpected failure fails CI, and an unexpected pass also fails until its baseline entry is removed. Every entry includes a stable failure signature and root-cause category. `GBZEmuTests/ExpectedRomIds.txt` locks the reviewed fixture inventory so missing, duplicate, or silently added ROMs fail the suite. Fixture provenance, pins, licenses, and Blargg's explicit licensing ambiguity are documented in `GBZEmuTests/Fixtures/README.md`.
+`GBZEmuTests/KnownFailures.json` makes the suite green-by-contract without hiding gaps: an unexpected failure fails CI, and an unexpected pass also fails until its baseline entry is removed. Every entry includes a stable failure signature and root-cause category. `GBZEmuTests/ExpectedRomIds.txt` locks the reviewed fixture inventory so missing, duplicate, or silently added ROMs fail the suite. These files and current test output are the authoritative sources for fixture and pass/failure counts. Fixture provenance, pins, licenses, and Blargg's explicit licensing ambiguity are documented in `GBZEmuTests/Fixtures/README.md`.
 
 ## Debugging API
 
@@ -286,7 +275,7 @@ GBZEmuTests/                    xUnit debug and ROM-conformance harness
 
 ## Current limitations
 
-- The conformance harness tracks 204 known failures. Most remaining failures require cycle/dot-accurate PPU, APU, timer, DMA, interrupt, or hardware-revision behavior; the core remains experimental despite the green baseline.
+- The conformance harness still tracks known failures, primarily in cycle/dot-accurate PPU, APU, DMA, interrupt, and hardware-revision behavior. The timer suite passes except for `rapid_toggle`, which also depends on interrupt-dispatch timing. The core remains experimental despite the green baseline.
 - Boot-ROM data is not included; hosts must provide firmware at runtime or use skip-boot initialization. Boot-state test variants without matching firmware/revision state remain known failures.
 - Cartridge behavior is partial: MBC3 RTC/latching/persistence and MBC3 external-RAM bank selection remain incomplete.
 - The internal `MessageBus` remains a static singleton, so only one live `Emulator` instance is supported per process. Sequential instances safely replace interrupt, memory, and HBlank callbacks.

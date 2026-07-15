@@ -93,12 +93,18 @@ namespace GBZEmuLibrary
             SetFlag(InsSchema.FLAG_H, (orig & 0xF) - (value & 0xF) < 0);
         }
 
+        /// <summary>
+        /// Handles STOP and commits a prepared CGB speed switch when requested through KEY1.
+        /// </summary>
         private void Stop()
         {
             if (_pendingSpeedSwitch)
             {
                 _pendingSpeedSwitch = false;
                 _doubleSpeed = !_doubleSpeed;
+
+                // Hardware resets the shared DIV/TIMA system counter when a CGB speed switch completes.
+                OnSpeedSwitch?.Invoke();
             }
         }
 

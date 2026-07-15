@@ -3,9 +3,20 @@ using System.Collections.Generic;
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Emulates the LR35902 CPU, including instruction execution, cycle signaling, and interrupt state.
+    /// </summary>
     internal partial class CPU
     {
+        /// <summary>
+        /// Signals elapsed CPU clocks so hardware subsystems advance from the same timing source.
+        /// </summary>
         public Action<int> OnClockTick;
+
+        /// <summary>
+        /// Signals completion of a prepared CGB speed switch so clocked hardware can reset required state.
+        /// </summary>
+        public Action OnSpeedSwitch;
 
         public int SpeedFactor => _doubleSpeed ? 2 : 1;
 

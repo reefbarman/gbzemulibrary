@@ -3,8 +3,14 @@ using System.IO;
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Coordinates the emulated CPU and hardware subsystems and exposes the host-facing emulator lifecycle.
+    /// </summary>
     public class Emulator
     {
+        /// <summary>
+        /// Defines the ROM, save location, optional boot ROM, and hardware boot mode used by <see cref="Start"/>.
+        /// </summary>
         public class Config
         {
             public string ROMPath;
@@ -17,6 +23,7 @@ namespace GBZEmuLibrary
 
         private readonly Cartridge _cartridge;
         private readonly GPU _gpu;
+        private readonly TimerState _timerState;
         private readonly Timer _timer;
         private readonly DivideRegister _divideRegister;
         private readonly Joypad _joypad;
@@ -33,21 +40,29 @@ namespace GBZEmuLibrary
         private bool _running;
         private bool _interruptUpdatePending;
 
+        /// <summary>
+        /// Creates an emulator instance with isolated hardware state and shared internal-bus callback ownership.
+        /// </summary>
         public Emulator()
         {
             _cartridge = new Cartridge();
             _gpu = new GPU();
-            _timer = new Timer();
-            _divideRegister = new DivideRegister();
+            _timerState = new TimerState();
+            _timer = new Timer(_timerState);
+            _divideRegister = new DivideRegister(_timerState);
             _joypad = new Joypad();
             _apu = new APU();
             _serialRegisters = new SerialRegisters();
             _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu, _serialRegisters);
             _cpu = new CPU(_mmu);
             _cpu.OnClockTick += UpdateSystems;
+            _cpu.OnSpeedSwitch += _timerState.WriteDivider;
             Debug = new EmulatorDebugger(_cpu, _mmu, _gpu, _serialRegisters, () => _running);
         }
 
+        /// <summary>
+        /// Loads the configured cartridge and initializes the emulated hardware for its single supported run.
+        /// </summary>
         public bool Start(Config config)
         {
             if (config == null)
@@ -118,6 +133,7 @@ namespace GBZEmuLibrary
                 useBootRom = useBootRom && BootROM.TrySetBootMode(gbcBootRom, config.BootMode.IsSet(BootMode.Short));
 
                 _apu.Reset();
+                _timerState.Reset(useBootRom, mode);
                 _cpu.Reset(useBootRom, mode);
                 _gpu.Reset(mode != GBCMode.NoGBC);
                 _mmu.Init(mode);
@@ -206,14 +222,17 @@ namespace GBZEmuLibrary
             _apu.ToggleChannel(channel, enabled);
         }
 
+        /// <summary>
+        /// Advances all hardware from a CPU machine cycle while preserving CGB double-speed clock domains.
+        /// </summary>
         private void UpdateSystems(int cycles)
         {
-            cycles /= _cpu.SpeedFactor;
+            // DIV and TIMA are driven by the CPU clock and therefore run twice as fast in CGB double-speed mode.
+            _timerState.Update(cycles);
 
+            cycles /= _cpu.SpeedFactor;
             _clocksThisUpdate += cycles;
 
-            _divideRegister.Update(cycles);
-            _timer.Update(cycles);
             _gpu.Update(cycles);
             _apu.Update(cycles);
         }

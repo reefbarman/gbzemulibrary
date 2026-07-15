@@ -19,7 +19,7 @@ These instructions apply to the entire repository.
 - `GBZEmuLibrary/Core/BootROM.cs`: runtime storage and validation for host-supplied boot-ROM bytes.
 - `GBZEmuLibrary/GBZEmuLibrary.csproj`: SDK-style `netstandard2.0` library project.
 - `GBZEmuFrontend/`: minimal cross-platform Raylib-cs test host for video, audio, input, ROMs, and boot ROMs.
-- `GBZEmuTests/`: serialized xUnit harness, debug-tooling tests, 276 test-ROM fixtures, framebuffer references, and known-failure baseline.
+- `GBZEmuTests/`: serialized xUnit harness, debug-tooling tests, test-ROM fixtures, framebuffer references, and known-failure baseline.
 - `README.md`: user-facing behavior, integration contract, evidence-based test results, and known limitations.
 
 ## Toolchain and compatibility constraints
@@ -121,7 +121,8 @@ Do not commit copyrighted firmware. Any boot change must cover DMG-only, CGB-com
 - Keep changes targeted. Emulator correctness is sensitive to unrelated timing and memory refactors.
 - Prefer named hardware constants over new magic addresses or bit positions.
 - Keep public API additions minimal and engine-agnostic.
-- Do not add comments that merely restate code; document hardware quirks, timing rationale, or non-obvious compatibility decisions.
+- Add XML documentation comments to classes and methods that explain their purpose, emulated hardware role, inputs, outputs, or important side effects. When changing existing code, add missing documentation to the classes and methods you touch.
+- Use inline comments for hardware quirks, timing rationale, or non-obvious compatibility decisions; do not add comments that merely restate code.
 - Avoid allocations, LINQ, reflection, logging, and exceptions in instruction, pixel, and sample hot paths. Existing uses are not a reason to add more.
 - When fixing a hardware quirk, cite a stable public specification or test ROM in the PR/commit context when possible.
 
@@ -147,7 +148,7 @@ Run the serialized xUnit suite for behavior changes:
 dotnet test GBZEmuTests/GBZEmuTests.csproj -c Release
 ```
 
-The harness discovers all fixtures under `GBZEmuTests/Fixtures/` and enforces `KnownFailures.json` in both directions: unexpected failures and unexpected passes fail the run. The committed baseline contains 276 ROM cases (72 passing, 204 classified known failures) plus focused debug-tooling tests.
+The harness discovers all fixtures under `GBZEmuTests/Fixtures/` and enforces `KnownFailures.json` in both directions: unexpected failures and unexpected passes fail the run. Treat `ExpectedRomIds.txt`, `KnownFailures.json`, and current test output as the authoritative sources for fixture and pass/failure counts.
 
 For behavior changes:
 
