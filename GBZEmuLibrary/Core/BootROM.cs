@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 
 namespace GBZEmuLibrary
 {
@@ -11,6 +12,9 @@ namespace GBZEmuLibrary
         public const int GBC_SIZE = 0x900;
 
         private static readonly byte[] Empty = new byte[0];
+
+        private static byte[] _defaultDMGBootROM;
+        private static byte[] _defaultGBCBootROM;
 
         private byte[] _dmgBootROM;
         private byte[] _gbcBootROM;
@@ -57,6 +61,59 @@ namespace GBZEmuLibrary
             }
 
             throw new ArgumentException("Boot ROM must be a 256-byte DMG image or a 2304-byte CGB image.", nameof(data));
+        }
+
+        /// <summary>
+        /// Fills any slot without a host-supplied image with the embedded GBZEmu boot ROM.
+        /// </summary>
+        public void EnsureDefaults()
+        {
+            if (_dmgBootROM == null)
+            {
+                if (_defaultDMGBootROM == null)
+                {
+                    _defaultDMGBootROM = LoadEmbedded("dmg_boot.bin", DMG_SIZE);
+                }
+
+                _dmgBootROM = _defaultDMGBootROM;
+            }
+
+            if (_gbcBootROM == null)
+            {
+                if (_defaultGBCBootROM == null)
+                {
+                    _defaultGBCBootROM = LoadEmbedded("cgb_boot.bin", GBC_SIZE);
+                }
+
+                _gbcBootROM = _defaultGBCBootROM;
+            }
+        }
+
+        /// <summary>
+        /// Loads an embedded boot-ROM image; the result is shared, so callers must never mutate it.
+        /// </summary>
+        private static byte[] LoadEmbedded(string name, int expectedSize)
+        {
+            using (var stream = typeof(BootROM).Assembly.GetManifestResourceStream($"GBZEmuLibrary.Resources.{name}"))
+            {
+                if (stream == null)
+                {
+                    throw new InvalidOperationException($"Embedded boot ROM resource missing: {name}");
+                }
+
+                using (var buffer = new MemoryStream())
+                {
+                    stream.CopyTo(buffer);
+                    var bytes = buffer.ToArray();
+
+                    if (bytes.Length != expectedSize)
+                    {
+                        throw new InvalidOperationException($"Embedded boot ROM {name} is {bytes.Length} bytes, expected {expectedSize}.");
+                    }
+
+                    return bytes;
+                }
+            }
         }
 
         /// <summary>

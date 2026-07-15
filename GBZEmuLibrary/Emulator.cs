@@ -17,6 +17,13 @@ namespace GBZEmuLibrary
             public string SaveLocation;
             public string BootROMPath;
             public byte[] BootROM;
+            /// <summary>
+            /// Optional additional boot-ROM images; each file fills the DMG or CGB slot
+            /// selected by its size. <see cref="BootROM"/>/<see cref="BootROMPath"/> load
+            /// afterwards and win their slot. Missing slots use the built-in GBZEmu images
+            /// unless <see cref="GBZEmuLibrary.BootMode.Skip"/> is set.
+            /// </summary>
+            public string[] BootROMPaths;
             public BootMode BootMode = BootMode.GBC;
         }
 
@@ -80,6 +87,14 @@ namespace GBZEmuLibrary
 
             _bootROM.Clear();
 
+            if (config.BootROMPaths != null)
+            {
+                foreach (var path in config.BootROMPaths)
+                {
+                    _bootROM.Load(File.ReadAllBytes(path));
+                }
+            }
+
             if (config.BootROM != null)
             {
                 _bootROM.Load(config.BootROM);
@@ -87,6 +102,14 @@ namespace GBZEmuLibrary
             else if (!string.IsNullOrEmpty(config.BootROMPath))
             {
                 _bootROM.Load(File.ReadAllBytes(config.BootROMPath));
+            }
+
+            // Slots without a host-supplied image fall back to the embedded GBZEmu boot ROMs.
+            // This must happen before the cartridge loads because the header's custom-palette
+            // lookup reads the GBC boot ROM.
+            if (!config.BootMode.IsSet(BootMode.Skip))
+            {
+                _bootROM.EnsureDefaults();
             }
 
             var success = _cartridge.LoadFile(config.ROMPath, config.SaveLocation);

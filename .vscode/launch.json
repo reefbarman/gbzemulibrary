@@ -11,8 +11,8 @@
       "args": [
         "--rom-dir",
         "${workspaceFolder}/runtime/roms",
-        "--bootrom",
-        "${workspaceFolder}/runtime/bios/gbc_bios.bin",
+        "--bootrom-dir",
+        "${workspaceFolder}/runtime/bios",
         "--save-dir",
         "${workspaceFolder}/runtime/saves",
         "--paused"
@@ -29,8 +29,8 @@
       "cwd": "${workspaceFolder}",
       "args": [
         "${workspaceFolder}/runtime/roms/Roguecraft_GB_RC1.gbc",
-        "--bootrom",
-        "${workspaceFolder}/runtime/bios/gbc_bios.bin",
+        "--bootrom-dir",
+        "${workspaceFolder}/runtime/bios",
         "--save-dir",
         "${workspaceFolder}/runtime/saves"
       ],
@@ -46,8 +46,8 @@
       "cwd": "${workspaceFolder}",
       "args": [
         "${workspaceFolder}/runtime/roms/Pokemon - Crystal Version (UE) (V1.1) [C][!].gbc",
-        "--bootrom",
-        "${workspaceFolder}/runtime/bios/gbc_bios.bin",
+        "--bootrom-dir",
+        "${workspaceFolder}/runtime/bios",
         "--save-dir",
         "${workspaceFolder}/runtime/saves"
       ],

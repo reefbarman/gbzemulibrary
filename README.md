@@ -91,25 +91,32 @@ Debug state methods require a successfully started, non-terminated emulator. `Up
 
 ## Test frontend
 
-Run a ROM without firmware to use the emulator's post-boot initialization path:
+Run a ROM with the built-in GBZEmu boot ROMs (the cartridge header's GBC flag
+selects DMG or GBC startup automatically):
 
 ```sh
 dotnet run --project GBZEmuFrontend -- /path/to/game.gb
 ```
 
-Run with a legally obtained 256-byte DMG or 2304-byte CGB boot ROM:
+Run with legally obtained firmware — a 256-byte DMG and/or 2304-byte CGB image.
+`--bootrom-dir` searches a directory for common file names (`dmg_boot.bin`,
+`dmg_bios.bin`, `gb_bios.bin`, `dmg.bin` and `cgb_boot.bin`, `cgb_bios.bin`,
+`gbc_bios.bin`, `cgb.bin`); the built-in images fill any slot without an
+external file:
 
 ```sh
-dotnet run --project GBZEmuFrontend -- /path/to/game.gbc --bootrom /path/to/cgb_boot.bin
+dotnet run --project GBZEmuFrontend -- /path/to/game.gbc --bootrom-dir /path/to/bios/
 ```
 
 Options:
 
 - `--rom-dir <path>`: show an in-window picker containing `.gb` and `.gbc` files from the directory instead of supplying a ROM path.
-- `--bootrom <path>`: firmware image; omit to use `BootMode.Skip`.
+- `--bootrom <path>`: a single firmware image; overrides any `--bootrom-dir` match of the same type.
+- `--bootrom-dir <path>`: directory searched for boot ROMs by the common names above; omit both options to use the built-in GBZEmu boot ROMs.
+- `--skip-bios`: skip boot ROM execution entirely and start from the post-boot state.
 - `--save-dir <path>`: save directory; defaults to the ROM directory and is created by the frontend.
 - `--scale <1-10>`: integer window scale; defaults to 4 (640×576).
-- `--dmg`: request and force DMG mode. Use this with a DMG boot ROM; it rejects CGB-only cartridges.
+- `--dmg`: request and force DMG mode; it rejects CGB-only cartridges.
 - `--paused`: start emulation paused before its first update.
 
 Controls: arrow keys for the D-pad, **X** for A, **Z** for B, **Enter** for Start, **Right Shift** for Select, and **Escape** to quit. In the ROM picker, use **Up/Down** to choose a ROM and **Enter** to load it. Press **P** to pause or resume emulation. While paused, tap **N** to advance one emulation frame, or hold it for 400 ms to continue stepping at 15 frames per second. The window title includes `[PAUSED]` while frame-step mode is active. The frontend targets macOS, Windows, and Linux through Raylib-cs native packages.
@@ -209,7 +216,9 @@ Timer-capable MBC3 cartridges append a BGB-compatible 48-byte RTC trailer after 
 | `Force` | Force the requested hardware mode where possible.                        | Forcing DMG mode rejects CGB-only cartridges.                                               |
 | `Short` | Use the shortened DMG startup animation.                                 | Applies the existing byte patch to a private copy of a supplied DMG image; ignored for CGB. |
 
-The library does not distribute firmware. Supply a 256-byte DMG or 2304-byte CGB image through `Emulator.Config.BootROMPath` or `Emulator.Config.BootROM`. An invalid image length throws `ArgumentException`. If boot execution is requested but no compatible image is supplied, `Start()` safely falls back to the post-boot initialization path rather than reading missing firmware.
+The library embeds original GBZEmu boot ROMs (built from [bios/](bios/)) and uses them for any slot without a host-supplied image unless `Skip` is set. They render a large "GBZEmu" wordmark with the cartridge header's own logo and a trademark symbol beneath it — the DMG image scrolls the lockup with the classic chime, the CGB image plays a color sweep through the wordmark — and hand off with the same CPU and I/O state as the skip-boot profile (enforced by `GBZEmuTests/BootRomTests.cs`).
+
+To use real firmware instead, supply a 256-byte DMG or 2304-byte CGB image through `Emulator.Config.BootROMPath`, `Emulator.Config.BootROM`, or `Emulator.Config.BootROMPaths` (multiple files, each slotted by size; the single-image options win their slot). An invalid image length throws `ArgumentException`.
 
 Do not commit proprietary boot ROMs, commercial ROMs, or generated save files to this repository.
 

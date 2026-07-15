@@ -14,4 +14,7 @@
     <ApplicationManifest />
     <ApplicationId>9b7a7ace-f450-49cb-a219-dc02382d57d9</ApplicationId>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources/*.bin" />
+  </ItemGroup>
 </Project>

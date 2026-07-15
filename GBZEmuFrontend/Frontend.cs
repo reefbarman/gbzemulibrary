@@ -74,8 +74,12 @@ internal sealed class Frontend : IDisposable
 
         _waitingForInputRelease = options.ROMPath == null;
 
-        var bootMode = options.ForceDMG ? BootMode.DMG | BootMode.Force : BootMode.GBC;
-        if (options.BootROMPath == null)
+        // Boot each cartridge on its native hardware: GBC-flagged carts get the GBC
+        // boot ROM, everything else boots as an original DMG.
+        var bootMode = options.ForceDMG ? BootMode.DMG | BootMode.Force
+            : IsGBCCartridge(romPath) ? BootMode.GBC
+            : BootMode.DMG;
+        if (options.SkipBootROM)
         {
             bootMode |= BootMode.Skip;
         }
@@ -84,7 +88,7 @@ internal sealed class Frontend : IDisposable
         {
             ROMPath = romPath,
             SaveLocation = options.SaveDirectory,
-            BootROMPath = options.BootROMPath,
+            BootROMPaths = options.BootROMPaths.ToArray(),
             BootMode = bootMode
         });
 
@@ -164,6 +168,22 @@ internal sealed class Frontend : IDisposable
             _emulator.Terminate();
             _started = false;
         }
+    }
+
+    /// <summary>
+    /// Reads the cartridge header's GBC flag so each ROM boots on its native hardware.
+    /// </summary>
+    private static bool IsGBCCartridge(string romPath)
+    {
+        using var stream = File.OpenRead(romPath);
+        if (stream.Length <= 0x143)
+        {
+            return false;
+        }
+
+        stream.Position = 0x143;
+        var gbcFlag = stream.ReadByte();
+        return gbcFlag == 0x80 || gbcFlag == 0xC0;
     }
 
     private static string? SelectROM(string romDirectory)
