@@ -11,10 +11,10 @@ perform no logo/checksum lock-up, so any cartridge boots. The DMG wordmark
 uses the header logo's compact nibble format; the larger shaded CGB artwork
 uses a small PackBits-style RLE stream.
 
-| Image | Size | Boot behavior |
-| --- | --- | --- |
-| `dmg_boot.asm` | 256 bytes | Two-tone italic lockup scrolls down above the original cartridge logo, chime, hand off (~1.1 s; ~0.5 s with `BootMode.Short`) |
-| `cgb_boot.asm` | 2304 bytes | Shaded 128×24 wordmark reveals through a diagonal rainbow band and settles to navy (~1.6 s) |
+| Image          | Size       | Boot behavior                                                                                                                 |
+| -------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `dmg_boot.asm` | 256 bytes  | Two-tone italic lockup scrolls down above the original cartridge logo, chime, hand off (~1.1 s; ~0.5 s with `BootMode.Short`) |
+| `cgb_boot.asm` | 2304 bytes | Shaded 128×24 wordmark reveals through a diagonal rainbow band and settles to navy (~1.6 s)                                   |
 
 The built binaries are embedded into `GBZEmuLibrary` as
 `GBZEmuLibrary/Resources/*.bin` and are used automatically for any slot
@@ -33,7 +33,10 @@ without a host-supplied image (unless `BootMode.Skip` is set).
 - `cgb_boot` uses all eight BG palettes for its white-to-rainbow-to-navy
   reveal, then restores a white-to-black grayscale ramp as palette 0 — the
   palette DMG carts keep in compatibility mode, matching real-hardware
-  defaults for unlisted carts. The attributes are cleared before hand-off.
+  defaults for unlisted carts. Before hand-off it blanks the LCD, clears both
+  tile maps in both VRAM banks while preserving tile data, restarts the LCD,
+  and waits for VBlank so no boot artwork or line-0 startup phase leaks into
+  cartridge rendering.
 - `cgb_boot` also runs cleanly when a DMG-only cart boots in DMG mode: it
   detects that mode via a KEY1 read and skips VBK/attribute work, and the
   ignored palette writes leave a plain dark-on-light logo.

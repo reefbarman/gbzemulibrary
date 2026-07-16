@@ -10,6 +10,7 @@ internal sealed class FrontendOptions
     public bool ForceDMG { get; init; }
     public bool SkipBootROM { get; init; }
     public bool StartPaused { get; init; }
+    public bool RawFrames { get; init; }
 
     public static FrontendOptions Parse(string[] args)
     {
@@ -27,6 +28,7 @@ internal sealed class FrontendOptions
         var forceDMG = false;
         var skipBootROM = false;
         var startPaused = false;
+        var rawFrames = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -59,6 +61,9 @@ internal sealed class FrontendOptions
                     break;
                 case "--paused":
                     startPaused = true;
+                    break;
+                case "--raw-frames":
+                    rawFrames = true;
                     break;
                 default:
                     if (args[i].StartsWith("-", StringComparison.Ordinal))
@@ -110,7 +115,8 @@ internal sealed class FrontendOptions
             Scale = scale,
             ForceDMG = forceDMG,
             SkipBootROM = skipBootROM,
-            StartPaused = startPaused
+            StartPaused = startPaused,
+            RawFrames = rawFrames
         };
     }
 
@@ -129,6 +135,7 @@ internal sealed class FrontendOptions
         "  --dmg             Force DMG mode\n" +
         "  --skip-bios       Skip the boot ROM animation entirely\n" +
         "  --paused          Start emulation paused\n" +
+        "  --raw-frames      Disable LCD frame blending for raw framebuffer inspection\n" +
         "\n" +
         "Controls:\n" +
         "  Arrow keys  D-pad / ROM selection\n" +

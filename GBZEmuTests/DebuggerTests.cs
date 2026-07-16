@@ -113,6 +113,20 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
+    /// Verifies only SCY and SCX use end-of-write-cycle visibility; neighboring LCD registers retain normal ordering.
+    /// </summary>
+    [Fact]
+    public void PpuScrollWritesUseEndOfCycleVisibility()
+    {
+        Assert.True(CPU.WritesPpuScrollAtEndOfCycle(0xFF42));
+        Assert.True(CPU.WritesPpuScrollAtEndOfCycle(0xFF43));
+
+        Assert.False(CPU.WritesPpuScrollAtEndOfCycle(0xFF41));
+        Assert.False(CPU.WritesPpuScrollAtEndOfCycle(0xFF44));
+        Assert.False(CPU.WritesPpuScrollAtEndOfCycle(0xFF45));
+    }
+
+    /// <summary>
     /// Starts an internal-clock serial transfer and verifies completion occurs during emulated CPU time rather than
     /// at the SC write, including the debug byte event and serial interrupt request.
     /// </summary>

@@ -54,6 +54,7 @@ The solution contains:
 
 - `GBZEmuLibrary/GBZEmuLibrary.csproj`: engine-neutral `netstandard2.0` library with no package dependencies.
 - `GBZEmuFrontend/GBZEmuFrontend.csproj`: `net10.0` test frontend using Raylib-cs 8.0.0.
+- `GBZEmuHeadless/GBZEmuHeadless.csproj`: dependency-free `net10.0` command-line host for deterministic ROM execution and framebuffer diagnostics.
 - `GBZEmuTests/GBZEmuTests.csproj`: serialized `net10.0` xUnit harness for debug tooling and test-ROM conformance.
 
 The library assembly is written to:
@@ -118,10 +119,47 @@ Options:
 - `--scale <1-10>`: integer window scale; defaults to 4 (640×576).
 - `--dmg`: request and force DMG mode; it rejects CGB-only cartridges.
 - `--paused`: start emulation paused before its first update.
+- `--raw-frames`: disable the frontend's default adjacent-frame LCD persistence blend. Use this for exact framebuffer inspection; normal playback blends completed frames to reproduce temporal-color and transparency effects that rely on the original LCD response.
 
-Controls: arrow keys for the D-pad, **X** for A, **Z** for B, **Enter** for Start, **Right Shift** for Select, and **Escape** to quit. In the ROM picker, use **Up/Down** to choose a ROM and **Enter** to load it. Press **P** to pause or resume emulation. While paused, tap **N** to advance one emulation frame, or hold it for 400 ms to continue stepping at 15 frames per second. The window title includes `[PAUSED]` while frame-step mode is active. The frontend targets macOS, Windows, and Linux through Raylib-cs native packages.
+Controls: arrow keys for the D-pad, **X** for A, **Z** for B, **Enter** for Start, **Right Shift** for Select, and **Escape** to quit. In the ROM picker, use **Up/Down** to choose a ROM and **Enter** to load it. Press **P** to pause or resume emulation. While paused, tap **N** to advance one emulation frame, or hold it for 400 ms to continue stepping at 15 frames per second. The window title includes `[PAUSED]` while frame-step mode is active. The frontend targets macOS, Windows, and Linux through Raylib-cs native packages. Frame blending is presentation-only: `Emulator.GetScreenData()` and `GBZEmuHeadless` continue exposing raw completed hardware frames.
 
 For local development, `.vscode/launch.json` contains F5 profiles for assets under the gitignored `runtime/` directory. `Frontend: ROM Picker (paused)` lists ROMs from `runtime/roms`, loads `runtime/bios/gbc_bios.bin`, and starts the selected ROM paused. ROM-specific profiles remain available for direct launches.
+
+## Headless diagnostics
+
+`GBZEmuHeadless` runs a ROM without Raylib, audio hardware, real-time pacing, or a window. It is intended for deterministic emulator debugging and build-to-build comparisons, not as a replacement for hardware reference captures.
+
+Run 900 frames, capture every tenth frame from 650 through 900, and write PPM images plus `report.json`:
+
+```sh
+dotnet run --project GBZEmuHeadless -c Release -- \
+  /path/to/demo.gbc \
+  --skip-bios \
+  --frames 900 \
+  --capture-frames 650-900 \
+  --capture-every 10 \
+  --output runtime/captures/demo
+```
+
+Frames are numbered from 1 after each `Emulator.Update()`. `--capture-frames` is inclusive and defaults to the final frame. Input transitions are applied immediately before their numbered frame and can be repeated:
+
+```sh
+--input 120:Start:down --input 121:Start:up
+```
+
+Options:
+
+- `--frames <count>`: total frame budget; defaults to 1.
+- `--capture-frames <start[-end]>`: inclusive capture range within the frame budget.
+- `--capture-every <count>`: capture cadence within that range; defaults to 1.
+- `--output <path>`: report and image directory; defaults to `./headless-output`.
+- `--save-dir <path>`: save directory; defaults to `<output>/saves` and is created by the host.
+- `--bootrom <path>`: host-supplied DMG or CGB boot ROM; repeat to supply both types.
+- `--input <frame:button:down|up>`: deterministic joypad transition for `Right`, `Left`, `Up`, `Down`, `A`, `B`, `Select`, or `Start`.
+- `--dmg`: force DMG mode and reject CGB-only cartridges.
+- `--skip-bios`: use post-boot initialization instead of executing a boot ROM.
+
+Each binary PPM capture is named `frame-NNNNNN.ppm`. `report.json` records the ROM SHA-256, boot mode, capture settings, input events, frame number, framebuffer/top-row/right-column RGB hashes, CGB BG/OBJ palette RAM hashes, hashes of the first 4,048 tile-data bytes in both VRAM banks, unique RGB count, the 16 most common colors and their pixel counts, CPU registers/counters, PPU state, and `SCX`, `SCY`, `LYC`, `WX`, and `WY`. Capture paths in the report are relative to the output directory so the directory can be moved or compared as one artifact.
 
 ## Basic integration
 
@@ -163,9 +201,9 @@ emulator.Terminate();
 
 ### Video
 
-`GetScreenData()` returns the same `Color[160, 144]` array on every call. Pixels use `[x, y]` indexing, with scanline `0` at the top of the emulated display. Each component is an 8-bit RGB value.
+`GetScreenData()` returns the same `Color[160, 144]` array on every call. Pixels use `[x, y]` indexing, with scanline `0` at the top of the emulated display. Each component is an 8-bit RGB value. The core publishes a completed frame to this host-visible buffer when the PPU enters VBlank, so an `Update()` call cannot expose a mixture of scanlines from adjacent hardware frames.
 
-A host should copy or convert this buffer into its own texture format before the next emulator update. Do not mutate it or consume it concurrently while `Update()` is writing scanlines. Rendering may run at a different refresh rate, but calls to `Update()` should represent 70,224-cycle hardware frames at `Display.FRAME_RATE`; the host should use elapsed time to catch up emulation and may duplicate or skip presentation when its display rate differs. Vsync should control presentation, not emulation speed.
+A host should copy or convert this buffer into its own texture format before the next emulator update. Do not mutate it or consume it concurrently with `Update()`. Rendering may run at a different refresh rate, but calls to `Update()` should represent 70,224-cycle hardware frames at `Display.FRAME_RATE`; the host should use elapsed time to catch up emulation and may duplicate or skip presentation when its display rate differs. Vsync should control presentation, not emulation speed.
 
 For Unity, `GBZEmuLibrary.Color` conflicts by name with `UnityEngine.Color`. Use a namespace alias or fully qualified name, for example:
 
@@ -282,6 +320,7 @@ GBZEmuLibrary/
 │   └── Timer.cs                Programmable timer
 └── GBZEmuLibrary.csproj        SDK-style netstandard2.0 library project
 GBZEmuFrontend/                 Cross-platform Raylib-cs test host
+GBZEmuHeadless/                 Deterministic command-line capture and report host
 GBZEmuTests/                    xUnit debug and ROM-conformance harness
 ```
 

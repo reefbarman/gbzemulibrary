@@ -33,6 +33,35 @@ public sealed class DmaTests
     }
 
     /// <summary>
+    /// Verifies that completed DMA blocks advance the internal source and destination used by a later HDMA5 start,
+    /// while the address registers themselves remain write-only.
+    /// </summary>
+    [Fact]
+    public void ConsecutiveGeneralPurposeDmaStartsContinueFromAdvancedAddresses()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var fixture = new DmaFixture(memory);
+        var dma = fixture.Controller;
+        for (var index = 0; index < 0x20; index++)
+        {
+            memory[0xC000 + index] = (byte)(0x20 + index);
+        }
+
+        dma.WriteByte(0xC0, MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+
+        Assert.Equal(memory[0xC000..0xC020], memory[0x8000..0x8020]);
+        Assert.Equal(0xFF, dma.ReadByte(MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER));
+        Assert.Equal(0xFF, dma.ReadByte(MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER));
+        Assert.Equal(0xFF, dma.ReadByte(MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER));
+        Assert.Equal(0xFF, dma.ReadByte(MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER));
+    }
+
+    /// <summary>
     /// Verifies through the MMU that GDMA writes to the VRAM bank selected by VBK, as CGB games require when
     /// uploading tile attributes independently from bank-zero tile IDs.
     /// </summary>

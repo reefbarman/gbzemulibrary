@@ -2,9 +2,13 @@
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Provides fixed, switchable, and mirrored work RAM plus the CGB SVBK register.
+    /// </summary>
     internal class WorkRAM : IMemoryUnit
     {
         private const int MAX_NUM_RAM_BANKS = 8;
+        private const byte SVBK_UNUSED_BITS = 0xF8;
 
         private readonly byte[] _memory = new byte[MemorySchema.MAX_WORK_RAM_BANK_SIZE * MAX_NUM_RAM_BANKS];
 
@@ -56,7 +60,9 @@ namespace GBZEmuLibrary
 
             if (address == MemorySchema.SWITCHABLE_WORK_RAM_REGISTER)
             {
-                return (byte)_ramBank;
+                return _mode == GBCMode.NoGBC
+                    ? (byte)0xFF
+                    : (byte)(SVBK_UNUSED_BITS | _ramBank);
             }
 
             throw new IndexOutOfRangeException();
@@ -89,13 +95,14 @@ namespace GBZEmuLibrary
 
             if (address == MemorySchema.SWITCHABLE_WORK_RAM_REGISTER)
             {
-                _ramBank = Math.Max((int)Helpers.GetBits(data, 3), 1);
+                _ramBank = Helpers.GetBits(data, 3);
             }
         }
 
         private int GetBankOffset()
         {
-            return _mode != GBCMode.NoGBC ? (_ramBank - 1) * MemorySchema.MAX_WORK_RAM_BANK_SIZE : 0;
+            var effectiveBank = Math.Max(_ramBank, 1);
+            return _mode != GBCMode.NoGBC ? (effectiveBank - 1) * MemorySchema.MAX_WORK_RAM_BANK_SIZE : 0;
         }
     }
 }

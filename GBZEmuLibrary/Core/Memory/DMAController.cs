@@ -18,7 +18,6 @@ namespace GBZEmuLibrary
         private byte _dmaLengthMode;
 
         private bool _transferring;
-        private int _currentIndex;
 
         private readonly MessageBus _messageBus;
 
@@ -98,16 +97,10 @@ namespace GBZEmuLibrary
                     return 0;
 
                 case MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER:
-                    return _sourceHigh;
-
                 case MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER:
-                    return _sourceLow;
-
                 case MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER:
-                    return _destinationHigh;
-
                 case MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER:
-                    return _destinationLow;
+                    return 0xFF;
 
                 case MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER:
                     return _dmaLengthMode;
@@ -141,7 +134,6 @@ namespace GBZEmuLibrary
         /// </summary>
         private void StartTransfer()
         {
-            _currentIndex = 0;
             var hBlankMode = Helpers.TestBit(_dmaLengthMode, 7);
             _dmaLengthMode &= 0x7F;
 
@@ -154,7 +146,7 @@ namespace GBZEmuLibrary
             var blockCount = _dmaLengthMode + 1;
             for (var block = 0; block < blockCount; block++)
             {
-                CopyBlock(block);
+                CopyBlock();
             }
 
             _dmaLengthMode = 0xFF;
@@ -177,17 +169,41 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Copies one 16-byte CGB DMA block through the MMU so bank selection and device side effects are preserved.
+        /// Copies one 16-byte CGB DMA block and advances the hardware-owned source and destination addresses.
         /// </summary>
-        private void CopyBlock(int blockIndex)
+        private void CopyBlock()
         {
-            var offset = blockIndex * CGB_DMA_BLOCK_SIZE;
+            var sourceAddress = GetSourceAddress();
+            var destinationAddress = GetDestinationAddress();
             for (var index = 0; index < CGB_DMA_BLOCK_SIZE; index++)
             {
                 _messageBus.WriteByte(
-                    _messageBus.ReadByte(GetSourceAddress() + offset + index),
-                    GetDestinationAddress() + offset + index);
+                    _messageBus.ReadByte(sourceAddress + index),
+                    destinationAddress + index);
             }
+
+            SetSourceAddress((sourceAddress + CGB_DMA_BLOCK_SIZE) & 0xFFF0);
+            SetDestinationAddress(MemorySchema.VIDEO_RAM_START |
+                ((destinationAddress - MemorySchema.VIDEO_RAM_START + CGB_DMA_BLOCK_SIZE) & 0x1FF0));
+        }
+
+        /// <summary>
+        /// Stores the aligned internal source address used by the next CGB DMA block.
+        /// </summary>
+        private void SetSourceAddress(int address)
+        {
+            _sourceHigh = (byte)(address >> 8);
+            _sourceLow = (byte)(address & 0xF0);
+        }
+
+        /// <summary>
+        /// Stores the aligned internal VRAM destination used by the next CGB DMA block.
+        /// </summary>
+        private void SetDestinationAddress(int address)
+        {
+            var offset = address - MemorySchema.VIDEO_RAM_START;
+            _destinationHigh = (byte)((offset >> 8) & 0x1F);
+            _destinationLow = (byte)(offset & 0xF0);
         }
 
         /// <summary>
@@ -200,8 +216,7 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            CopyBlock(_currentIndex);
-            _currentIndex++;
+            CopyBlock();
 
             if (_dmaLengthMode == 0)
             {

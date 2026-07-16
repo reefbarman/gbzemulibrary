@@ -16,6 +16,8 @@
 
     <ItemGroup>
         <ProjectReference Include="..\GBZEmuLibrary\GBZEmuLibrary.csproj" />
+        <ProjectReference Include="..\GBZEmuFrontend\GBZEmuFrontend.csproj" />
+        <ProjectReference Include="..\GBZEmuHeadless\GBZEmuHeadless.csproj" />
         <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
         <None Update="Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
 

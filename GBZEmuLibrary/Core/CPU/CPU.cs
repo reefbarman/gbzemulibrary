@@ -102,7 +102,7 @@ namespace GBZEmuLibrary
                 }
                 else
                 {
-                    throw new NotImplementedException($"Instruction not implemented: {instruction:X}");
+                    throw new NotImplementedException($"Instruction not implemented: {instruction:X2} at {instructionAddress:X4}");
                 }
 
                 _instructionCount++;
@@ -223,7 +223,7 @@ namespace GBZEmuLibrary
             }
             else
             {
-                throw new NotImplementedException($"CB Instruction not implemented: {instruction:X}");
+                throw new NotImplementedException($"CB instruction not implemented: {instruction:X2} at {(ushort)(_pc - 1):X4}");
             }
         }
 

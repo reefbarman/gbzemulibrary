@@ -1,7 +1,6 @@
 using System.Numerics;
 using GBZEmuLibrary;
 using Raylib_cs;
-using EmulatorColor = GBZEmuLibrary.Color;
 using EmulatorSound = GBZEmuLibrary.Sound;
 using RaylibColor = Raylib_cs.Color;
 
@@ -19,6 +18,7 @@ internal sealed class Frontend : IDisposable
     private const double FrameStepRepeatInterval = 1.0 / 15.0;
 
     private readonly Emulator _emulator = new();
+    private readonly FrameBlender _frameBlender = new();
     private readonly RaylibColor[] _pixels = new RaylibColor[Display.HORIZONTAL_RESOLUTION * Display.VERTICAL_RESOLUTION];
     private readonly short[] _audioSamples = new short[AudioFramesPerBuffer * 2];
     private readonly short[] _audioQueue = new short[AudioQueueCapacityFrames * 2];
@@ -45,6 +45,8 @@ internal sealed class Frontend : IDisposable
     private bool _waitingForInputRelease;
     private bool _frameStepRepeatArmed;
     private bool _audioNeedsReset;
+    private bool _rawFrames;
+    private bool _videoFrameReady;
     private int _audioQueueReadFrame;
     private int _audioQueueWriteFrame;
     private int _audioQueuedFrames;
@@ -73,6 +75,8 @@ internal sealed class Frontend : IDisposable
         }
 
         _waitingForInputRelease = options.ROMPath == null;
+        _rawFrames = options.RawFrames;
+        _frameBlender.Reset();
 
         // Boot each cartridge on its native hardware: GBC-flagged carts get the GBC
         // boot ROM, everything else boots as an original DMG.
@@ -348,6 +352,8 @@ internal sealed class Frontend : IDisposable
     private void AdvanceFrame(bool queueAudio)
     {
         _emulator.Update();
+        _frameBlender.Process(_emulator.GetScreenData(), _pixels, !_rawFrames);
+        _videoFrameReady = true;
         var source = _emulator.GetSoundSamples(out var sampleFrameCount);
 
         if (queueAudio && _audioReady)
@@ -391,18 +397,13 @@ internal sealed class Frontend : IDisposable
 
     private void UpdateVideo()
     {
-        var screen = _emulator.GetScreenData();
-
-        for (var y = 0; y < Display.VERTICAL_RESOLUTION; y++)
+        if (!_videoFrameReady)
         {
-            for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
-            {
-                EmulatorColor color = screen[x, y];
-                _pixels[(y * Display.HORIZONTAL_RESOLUTION) + x] = new RaylibColor(color.R, color.G, color.B, byte.MaxValue);
-            }
+            return;
         }
 
         Raylib.UpdateTexture(_texture, _pixels);
+        _videoFrameReady = false;
     }
 
     private void QueueAudio(byte[] source, int frameCount)

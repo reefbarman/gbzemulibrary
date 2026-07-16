@@ -99,7 +99,6 @@ namespace GBZEmuLibrary
         private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS = 80;
         private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
 
-        private const int MAX_SCANLINES = 154; //153;
         private const int MAX_SCROLL_AMOUNT = 256;
 
         private const int WINDOW_X_OFFSET = 7;
@@ -107,10 +106,13 @@ namespace GBZEmuLibrary
         private const int TILE_SIZE = 16;
 
         private readonly Color[,] _screenData = new Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
+        private readonly Color[,] _renderData = new Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
 
         private readonly byte[] _videoRAM = new byte[MemorySchema.MAX_VRAM_SIZE];
         private readonly byte[] _spriteAttributeTable = new byte[MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START];
         private readonly byte[] _lineSpriteXCoordinates = new byte[10];
+        private readonly byte[] _scanlineScrollX = new byte[Display.HORIZONTAL_RESOLUTION];
+        private readonly byte[] _scanlineScrollY = new byte[Display.HORIZONTAL_RESOLUTION];
         private readonly byte[] _gpuRegisters = new byte[MemorySchema.GPU_REGISTERS_END - MemorySchema.GPU_REGISTERS_START];
 
         private byte _bgPaletteIndex;
@@ -124,6 +126,11 @@ namespace GBZEmuLibrary
         private int _cycleCounter;
         private int _hBlankClockTarget = HBLANK_CLOCKS;
         private int _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
+        private int _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION;
+        private int _mode3RenderedPixels;
+        private int _mode3PreparedBackgroundPixels;
+        private byte _scanlineScrollXLow;
+        private bool _line153EarlyReset;
         private bool _pendingVBlankInterrupt;
         private bool _statInterruptLineHigh;
         private bool _dmgVBlankMode2InterruptSource;
@@ -152,6 +159,11 @@ namespace GBZEmuLibrary
             _dmgVBlankMode2InterruptSource = false;
             _hBlankClockTarget = HBLANK_CLOCKS;
             _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
+            _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION;
+            _mode3RenderedPixels = 0;
+            _mode3PreparedBackgroundPixels = 0;
+            _scanlineScrollXLow = 0;
+            _line153EarlyReset = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
         }
 
@@ -171,20 +183,8 @@ namespace GBZEmuLibrary
 
             _cycleCounter += cycles;
 
-            switch (GetStatusMode())
+            while (IsLCDEnabled() && ProcessCurrentMode())
             {
-                case LCDStatus.HBlank:
-                    HandleHBlank();
-                    break;
-                case LCDStatus.VBlank:
-                    HandleVBlank();
-                    break;
-                case LCDStatus.SearchingSpritesAttributes:
-                    HandleSearchingSpritesAttributes();
-                    break;
-                case LCDStatus.TransferringDataToLCDDriver:
-                    TransferringDataToLCDDriver();
-                    break;
             }
         }
 
@@ -255,13 +255,17 @@ namespace GBZEmuLibrary
                     return _bgPaletteIndex;
 
                 case MemorySchema.GPU_GBC_BG_PALETTE_DATA_REGISTER:
-                    return _bgPaletteData[Helpers.GetBits(_bgPaletteIndex, 6)];
+                    return IsColorPaletteAccessible()
+                        ? _bgPaletteData[Helpers.GetBits(_bgPaletteIndex, 6)]
+                        : (byte)0xFF;
 
                 case MemorySchema.GPU_GBC_SPRITE_PALETTE_INDEX_REGISTER:
                     return _spritePaletteIndex;
 
                 case MemorySchema.GPU_GBC_SPRITE_PALETTE_DATA_REGISTER:
-                    return _spritePaletteData[Helpers.GetBits(_spritePaletteIndex, 6)];
+                    return IsColorPaletteAccessible()
+                        ? _spritePaletteData[Helpers.GetBits(_spritePaletteIndex, 6)]
+                        : (byte)0xFF;
             }
 
             return ReadFromVRAMWithBank(address, _vRAMBank);
@@ -319,7 +323,11 @@ namespace GBZEmuLibrary
                     break;
 
                 case MemorySchema.GPU_GBC_BG_PALETTE_DATA_REGISTER:
-                    _bgPaletteData[Helpers.GetBits(_bgPaletteIndex, 6)] = data;
+                    if (IsColorPaletteAccessible())
+                    {
+                        _bgPaletteData[Helpers.GetBits(_bgPaletteIndex, 6)] = data;
+                    }
+
                     if (Helpers.TestBit(_bgPaletteIndex, 7))
                     {
                         _bgPaletteIndex = (byte)(0x80 | ((_bgPaletteIndex + 1) & 0x3F));
@@ -332,7 +340,11 @@ namespace GBZEmuLibrary
                     break;
 
                 case MemorySchema.GPU_GBC_SPRITE_PALETTE_DATA_REGISTER:
-                    _spritePaletteData[Helpers.GetBits(_spritePaletteIndex, 6)] = data;
+                    if (IsColorPaletteAccessible())
+                    {
+                        _spritePaletteData[Helpers.GetBits(_spritePaletteIndex, 6)] = data;
+                    }
+
                     if (Helpers.TestBit(_spritePaletteIndex, 7))
                     {
                         _spritePaletteIndex = (byte)(0x80 | ((_spritePaletteIndex + 1) & 0x3F));
@@ -374,8 +386,11 @@ namespace GBZEmuLibrary
             {
                 // Reset LY and mode while retaining the frozen coincidence source as STAT edge history.
                 _gpuRegisters[(int)Registers.Scanline] = 0;
+                _line153EarlyReset = false;
                 _hBlankClockTarget = HBLANK_CLOCKS;
                 _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
+                _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION;
+                BlankDisplay();
                 SetStatusRegister(LCDStatus.HBlank);
                 return;
             }
@@ -420,45 +435,53 @@ namespace GBZEmuLibrary
             _statInterruptLineHigh = interruptLineHigh;
         }
 
-        private void HandleHBlank()
+        /// <summary>
+        /// Processes every PPU event currently reachable with the accumulated dot count.
+        /// </summary>
+        private bool ProcessCurrentMode()
         {
-            if (_cycleCounter >= _hBlankClockTarget)
+            switch (GetStatusMode())
             {
-                _cycleCounter -= _hBlankClockTarget;
-
-                ScanLine++;
-
-                if (ScanLine == Display.VERTICAL_RESOLUTION)
-                {
-                    _pendingVBlankInterrupt = true;
-                    SetStatusRegister(LCDStatus.VBlank);
-                }
-                else
-                {
-                    SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
-                }
+                case LCDStatus.HBlank:
+                    return HandleHBlank();
+                case LCDStatus.VBlank:
+                    return HandleVBlank();
+                case LCDStatus.SearchingSpritesAttributes:
+                    return HandleSearchingSpritesAttributes();
+                case LCDStatus.TransferringDataToLCDDriver:
+                    return TransferringDataToLCDDriver();
+                default:
+                    return false;
             }
         }
 
-        private void HandleVBlank()
+        private bool HandleHBlank()
         {
-            if (_cycleCounter >= SCANLINE_DRAW_CLOCKS)
+            if (_cycleCounter < _hBlankClockTarget)
             {
-                _cycleCounter -= SCANLINE_DRAW_CLOCKS;
-
-                ScanLine++;
-
-                if (ScanLine > Display.VERTICAL_RESOLUTION + 9) //TODO figure out what the magic number is about?
-                {
-                    ScanLine = 0;
-                    SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
-                }
-                else
-                {
-                    UpdateStatInterruptLine();
-                }
+                return false;
             }
-            else if (_pendingVBlankInterrupt && _cycleCounter >= 4)
+
+            _cycleCounter -= _hBlankClockTarget;
+            ScanLine++;
+
+            if (ScanLine == Display.VERTICAL_RESOLUTION)
+            {
+                PublishFrame();
+                _pendingVBlankInterrupt = true;
+                SetStatusRegister(LCDStatus.VBlank);
+            }
+            else
+            {
+                SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
+            }
+
+            return true;
+        }
+
+        private bool HandleVBlank()
+        {
+            if (_pendingVBlankInterrupt && _cycleCounter >= 4)
             {
                 _pendingVBlankInterrupt = false;
                 _messageBus.RequestInterrupt(Interrupts.VBlank);
@@ -468,37 +491,84 @@ namespace GBZEmuLibrary
                 UpdateStatInterruptLine();
                 _dmgVBlankMode2InterruptSource = false;
                 UpdateStatInterruptLine();
+                return true;
             }
+
+            // LY exposes 153 only for the first four dots of its scanline, then reads as 0 while VBlank timing
+            // continues. The early LY=0 comparison gives line-0 raster handlers almost a full scanline of lead time.
+            if (!_line153EarlyReset && ScanLine == 153 && _cycleCounter >= 4)
+            {
+                _line153EarlyReset = true;
+                ScanLine = 0;
+                UpdateStatInterruptLine();
+                return true;
+            }
+
+            if (_cycleCounter < SCANLINE_DRAW_CLOCKS)
+            {
+                return false;
+            }
+
+            _cycleCounter -= SCANLINE_DRAW_CLOCKS;
+            if (_line153EarlyReset)
+            {
+                _line153EarlyReset = false;
+                ScanLine = 0;
+                SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
+            }
+            else
+            {
+                ScanLine++;
+                UpdateStatInterruptLine();
+            }
+
+            return true;
         }
 
-        private void HandleSearchingSpritesAttributes()
+        private bool HandleSearchingSpritesAttributes()
         {
-            if (_cycleCounter >= SEARCHING_SPRITES_ATTRIBUTES_CLOCKS)
+            if (_cycleCounter < SEARCHING_SPRITES_ATTRIBUTES_CLOCKS)
             {
-                _cycleCounter -= SEARCHING_SPRITES_ATTRIBUTES_CLOCKS;
-
-                var spriteFetchPenalty = CalculateSpriteFetchPenalty();
-                _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + spriteFetchPenalty;
-                _hBlankClockTarget = HBLANK_CLOCKS - spriteFetchPenalty;
-                SetStatusRegister(LCDStatus.TransferringDataToLCDDriver);
+                return false;
             }
+
+            _cycleCounter -= SEARCHING_SPRITES_ATTRIBUTES_CLOCKS;
+            _scanlineScrollXLow = (byte)(_gpuRegisters[(int)Registers.ScrollX] & 0x07);
+
+            var fineScrollPenalty = _scanlineScrollXLow;
+            var spriteFetchPenalty = CalculateSpriteFetchPenalty();
+            _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION + fineScrollPenalty;
+            _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + fineScrollPenalty + spriteFetchPenalty;
+            _hBlankClockTarget = HBLANK_CLOCKS - fineScrollPenalty - spriteFetchPenalty;
+            _mode3RenderedPixels = 0;
+            _mode3PreparedBackgroundPixels = 0;
+            SetStatusRegister(LCDStatus.TransferringDataToLCDDriver);
+            return true;
         }
 
-        private void TransferringDataToLCDDriver()
+        /// <summary>
+        /// Completes the current pixel-transfer period, commits its scanline, and then starts HBlank side effects.
+        /// </summary>
+        private bool TransferringDataToLCDDriver()
         {
-            if (_cycleCounter >= _mode3ClockTarget)
+            RenderTransferredPixels();
+
+            if (_cycleCounter < _mode3ClockTarget)
             {
-                _cycleCounter -= _mode3ClockTarget;
-
-                SetStatusRegister(LCDStatus.HBlank);
-
-                if (ScanLine < Display.VERTICAL_RESOLUTION)
-                {
-                    _messageBus.HBlankStarted();
-                }
-
-                DrawScanLine();
+                return false;
             }
+
+            _cycleCounter -= _mode3ClockTarget;
+
+            SetStatusRegister(LCDStatus.HBlank);
+
+            if (ScanLine < Display.VERTICAL_RESOLUTION)
+            {
+                // HDMA updates VRAM for subsequent scanlines; it must not alter the line that just completed.
+                _messageBus.HBlankStarted();
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -516,7 +586,7 @@ namespace GBZEmuLibrary
             }
 
             var spriteHeight = Helpers.TestBit(control, (int)LCDControlBits.SpriteSize) ? 16 : 8;
-            var scrollX = _gpuRegisters[(int)Registers.ScrollX];
+            var scrollX = GetEffectiveScrollX();
             var selectedSpriteCount = 0;
 
             for (var offset = 0; offset < _spriteAttributeTable.Length && selectedSpriteCount < 10; offset += 4)
@@ -574,46 +644,170 @@ namespace GBZEmuLibrary
             return Helpers.TestBit(_gpuRegisters[(int)Registers.LCDControl], (int)LCDControlBits.LCDDisplayEnabled);
         }
 
-        private void DrawScanLine()
+        /// <summary>
+        /// Combines the live tile-column scroll with the low three bits latched before mode 3.
+        /// </summary>
+        private byte GetEffectiveScrollX()
         {
-            var control = _gpuRegisters[(int)Registers.LCDControl];
+            return (byte)((_gpuRegisters[(int)Registers.ScrollX] & 0xF8) | _scanlineScrollXLow);
+        }
 
-            if (Helpers.TestBit(control, (int)LCDControlBits.BGDisplayEnabled))
+        /// <summary>
+        /// Reports whether CPU-visible CGB palette RAM can be accessed in the current PPU mode.
+        /// </summary>
+        private bool IsColorPaletteAccessible()
+        {
+            return !_gbcMode || !IsLCDEnabled() || GetStatusMode() != LCDStatus.TransferringDataToLCDDriver;
+        }
+
+        /// <summary>
+        /// Commits pixels whose transfer dots have elapsed using the register and palette state visible now.
+        /// </summary>
+        private void RenderTransferredPixels()
+        {
+            var completedPixels = Math.Min(
+                Display.HORIZONTAL_RESOLUTION,
+                Math.Max(0, _cycleCounter - _mode3StartupDots));
+            PrepareBackgroundScroll(Math.Min(Display.HORIZONTAL_RESOLUTION, completedPixels + 16));
+
+            if (completedPixels <= _mode3RenderedPixels)
             {
-                RenderBackground(control);
+                return;
             }
 
-            if (Helpers.TestBit(control, (int)LCDControlBits.WindowDisplayEnabled))
+            DrawScanLine(_mode3RenderedPixels, completedPixels);
+            _mode3RenderedPixels = completedPixels;
+        }
+
+        /// <summary>
+        /// Samples scroll registers for background pixels fetched up to 16 pixels ahead of LCD output.
+        /// </summary>
+        private void PrepareBackgroundScroll(int fetchedPixels)
+        {
+            var scrollX = GetEffectiveScrollX();
+            var scrollY = _gpuRegisters[(int)Registers.ScrollY];
+            while (_mode3PreparedBackgroundPixels < fetchedPixels)
             {
-                RenderWindow(control);
+                _scanlineScrollX[_mode3PreparedBackgroundPixels] = scrollX;
+                _scanlineScrollY[_mode3PreparedBackgroundPixels] = scrollY;
+                _mode3PreparedBackgroundPixels++;
+            }
+        }
+
+        /// <summary>
+        /// Blanks both display buffers when the LCD is disabled so hosts cannot retain pixels from the previous frame.
+        /// </summary>
+        private void BlankDisplay()
+        {
+            var color = _gbcMode ? new Color(248, 248, 248) : new Color(Display.DefaultPalette[0]);
+            for (var y = 0; y < Display.VERTICAL_RESOLUTION; y++)
+            {
+                for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
+                {
+                    _screenData[x, y] = color;
+                    _renderData[x, y] = color;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Copies the completed render frame into the stable host-visible framebuffer at VBlank entry.
+        /// </summary>
+        private void PublishFrame()
+        {
+            for (var y = 0; y < Display.VERTICAL_RESOLUTION; y++)
+            {
+                for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
+                {
+                    _screenData[x, y] = _renderData[x, y];
+                }
+            }
+        }
+
+        /// <summary>
+        /// Composes one visible scanline using DMG or CGB LCDC background-priority semantics.
+        /// </summary>
+        private void DrawScanLine(int startPixel, int endPixel)
+        {
+            var control = _gpuRegisters[(int)Registers.LCDControl];
+            var bgWindowEnabled = _gbcMode || Helpers.TestBit(control, (int)LCDControlBits.BGDisplayEnabled);
+
+            if (bgWindowEnabled)
+            {
+                RenderBackground(control, startPixel, endPixel);
+            }
+            else
+            {
+                ClearBackgroundScanLine(startPixel, endPixel);
+            }
+
+            if (bgWindowEnabled && Helpers.TestBit(control, (int)LCDControlBits.WindowDisplayEnabled))
+            {
+                RenderWindow(control, startPixel, endPixel);
             }
 
             if (Helpers.TestBit(control, (int)LCDControlBits.SpriteDisplayEnabled))
             {
-                RenderSprites(control);
+                RenderSprites(control, startPixel, endPixel);
             }
         }
 
-        private void RenderBackground(byte control)
+        /// <summary>
+        /// Writes DMG color zero across a scanline when LCDC.0 disables both the background and window.
+        /// </summary>
+        private void ClearBackgroundScanLine(int startPixel, int endPixel)
         {
-            var scrollX = _gpuRegisters[(int)Registers.ScrollX];
-            var scrollY = _gpuRegisters[(int)Registers.ScrollY];
-
-            RenderTiles(control, scrollX, (scrollY + ScanLine) % MAX_SCROLL_AMOUNT);
+            var color = GetColor(true, 0, 0, (int)Registers.BackgroundTilePalette);
+            for (var pixel = startPixel; pixel < endPixel; pixel++)
+            {
+                _renderData[pixel, ScanLine] = color;
+            }
         }
 
-        private void RenderWindow(byte control)
+        private void RenderBackground(byte control, int startPixel, int endPixel)
+        {
+            var rangeStart = startPixel;
+            while (rangeStart < endPixel)
+            {
+                var scrollX = _scanlineScrollX[rangeStart];
+                var scrollY = _scanlineScrollY[rangeStart];
+                var rangeEnd = rangeStart + 1;
+                while (rangeEnd < endPixel &&
+                       _scanlineScrollX[rangeEnd] == scrollX &&
+                       _scanlineScrollY[rangeEnd] == scrollY)
+                {
+                    rangeEnd++;
+                }
+
+                RenderTiles(control, scrollX, (scrollY + ScanLine) % MAX_SCROLL_AMOUNT, rangeStart, rangeEnd);
+                rangeStart = rangeEnd;
+            }
+        }
+
+        private void RenderWindow(byte control, int startPixel, int endPixel)
         {
             var windowX = _gpuRegisters[(int)Registers.WindowX] - WINDOW_X_OFFSET;
             var windowY = _gpuRegisters[(int)Registers.WindowY];
 
             if (windowY <= ScanLine)
             {
-                RenderTiles(control, windowX, (ScanLine - windowY) % MAX_SCROLL_AMOUNT, true);
+                RenderTiles(
+                    control,
+                    windowX,
+                    (ScanLine - windowY) % MAX_SCROLL_AMOUNT,
+                    startPixel,
+                    endPixel,
+                    true);
             }
         }
 
-        private void RenderTiles(byte control, int xPos, int yPos, bool window = false)
+        private void RenderTiles(
+            byte control,
+            int xPos,
+            int yPos,
+            int startPixel,
+            int endPixel,
+            bool window = false)
         {
             var tileDataLoc = Helpers.TestBit(control, (int)LCDControlBits.BGWindowTileDataSelect) ? MemorySchema.TILE_DATA_UNSIGNED_START : MemorySchema.TILE_DATA_SIGNED_START;
             var backgroundMemoryLoc = Helpers.TestBit(control, window ? (int)LCDControlBits.WindowTileMapSelect : (int)LCDControlBits.BGTileMapSelect) ? MemorySchema.BACKGROUND_LAYOUT_1_START : MemorySchema.BACKGROUND_LAYOUT_0_START;
@@ -624,7 +818,7 @@ namespace GBZEmuLibrary
             var tileRow = ((byte)(yPos / 8)) * 32;
             var offset = signed ? 128 : 0;
 
-            for (var pixel = 0; pixel < Display.HORIZONTAL_RESOLUTION; pixel++)
+            for (var pixel = startPixel; pixel < endPixel; pixel++)
             {
                 var x = pixel + xPos;
 
@@ -678,11 +872,11 @@ namespace GBZEmuLibrary
 
                 var color = GetColor(true, (byte)colorNum, attributes, (int)Registers.BackgroundTilePalette);
                 color.BGPriority = Helpers.TestBit(attributes, (int)BGAttributeBits.BGToSpritePriority);
-                _screenData[pixel, ScanLine] = color;
+                _renderData[pixel, ScanLine] = color;
             }
         }
 
-        private void RenderSprites(byte control)
+        private void RenderSprites(byte control, int startPixel, int endPixel)
         {
             var use8x16 = Helpers.TestBit(control, (int)LCDControlBits.SpriteSize);
             var ySize = use8x16 ? 16 : 8;
@@ -691,18 +885,19 @@ namespace GBZEmuLibrary
 
             for (var i = (Display.HORIZONTAL_RESOLUTION - 4); i >= 0; i -= 4)
             {
-                var y = ReadByte(tableStart + i) - 16;
-                var x = ReadByte(tableStart + i + 1) - 8;
+                var oamOffset = tableStart + i - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START;
+                var y = _spriteAttributeTable[oamOffset] - 16;
+                var x = _spriteAttributeTable[oamOffset + 1] - 8;
 
                 if (ScanLine >= y && ScanLine < (y + ySize))
                 {
-                    var tileIndex = ReadByte(tableStart + i + 2);
+                    var tileIndex = _spriteAttributeTable[oamOffset + 2];
                     if (use8x16)
                     {
                         tileIndex &= 0xFE;
                     }
 
-                    var attributes = ReadByte(tableStart + i + 3);
+                    var attributes = _spriteAttributeTable[oamOffset + 3];
                     var bank = _gbcMode ? Helpers.GetBit(attributes, (int)SpriteAttributesBits.TileVRAMBankNumber) : 0;
 
                     var tilePixelRow = ScanLine - y;
@@ -723,7 +918,7 @@ namespace GBZEmuLibrary
                     {
                         var spriteX = x + column;
 
-                        if (spriteX >= 0 && spriteX < Display.HORIZONTAL_RESOLUTION && ScanLine < Display.VERTICAL_RESOLUTION)
+                        if (spriteX >= startPixel && spriteX < endPixel && ScanLine < Display.VERTICAL_RESOLUTION)
                         {
                             var tilePixelColumn = column;
 
@@ -744,12 +939,12 @@ namespace GBZEmuLibrary
                             // Bit0 of LCD control register in GBC mode make sprites always render on top
                             var spritePriority = _gbcMode && !Helpers.TestBit(control, (int)LCDControlBits.BGDisplayEnabled);
 
-                            if (((Helpers.TestBit(attributes, (int)SpriteAttributesBits.SpriteToBGPriority) && _screenData[spriteX, ScanLine].Index != 0) || _screenData[spriteX, ScanLine].BGPriority) && !spritePriority)
+                            if (((Helpers.TestBit(attributes, (int)SpriteAttributesBits.SpriteToBGPriority) && _renderData[spriteX, ScanLine].Index != 0) || _renderData[spriteX, ScanLine].BGPriority) && !spritePriority)
                             {
                                 continue;
                             }
 
-                            _screenData[spriteX, ScanLine] = GetColor(false, colorValue, attributes, paletteAddress);
+                            _renderData[spriteX, ScanLine] = GetColor(false, colorValue, attributes, paletteAddress);
                         }
                     }
                 }

@@ -1,0 +1,101 @@
+using GBZEmuFrontend;
+using GBZEmuLibrary;
+using Raylib_cs;
+
+namespace GBZEmuTests;
+
+/// <summary>
+/// Verifies frontend LCD persistence without changing the raw core framebuffer contract.
+/// </summary>
+public sealed class FrontendFrameBlendingTests
+{
+    /// <summary>
+    /// Verifies that the first frame is shown directly and the next frame averages adjacent raw frames.
+    /// </summary>
+    [Fact]
+    public void BlenderCombinesAdjacentFramesAfterFirstFrame()
+    {
+        var blender = new FrameBlender();
+        var destination = CreateDestination();
+        var first = CreateFrame(16, 32, 48);
+        var second = CreateFrame(48, 65, 82);
+
+        blender.Process(first, destination, true);
+        Assert.Equal((16, 32, 48), GetRGB(destination[0]));
+
+        blender.Process(second, destination, true);
+        Assert.Equal((32, 49, 65), GetRGB(destination[0]));
+    }
+
+    /// <summary>
+    /// Verifies that raw mode bypasses blending while retaining the latest raw frame for a later blended frame.
+    /// </summary>
+    [Fact]
+    public void RawModePassesThroughAndUpdatesHistory()
+    {
+        var blender = new FrameBlender();
+        var destination = CreateDestination();
+
+        blender.Process(CreateFrame(20, 40, 60), destination, false);
+        blender.Process(CreateFrame(100, 120, 140), destination, false);
+        Assert.Equal((100, 120, 140), GetRGB(destination[0]));
+
+        blender.Process(CreateFrame(140, 160, 180), destination, true);
+        Assert.Equal((120, 140, 160), GetRGB(destination[0]));
+    }
+
+    /// <summary>
+    /// Verifies that reset prevents pixels from a previous ROM or presentation run entering the next frame.
+    /// </summary>
+    [Fact]
+    public void ResetClearsPreviousFrameHistory()
+    {
+        var blender = new FrameBlender();
+        var destination = CreateDestination();
+        blender.Process(CreateFrame(0, 0, 0), destination, true);
+
+        blender.Reset();
+        blender.Process(CreateFrame(200, 180, 160), destination, true);
+
+        Assert.Equal((200, 180, 160), GetRGB(destination[0]));
+    }
+
+    /// <summary>
+    /// Verifies that the frontend exposes an explicit raw-frame mode while blending remains the default.
+    /// </summary>
+    [Fact]
+    public void RawFramesOptionIsOptIn()
+    {
+        using var rom = TestRom.Create(0x00);
+
+        var blended = FrontendOptions.Parse([rom.Path]);
+        var raw = FrontendOptions.Parse([rom.Path, "--raw-frames"]);
+
+        Assert.False(blended.RawFrames);
+        Assert.True(raw.RawFrames);
+    }
+
+    private static GBZEmuLibrary.Color[,] CreateFrame(byte red, byte green, byte blue)
+    {
+        var frame = new GBZEmuLibrary.Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
+        for (var y = 0; y < Display.VERTICAL_RESOLUTION; y++)
+        {
+            for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
+            {
+                frame[x, y] = new GBZEmuLibrary.Color(red, green, blue);
+            }
+        }
+
+        return frame;
+    }
+
+    private static Raylib_cs.Color[] CreateDestination()
+    {
+        return new Raylib_cs.Color[Display.HORIZONTAL_RESOLUTION * Display.VERTICAL_RESOLUTION];
+    }
+
+    private static (byte R, byte G, byte B) GetRGB(Raylib_cs.Color color)
+    {
+        return (color.R, color.G, color.B);
+    }
+}

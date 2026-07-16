@@ -274,6 +274,22 @@ Main:
     ldh [$FF4F], a          ; VBK = 0
 .noAttrClear
 
+    ; Remove the boot tile maps from both banks while preserving tile data,
+    ; matching the stock firmware state used by games that expect a blank
+    ; window map. Resume at vblank so cartridge startup does not begin at
+    ; line 0 after the LCD timing reset.
+    xor a
+    ldh [$FF40], a          ; LCD off, allowing unrestricted VRAM access
+    ld a, $01
+    ldh [$FF4F], a
+    call ClearTileMaps
+    xor a
+    ldh [$FF4F], a
+    call ClearTileMaps
+    ld a, $91
+    ldh [$FF40], a
+    call WaitFrame
+
     jp Tail
 
 ClearVRAM:
@@ -282,6 +298,15 @@ ClearVRAM:
 .loop
     ld [hl-], a
     bit 7, h
+    jr nz, .loop
+    ret
+
+ClearTileMaps:
+    xor a
+    ld hl, $9FFF
+.loop
+    ld [hl-], a
+    bit 3, h
     jr nz, .loop
     ret
 

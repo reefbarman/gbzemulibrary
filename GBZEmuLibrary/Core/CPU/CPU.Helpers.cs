@@ -41,6 +41,16 @@
         private void WriteByte(byte data, int address)
         {
             FlushPendingMemoryCycle();
+
+            // Scroll writes become visible at the end of their bus cycle. This matters when a raster effect updates
+            // SCX or SCY while the PPU fetcher advances during the same machine cycle.
+            if (WritesPpuScrollAtEndOfCycle(address))
+            {
+                AdvanceMachineCycle();
+                _mmu.WriteByte(data, address);
+                return;
+            }
+
             _mmu.WriteByte(data, address);
             _memoryCyclePending = true;
         }
@@ -93,6 +103,15 @@
             return address == MemorySchema.GPU_REGISTERS_START + 1 ||
                    (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
                     address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END);
+        }
+
+        /// <summary>
+        /// Returns whether a CPU write exposes a scroll-register value after its write M-cycle has elapsed.
+        /// </summary>
+        internal static bool WritesPpuScrollAtEndOfCycle(int address)
+        {
+            return address == MemorySchema.GPU_REGISTERS_START + 2 ||
+                   address == MemorySchema.GPU_REGISTERS_START + 3;
         }
 
         private bool PendingInterrupt()

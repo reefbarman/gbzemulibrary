@@ -99,18 +99,36 @@ public sealed class BootRomTests
         emulator.Debug.PokeByte(0x3F, 0xFF68);
         Assert.Equal(0x38, emulator.Debug.PeekByte(0xFF69));
 
-        // The last boot frame renders a white background with the navy GBZEmu
-        // wordmark (the attribute clear lands after the final rendered frame). The
-        // header logo area is blank because the test ROM's logo bytes are zero.
+        // The BIOS blanks the display and clears its artwork before hand-off.
         var screen = emulator.GetScreenData();
         Assert.Equal((248, 248, 248), (screen[0, 0].R, screen[0, 0].G, screen[0, 0].B));
-        Assert.Equal((32, 48, 112), (screen[24, 48].R, screen[24, 48].G, screen[24, 48].B));
+        Assert.Equal((248, 248, 248), (screen[24, 48].R, screen[24, 48].G, screen[24, 48].B));
 
-        // The attributes were cleared before hand-off, so compatibility-mode
-        // games start with palette 0 everywhere.
-        emulator.Debug.PokeByte(0x01, 0xFF4F);
-        Assert.Equal(0x00, emulator.Debug.PeekByte(0x98A2));
-        Assert.Equal(0x00, emulator.Debug.PeekByte(0x98F1));
+        // Cartridge execution starts during vblank, matching the stock CGB firmware's
+        // phase closely enough that a first-frame interrupt cannot fire during line 0.
+        var ppu = emulator.Debug.GetPpuState();
+        Assert.Equal(144, ppu.ScanLine);
+        Assert.Equal(1, ppu.Mode);
+
+        // Both tile maps are blank in both VRAM banks, while the boot ROM's tile data
+        // remains available just as it does after the stock CGB firmware hand-off.
+        var retainedTileData = false;
+        foreach (var bank in new byte[] { 0x00, 0x01 })
+        {
+            emulator.Debug.PokeByte(bank, 0xFF4F);
+            for (var address = 0x8000; address < 0x9800; address++)
+            {
+                retainedTileData |= emulator.Debug.PeekByte(address) != 0;
+            }
+
+            for (var address = 0x9800; address <= 0x9FFF; address++)
+            {
+                Assert.Equal(0x00, emulator.Debug.PeekByte(address));
+            }
+        }
+
+        Assert.True(retainedTileData);
+
         emulator.Debug.PokeByte(0x00, 0xFF4F);
         emulator.Terminate();
     }
