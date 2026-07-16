@@ -281,7 +281,7 @@ namespace GBZEmuLibrary
                     //Trigger Enabled
                     if (Helpers.TestBit(data, 7))
                     {
-                        _channel3.HandleTrigger();
+                        _channel3.HandleTrigger(_gbcMode);
                     }
 
                     break;

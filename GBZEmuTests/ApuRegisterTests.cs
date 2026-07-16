@@ -208,6 +208,76 @@ public sealed class ApuRegisterTests
     }
 
     /// <summary>
+    /// Verifies a DMG retrigger immediately before fetching wave bytes 0-3 copies only the fetched byte into byte 0.
+    /// </summary>
+    [Fact]
+    public void DmgWaveRetriggerCopiesLowQuarterByteIntoFirstByte()
+    {
+        var apu = CreateSequentialWaveApu(GBCMode.NoGBC);
+
+        // Trigger two CPU clocks before byte 2's high nibble fetch, matching the final 2 MHz APU timer tick.
+        apu.Update(6 + (2 * 2 * 4) - 2);
+        apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
+        apu.WriteByte(0x00, APUSchema.WAVE_3_DAC);
+
+        Assert.Equal(0x22, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+        Assert.Equal(0x11, apu.ReadByte(APUSchema.WAVE_TABLE_START + 1));
+        Assert.Equal(0x22, apu.ReadByte(APUSchema.WAVE_TABLE_START + 2));
+        Assert.Equal(0x33, apu.ReadByte(APUSchema.WAVE_TABLE_START + 3));
+    }
+
+    /// <summary>
+    /// Verifies a DMG retrigger immediately before fetching bytes 4-15 copies that byte's aligned block to bytes 0-3.
+    /// </summary>
+    [Theory]
+    [InlineData(6, 4)]
+    [InlineData(10, 8)]
+    [InlineData(14, 12)]
+    public void DmgWaveRetriggerCopiesFetchedAlignedBlock(int fetchedByte, int sourceBlock)
+    {
+        var apu = CreateSequentialWaveApu(GBCMode.NoGBC);
+
+        apu.Update(6 + (fetchedByte * 2 * 4) - 2);
+        apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
+        apu.WriteByte(0x00, APUSchema.WAVE_3_DAC);
+
+        for (var offset = 0; offset < 4; offset++)
+        {
+            Assert.Equal((byte)((sourceBlock + offset) * 0x11), apu.ReadByte(APUSchema.WAVE_TABLE_START + offset));
+        }
+    }
+
+    /// <summary>
+    /// Verifies a DMG retrigger outside the final pre-fetch APU tick does not corrupt wave RAM.
+    /// </summary>
+    [Fact]
+    public void DmgWaveRetriggerOutsideFetchWindowLeavesWaveRamUnchanged()
+    {
+        var apu = CreateSequentialWaveApu(GBCMode.NoGBC);
+
+        apu.Update(6 + (6 * 2 * 4));
+        apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
+        apu.WriteByte(0x00, APUSchema.WAVE_3_DAC);
+
+        AssertSequentialWaveRam(apu);
+    }
+
+    /// <summary>
+    /// Verifies CGB hardware does not apply the original DMG's pre-fetch retrigger corruption.
+    /// </summary>
+    [Fact]
+    public void CgbWaveRetriggerDuringFetchLeavesWaveRamUnchanged()
+    {
+        var apu = CreateSequentialWaveApu(GBCMode.GBCSupport);
+
+        apu.Update(6 + (6 * 2 * 4) - 2);
+        apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
+        apu.WriteByte(0x00, APUSchema.WAVE_3_DAC);
+
+        AssertSequentialWaveRam(apu);
+    }
+
+    /// <summary>
     /// Verifies active CGB writes target the current wave byte regardless of the CPU-addressed wave-RAM byte.
     /// </summary>
     [Fact]
@@ -270,6 +340,31 @@ public sealed class ApuRegisterTests
         apu.WriteByte(0xFE, APUSchema.WAVE_3_FREQUENCY_LSB);
         apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
         return apu;
+    }
+
+    private static APU CreateSequentialWaveApu(GBCMode mode)
+    {
+        var apu = new APU();
+        apu.Init(mode);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+
+        for (var index = 0; index < 16; index++)
+        {
+            apu.WriteByte((byte)(index * 0x11), APUSchema.WAVE_TABLE_START + index);
+        }
+
+        apu.WriteByte(0x80, APUSchema.WAVE_3_DAC);
+        apu.WriteByte(0xFE, APUSchema.WAVE_3_FREQUENCY_LSB);
+        apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
+        return apu;
+    }
+
+    private static void AssertSequentialWaveRam(APU apu)
+    {
+        for (var index = 0; index < 16; index++)
+        {
+            Assert.Equal((byte)(index * 0x11), apu.ReadByte(APUSchema.WAVE_TABLE_START + index));
+        }
     }
 
     private static void WriteChannel1Frequency(APU apu, int frequency, bool trigger)

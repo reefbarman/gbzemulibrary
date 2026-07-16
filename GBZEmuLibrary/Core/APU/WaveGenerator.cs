@@ -157,6 +157,23 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Applies revision-specific active-retrigger behavior before restarting channel 3.
+        /// </summary>
+        public void HandleTrigger(bool gbcMode)
+        {
+            // On DMG, corruption occurs during the final 2 MHz APU tick before the next wave byte fetch.
+            if (!gbcMode && Status && _frequency - _frequencyCount == 2)
+            {
+                CorruptWaveRamOnDmgRetrigger();
+            }
+
+            HandleTrigger();
+        }
+
+        /// <summary>
+        /// Restarts channel 3's length and frequency state after a trigger write.
+        /// </summary>
         public override void HandleTrigger()
         {
             _enabled = _dacEnabled;
@@ -216,9 +233,44 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Models the original DMG's wave-RAM bus corruption when channel 3 is retriggered during a byte fetch.
+        /// </summary>
+        private void CorruptWaveRamOnDmgRetrigger()
+        {
+            var fetchedByte = ((_wavePos + 1) % 32) / 2;
+
+            if (fetchedByte < 4)
+            {
+                WritePackedWaveByte(0, ReadWaveByte(fetchedByte));
+                return;
+            }
+
+            // The DMG copies the aligned four-byte block containing the fetched byte into wave bytes 0-3.
+            var source = fetchedByte & ~3;
+            var first = ReadWaveByte(source);
+            var second = ReadWaveByte(source + 1);
+            var third = ReadWaveByte(source + 2);
+            var fourth = ReadWaveByte(source + 3);
+
+            WritePackedWaveByte(0, first);
+            WritePackedWaveByte(1, second);
+            WritePackedWaveByte(2, third);
+            WritePackedWaveByte(3, fourth);
+        }
+
         private byte ReadWaveByte(int index)
         {
             return (byte)((_waveTable[index * 2] << 4) | _waveTable[(index * 2) + 1]);
+        }
+
+        /// <summary>
+        /// Stores one packed wave-RAM byte in the channel's nibble-addressed sample table.
+        /// </summary>
+        private void WritePackedWaveByte(int index, byte data)
+        {
+            _waveTable[index * 2] = (byte)(data >> 4);
+            _waveTable[index * 2 + 1] = (byte)(data & 0x0F);
         }
     }
 }
