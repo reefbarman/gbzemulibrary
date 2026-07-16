@@ -19,6 +19,7 @@ These instructions apply to the entire repository.
 - `GBZEmuLibrary/Core/BootROM.cs`: runtime storage and validation for host-supplied boot-ROM bytes.
 - `GBZEmuLibrary/GBZEmuLibrary.csproj`: SDK-style `netstandard2.0` library project.
 - `GBZEmuFrontend/`: minimal cross-platform Raylib-cs test host for video, audio, input, ROMs, and boot ROMs.
+- `GBZEmuHeadless/`: deterministic command-line ROM runner for frame captures, input sequences, boot-mode checks, and JSON state/hash reports.
 - `GBZEmuTests/`: serialized xUnit harness, debug-tooling tests, test-ROM fixtures, and framebuffer references.
 - `README.md`: user-facing behavior, integration contract, evidence-based test results, and known limitations.
 
@@ -150,6 +151,18 @@ dotnet test GBZEmuTests/GBZEmuTests.csproj -c Release
 
 The harness discovers all fixtures under `GBZEmuTests/Fixtures/` and reports each ROM's actual oracle result. Passing ROMs pass and failing ROMs fail; the complete suite is expected to remain red until its conformance gaps are fixed. Treat `ExpectedRomIds.txt` and current test output as the authoritative sources for fixture inventory and results.
 
+Use `GBZEmuHeadless` for deterministic visual and runtime investigation when a ROM needs frame-by-frame evidence, scripted input, boot handoff comparison, or scene-transition capture:
+
+```sh
+dotnet run --project GBZEmuHeadless -c Release -- <rom-path> \
+  --frames 900 \
+  --capture-frames 650-900 \
+  --capture-every 10 \
+  --output runtime/captures/<case>
+```
+
+Frames are numbered from 1 after each `Emulator.Update()`. Use repeated `--input <frame>:<button>:down|up` options for deterministic input, and `--dmg`, `--skip-bios`, or repeated `--bootrom <path>` options to control hardware and boot paths. Inspect the generated PPM frames and compare `report.json` framebuffer, palette, VRAM, CPU, and PPU hashes/state. Give each run an isolated `--output` directory and do not commit captures, commercial ROMs, firmware, or generated saves. Headless evidence supplements focused xUnit tests and committed ROM oracles; it does not replace or weaken them.
+
 For behavior changes:
 
 1. Build both Debug and Release when the toolchain is available.
@@ -159,7 +172,8 @@ For behavior changes:
 5. Skip a ROM only when it requires a deliberately unsupported hardware mode or test circumstance, and include a specific visible skip reason. Do not skip ordinary emulator correctness failures.
 6. Exercise at least one DMG path and one CGB path when shared CPU/MMU/PPU behavior changes.
 7. Check save creation/reload for cartridge changes and audio/video buffer contracts for facade changes.
-8. Keep smoke-test notes concise and checklist-based.
+8. Use deterministic headless captures for visual regressions, boot transitions, or input-driven runtime behavior that focused register tests cannot fully observe.
+9. Keep smoke-test notes concise and checklist-based.
 
 Fixture provenance and licensing are documented in `GBZEmuTests/Fixtures/README.md`. Blargg has no explicit upstream license; this repository commits those binaries with attribution by an explicit owner decision. Never generalize that exception to commercial ROMs, firmware, saves, or other unlicensed fixtures.
 
