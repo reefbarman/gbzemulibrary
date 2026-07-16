@@ -48,9 +48,12 @@ namespace GBZEmuLibrary
             SetFlag(InsSchema.FLAG_H);
         }
 
+        /// <summary>
+        /// Tests a bit in memory during the CB instruction's single operand-read machine cycle; unlike RES and SET,
+        /// BIT does not add a trailing write cycle.
+        /// </summary>
         private void BitTest(int bit, ushort address)
         {
-            IncrementClock();
             var value = ReadByte(address);
             BitTest(bit, value);
         }

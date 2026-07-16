@@ -189,6 +189,28 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
+    /// Verifies CB-prefixed BIT (HL) uses only its opcode fetches and one memory-read machine cycle.
+    /// </summary>
+    [Fact]
+    public void BitTestAtHlConsumesThreeMachineCycles()
+    {
+        using var rom = TestRom.Create(
+            0x21, 0x00, 0xC0, // LD HL,C000
+            0xCB, 0x46,       // BIT 0,(HL)
+            0x40);             // LD B,B debugger breakpoint
+        var emulator = EmulatorFactory.Start(rom);
+        emulator.Debug.PokeByte(0x00, 0xC000);
+
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0x0106, 1));
+
+        var state = emulator.Debug.GetCpuState();
+        Assert.Equal((ulong)28, state.TotalClockCycles);
+        Assert.Equal(0xB0, state.AF & 0x00F0);
+        Assert.Equal(0x00, emulator.Debug.PeekByte(0xC000));
+        emulator.Terminate();
+    }
+
+    /// <summary>
     /// Verifies that consecutive EI instructions preserve the first instruction's pending enable instead of
     /// restarting the delay. The pending interrupt must preempt the opcode after the second EI.
     /// </summary>
