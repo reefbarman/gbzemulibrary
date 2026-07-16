@@ -217,6 +217,14 @@ namespace GBZEmuLibrary
         {
             if (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START && address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END)
             {
+                // CPU reads are blocked while the PPU scans OAM or transfers pixel data.
+                var mode = GetStatusMode();
+                if (IsLCDEnabled() &&
+                    (mode == LCDStatus.SearchingSpritesAttributes || mode == LCDStatus.TransferringDataToLCDDriver))
+                {
+                    return 0xFF;
+                }
+
                 return _spriteAttributeTable[address - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START];
             }
 

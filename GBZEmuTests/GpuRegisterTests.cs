@@ -166,6 +166,36 @@ public sealed class GpuRegisterTests
         Assert.Equal(expectedInterruptRequests, getInterruptRequests());
     }
 
+    /// <summary>
+    /// Verifies that CPU OAM reads are blocked during modes 2 and 3, then become visible again in HBlank.
+    /// </summary>
+    [Fact]
+    public void OamReadsAreBlockedOnlyWhilePpuUsesOam()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(false);
+        gpu.WriteByte(0x5A, 0xFE00);
+
+        Assert.Equal(0x5A, gpu.ReadByte(0xFE00));
+
+        gpu.Update(4);
+        gpu.WriteByte(0x80, 0xFF40);
+        gpu.Update(204);
+
+        Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
+        Assert.Equal(0xFF, gpu.ReadByte(0xFE00));
+
+        gpu.Update(80);
+
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+        Assert.Equal(0xFF, gpu.ReadByte(0xFE00));
+
+        gpu.Update(172);
+
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+        Assert.Equal(0x5A, gpu.ReadByte(0xFE00));
+    }
+
     private static (GPU Gpu, Func<int> GetInterruptRequests) CreateInterruptCountingGpu(bool gbcMode = false)
     {
         var messageBus = new MessageBus();

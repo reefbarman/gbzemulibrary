@@ -98,6 +98,21 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
+    /// Verifies that only STAT and OAM reads use end-of-M-cycle PPU sampling at mode/access boundaries.
+    /// </summary>
+    [Fact]
+    public void PpuBoundaryReadsUseEndOfCycleSampling()
+    {
+        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(0xFF41));
+        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START));
+        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - 1));
+
+        Assert.False(CPU.SamplesPpuStateAtEndOfReadCycle(0xFF44));
+        Assert.False(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.VIDEO_RAM_START));
+        Assert.False(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_END));
+    }
+
+    /// <summary>
     /// Starts an internal-clock serial transfer and verifies the debug byte event plus immediate completion.
     /// Test ROM protocols depend on this intentional fast path instead of emulating link timing frame by frame.
     /// </summary>

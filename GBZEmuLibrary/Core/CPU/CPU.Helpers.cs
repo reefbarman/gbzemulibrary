@@ -21,6 +21,15 @@
         private byte ReadByte(int address)
         {
             FlushPendingMemoryCycle();
+
+            // STAT and OAM availability are sampled at the end of the CPU read M-cycle. The complete
+            // four-clock cycle is consumed before sampling, so there is no trailing memory cycle to defer.
+            if (SamplesPpuStateAtEndOfReadCycle(address))
+            {
+                AdvanceMachineCycle();
+                return _mmu.ReadByte(address);
+            }
+
             var data = _mmu.ReadByte(address);
             _memoryCyclePending = true;
             return data;
@@ -74,6 +83,16 @@
             var lo = ReadByte(address);
             var high = ReadByte(address + 1);
             return (ushort)((high << 8) | lo);
+        }
+
+        /// <summary>
+        /// Returns whether a CPU read observes PPU state after the read M-cycle has advanced the pixel clock.
+        /// </summary>
+        internal static bool SamplesPpuStateAtEndOfReadCycle(int address)
+        {
+            return address == MemorySchema.GPU_REGISTERS_START + 1 ||
+                   (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
+                    address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END);
         }
 
         private bool PendingInterrupt()
