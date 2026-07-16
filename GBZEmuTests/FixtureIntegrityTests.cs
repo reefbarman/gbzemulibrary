@@ -29,6 +29,20 @@ public sealed class FixtureIntegrityTests
     }
 
     /// <summary>
+    /// Verifies the second Blargg memory-timing suite uses its documented A000 status/signature protocol.
+    /// </summary>
+    [Fact]
+    public void MemoryTimingTwoFixturesUseBlarggMemoryProtocol()
+    {
+        var tests = RomManifest.Load().Tests
+            .Where(test => test.Id.StartsWith("blargg/mem_timing-2/", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.NotEmpty(tests);
+        Assert.All(tests, test => Assert.Equal(RomProtocol.BlarggMemory, test.Protocol));
+    }
+
+    /// <summary>
     /// Supplies two fixture paths that normalize to the same test ID and verifies discovery rejects the collision.
     /// This prevents one ROM from silently replacing another before the locked inventory comparison runs.
     /// </summary>

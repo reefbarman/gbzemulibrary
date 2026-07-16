@@ -103,6 +103,7 @@ internal sealed class RomManifest
         {
             test.Protocol = relativePath.StartsWith("blargg/dmg_sound/", StringComparison.Ordinal) ||
                             relativePath.StartsWith("blargg/cgb_sound/", StringComparison.Ordinal) ||
+                            relativePath.StartsWith("blargg/mem_timing-2/", StringComparison.Ordinal) ||
                             relativePath.StartsWith("blargg/oam_bug/", StringComparison.Ordinal) ||
                             relativePath == "blargg/halt_bug.gb"
                 ? RomProtocol.BlarggMemory
