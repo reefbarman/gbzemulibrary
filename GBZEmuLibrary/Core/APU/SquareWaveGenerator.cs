@@ -5,6 +5,9 @@ namespace GBZEmuLibrary
 {
     // Ref 1 - https://emu-docs.org/Game%20Boy/gb_sound.txt
     // Ref 2 - http://gbdev.gg8.se/wiki/articles/Gameboy_sound_hardware
+    /// <summary>
+    /// Emulates a pulse channel, including channel 1's frequency-sweep shadow register and overflow behavior.
+    /// </summary>
     internal class SquareWaveGenerator : EnvelopeGenerator
     {
         private int _initialSweepPeriod;
@@ -18,6 +21,7 @@ namespace GBZEmuLibrary
         private int _wavePos;
 
         private int _shadowFrequency;
+        private bool _sweepFrequencyWritten;
 
         public SquareWaveGenerator() : base(MathSchema.MAX_6_BIT_VALUE)
         {
@@ -35,6 +39,7 @@ namespace GBZEmuLibrary
 
             _initialSweepPeriod = 0;
             _shiftSweep = 0;
+            _sweepFrequencyWritten = false;
             SetSweepMode(false);
 
             _dutyCycle = 0;
@@ -81,6 +86,9 @@ namespace GBZEmuLibrary
             throw new IndexOutOfRangeException();
         }
 
+        /// <summary>
+        /// Applies the NR10 sweep pace, direction, and shift fields.
+        /// </summary>
         public void SetSweep(byte data)
         {
             // Val Format -PPP NSSS
@@ -149,6 +157,7 @@ namespace GBZEmuLibrary
                         {
                             _shadowFrequency = sweepFreq;
                             SetFrequency(sweepFreq);
+                            _sweepFrequencyWritten = true;
                             CalculateNewFrequency();
                         }
                     }
@@ -165,6 +174,22 @@ namespace GBZEmuLibrary
                 _frequencyCount -= _frequency;
                 _wavePos = (_wavePos + 1) % 8;
             }
+        }
+
+        /// <summary>
+        /// Returns a period written by the sweep unit so the owning APU can mirror it into NR13 and NR14.
+        /// </summary>
+        public bool TryConsumeSweepFrequencyWrite(out int frequency)
+        {
+            frequency = _originalFrequency;
+
+            if (!_sweepFrequencyWritten)
+            {
+                return false;
+            }
+
+            _sweepFrequencyWritten = false;
+            return true;
         }
 
         private int CalculateNewFrequency()

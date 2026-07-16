@@ -2,6 +2,9 @@ using GBZEmuLibrary;
 
 namespace GBZEmuTests;
 
+/// <summary>
+/// Verifies APU register semantics and focused channel behavior without requiring a complete ROM run.
+/// </summary>
 public sealed class ApuRegisterTests
 {
     /// <summary>
@@ -78,6 +81,32 @@ public sealed class ApuRegisterTests
     }
 
     /// <summary>
+    /// Replays Blargg's adjacent two's-complement sweep boundaries and verifies retriggering uses the swept period.
+    /// </summary>
+    [Theory]
+    [InlineData(0x5B0, true)]
+    [InlineData(0x5B1, false)]
+    public void SweepWriteBackSuppliesPeriodForRetrigger(int initialFrequency, bool expectedActive)
+    {
+        var apu = new APU();
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0x08, APUSchema.SQUARE_1_VOLUME_ENVELOPE);
+        apu.WriteByte(0x1C, APUSchema.SQUARE_1_SWEEP_PERIOD);
+        WriteChannel1Frequency(apu, initialFrequency, trigger: true);
+
+        // Frame sequencer step 2 is the first 128 Hz sweep clock after APU power-on.
+        for (var step = 0; step < 3; step++)
+        {
+            apu.Update(APUSchema.FRAME_SEQUENCER_UPDATE_THRESHOLD);
+        }
+
+        apu.WriteByte(0x01, APUSchema.SQUARE_1_SWEEP_PERIOD);
+        apu.WriteByte((byte)(0xC0 | (initialFrequency >> 8)), APUSchema.SQUARE_1_FREQUENCY_MSB);
+
+        Assert.Equal(expectedActive, (apu.ReadByte(APUSchema.SOUND_ENABLED) & 0x01) != 0);
+    }
+
+    /// <summary>
     /// Powers on the APU and verifies complete read values so writable fields are not hidden by the unused-bit masks.
     /// </summary>
     [Fact]
@@ -92,6 +121,12 @@ public sealed class ApuRegisterTests
         AssertFullRead(apu, APUSchema.NOISE_4_LENGTH_LOAD, 0x00, 0xFF);
         AssertFullRead(apu, APUSchema.NOISE_4_TRIGGER, 0x00, 0xBF);
         AssertFullRead(apu, APUSchema.SOUND_ENABLED, 0x80, 0xF0);
+    }
+
+    private static void WriteChannel1Frequency(APU apu, int frequency, bool trigger)
+    {
+        apu.WriteByte((byte)frequency, APUSchema.SQUARE_1_FREQUENCY_LSB);
+        apu.WriteByte((byte)((frequency >> 8) | (trigger ? 0x80 : 0)), APUSchema.SQUARE_1_FREQUENCY_MSB);
     }
 
     private static void AssertFullRead(APU apu, int address, byte value, byte expected)

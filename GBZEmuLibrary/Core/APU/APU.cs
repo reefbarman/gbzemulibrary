@@ -2,6 +2,9 @@
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Emulates the four audio channels, frame sequencer, register interface, mixer, and sample buffering.
+    /// </summary>
     internal class APU : IMemoryUnit
     {
         private readonly byte[] _memory = new byte[MemorySchema.APU_REGISTERS_END - MemorySchema.APU_REGISTERS_START];
@@ -609,9 +612,13 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Advances all audio channels from CPU-derived clocks and produces fixed-rate stereo samples.
+        /// </summary>
         public void Update(int cycles)
         {
             _channel1.Update(_powered, cycles);
+            SynchronizeSweepFrequencyRegisters();
             _channel2.Update(_powered, cycles);
             _channel3.Update(_powered, cycles);
             _channel4.Update(_powered, cycles);
@@ -644,6 +651,23 @@ namespace GBZEmuLibrary
 
                 _currentByte++;
             }
+        }
+
+        /// <summary>
+        /// Mirrors a successful channel 1 sweep update into the write-only NR13 and NR14 period storage.
+        /// A later trigger must copy this swept period, rather than the last CPU-written period, into the sweep shadow register.
+        /// </summary>
+        private void SynchronizeSweepFrequencyRegisters()
+        {
+            if (!_channel1.TryConsumeSweepFrequencyWrite(out var frequency))
+            {
+                return;
+            }
+
+            var lowIndex = APUSchema.SQUARE_1_FREQUENCY_LSB - MemorySchema.APU_REGISTERS_START;
+            var highIndex = APUSchema.SQUARE_1_FREQUENCY_MSB - MemorySchema.APU_REGISTERS_START;
+            _memory[lowIndex] = (byte)frequency;
+            _memory[highIndex] = (byte)((_memory[highIndex] & 0xF8) | (frequency >> 8));
         }
 
         private void StereoSelect(byte val)
