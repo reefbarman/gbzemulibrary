@@ -135,7 +135,7 @@ namespace GBZEmuLibrary
             if (!gbc && shortBoot)
             {
                 Bytes = (byte[])source.Clone();
-                Bytes[0x00FD] = 0x03;
+                Bytes[0x00FD] = 20;
             }
             else
             {

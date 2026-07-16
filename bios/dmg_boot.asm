@@ -1,7 +1,7 @@
 ; GBZEmu DMG boot ROM (256 bytes)
 ;
 ; An original replacement for the stock DMG boot ROM: a compact italic
-; "GBZEmu" wordmark expands into a three-tone beveled hero graphic, with the
+; "GBZEmu" wordmark expands into a two-tone shaded hero graphic, with the
 ; cartridge's own header logo ($0104-$0133) and a registered-trademark
 ; symbol rendered beneath it exactly like real firmware draws them. The
 ; whole lockup scrolls down the screen and the classic two-note chime
@@ -19,9 +19,9 @@
 ;   A=$01 F=$B0 BC=$0013 DE=$00D8 HL=$014D SP=$FFFE PC=$0100
 ;   LCDC=$91 SCY=$00 BGP=$FC OBP0=OBP1=$FF
 ;
-; Byte $00FD is the scroll speed in pixels per frame (default 1). The
-; emulator's short-boot mode patches it to 3, which also divides the logo
-; hold. The final two bytes must be LDH [$FF50],A so the boot ROM unmaps
+; Byte $00FD is the scroll duration in frames (default 60). The emulator's
+; short-boot mode patches it to 20. The final two bytes must be LDH
+; [$FF50],A so the boot ROM unmaps
 ; itself with PC landing exactly on $0100.
 ;
 ; Build: rgbasm + rgblink (see build.sh).
@@ -33,18 +33,17 @@ SECTION "main", ROM0[$0000]
 Entry:
     ld sp, $FFFE
 
-    ; Use all four DMG shades during the animation. The generated second
-    ; bitplane gives each mark a light edge, dark fill, and trailing shadow.
-    ld a, $E4
-    ldh [$FF47], a          ; BGP: linear light-to-dark ramp
+    ; Use two ink shades against the DMG background. Only the GBZEmu mark
+    ; uses the middle shade; the cartridge logo remains solid black.
+    ld a, $E8
+    ldh [$FF47], a          ; BGP: middle-shade hero and solid-black logo
     ld a, $FF
     ldh [$FF48], a          ; OBP0
     ldh [$FF49], a          ; OBP1
 
     ; Decode the GBZEmu wordmark (tiles 1-24), then the cartridge header
-    ; logo (tiles 25-48). Both use the header-logo nibble format: each
-    ; nibble is bit-doubled and written as two rows on bitplane 0 only,
-    ; so 48x8 source pixels render 96x16 in color 1.
+    ; logo (tiles 25-48). Both use the header-logo nibble format, but the
+    ; source pointer's high byte selects shaded hero or solid header output.
     ld de, HeroLogo
     ld hl, $8010
 .decode
@@ -87,22 +86,19 @@ Entry:
     ld l, LOW($9800 + 9 * 32 + 16)
     ld [hl], a
 
-    ; Start with the lockup above the viewport and switch the LCD on. 60
-    ; is divisible by both supported scroll speeds (1 and 3), so the
-    ; scroll loop lands exactly on 0 without clamping.
-    ld a, 60
-    ldh [$FF42], a          ; SCY = 60
+    ; Start with the lockup above the viewport and switch the LCD on. The
+    ; patchable duration is also the initial scroll distance in pixels.
+    ld a, [SPEED_ADDR]
+    ld b, a
+    ldh [$FF42], a
     ld a, $91
     ldh [$FF40], a          ; LCDC: LCD on, BG on, unsigned tile data
 
-    ; Scroll down SPEED pixels per frame until SCY reaches 0. Keep the
-    ; speed in B for the later hold countdown as well.
-    ld a, [SPEED_ADDR]
-    ld b, a
+    ; Scroll down one pixel per frame until SCY reaches 0.
 .scroll
     call WaitFrame
     ldh a, [$FF42]
-    sub b
+    dec a
     ldh [$FF42], a
     jr nz, .scroll
 
@@ -121,16 +117,6 @@ Entry:
     ld a, $87
     ldh [$FF14], a          ; trigger ~2080 Hz
 
-    ; Hold the logo for 60 frames divided by the scroll speed (60 divides
-    ; exactly by both speeds, so the countdown lands on zero).
-    ld c, 60
-.hold
-    call WaitFrame
-    ld a, c
-    sub b
-    ld c, a
-    jr nz, .hold
-
     ; Hand-off register state, then unmap via the tail at $00FE.
     ld bc, $0013
     ld de, $00D8
@@ -143,23 +129,21 @@ Entry:
     ld a, $01
     jr Handoff
 
-; Returns at the start of the next vblank; the leading loop ensures each
-; call waits for a fresh frame even when called from within vblank.
+; Returns at the next vblank edge. HL is scratch here: every caller has
+; completed tilemap setup, and the hand-off reloads HL explicitly.
 WaitFrame:
-.leaveVBlank
-    ldh a, [$FF44]
-    cp $90
-    jr z, .leaveVBlank
-.waitVBlank
-    ldh a, [$FF44]
-    cp $90
-    jr nz, .waitVBlank
+    ld hl, $FF0F
+    res 0, [hl]
+.wait
+    bit 0, [hl]
+    jr z, .wait
     ret
 
-; Bit-doubles the next nibble of C into A and writes it as two shaded tile
-; rows. One plane is rotated right and the plane order alternates by row,
-; producing dithered light/shadow edges around the dark overlap. Entry point
-; ExpandNibble primes C from A; calling .next processes the second nibble.
+; Bit-doubles the next nibble of C into A. The hero's upper tile row uses
+; the middle shade and its lower row uses the darkest shade, producing one
+; coherent vertical treatment without per-row stripes or tile-edge shifts.
+; Cartridge data has D=1 and always renders solid, matching the original
+; BIOS. ExpandNibble primes C; calling .next processes the next nibble.
 ExpandNibble:
     ld c, a
 .next
@@ -173,11 +157,25 @@ ExpandNibble:
     rla
     dec b
     jr nz, .bit
+    ld b, a
+    ld a, d
+    or a
+    jr nz, .restoreSolid
+    ld a, e
+    cp LOW(HeroLogo + 24)
+    ld a, b
+    jr nc, .solid
+    inc hl
     ld [hl+], a
-    rrca
+    inc hl
+    ld [hl+], a
+    ret
+.restoreSolid
+    ld a, b
+.solid
     ld [hl+], a
     ld [hl+], a
-    rlca
+    ld [hl+], a
     ld [hl+], a
     ret
 
@@ -207,9 +205,10 @@ TrademarkTile:
 ; wordmark bytes must live entirely above the header-logo range.
 ASSERT LOW(HeroLogo) > $34
 ASSERT LOW(HeroLogoEnd) > LOW(HeroLogo)
+ASSERT HIGH(HeroLogo) == 0
 
 SECTION "speed", ROM0[SPEED_ADDR]
-    db $01                  ; pixels per frame; short boot patches this to 3
+    db 60                   ; scroll frames; short boot patches this to 20
 
 SECTION "handoff", ROM0[$00FE]
 Handoff:

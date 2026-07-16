@@ -63,11 +63,11 @@ public sealed class BootRomTests
         using var rom = CreateRom(gbc: false);
 
         var shortBoot = Start(rom, BootMode.DMG | BootMode.Force | BootMode.Short);
-        Assert.True(shortBoot.Debug.RunUntilProgramCounter(CartridgeEntryPoint, 90));
+        Assert.True(shortBoot.Debug.RunUntilProgramCounter(CartridgeEntryPoint, 40));
         shortBoot.Terminate();
 
         var longBoot = Start(rom, BootMode.DMG | BootMode.Force);
-        Assert.False(longBoot.Debug.RunUntilProgramCounter(CartridgeEntryPoint, 90));
+        Assert.False(longBoot.Debug.RunUntilProgramCounter(CartridgeEntryPoint, 40));
         Assert.True(longBoot.Debug.RunUntilProgramCounter(CartridgeEntryPoint, LongBootFrameBudget));
         longBoot.Terminate();
     }
