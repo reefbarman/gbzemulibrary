@@ -296,7 +296,7 @@ public sealed class GpuRegisterTests
         AdvanceToVBlank(gpu);
 
         var pixel = gpu.GetScreenData()[0, 1];
-        Assert.Equal(248, pixel.R);
+        Assert.Equal(255, pixel.R);
         Assert.Equal(0, pixel.G);
         Assert.Equal(0, pixel.B);
     }
@@ -322,7 +322,7 @@ public sealed class GpuRegisterTests
         gpu.WriteByte(0x00, 0xFF40);
 
         var blank = gpu.GetScreenData()[0, 1];
-        Assert.Equal((248, 248, 248), (blank.R, blank.G, blank.B));
+        Assert.Equal((255, 255, 255), (blank.R, blank.G, blank.B));
 
 
     }

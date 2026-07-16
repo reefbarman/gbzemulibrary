@@ -101,8 +101,8 @@ public sealed class BootRomTests
 
         // The BIOS blanks the display and clears its artwork before hand-off.
         var screen = emulator.GetScreenData();
-        Assert.Equal((248, 248, 248), (screen[0, 0].R, screen[0, 0].G, screen[0, 0].B));
-        Assert.Equal((248, 248, 248), (screen[24, 48].R, screen[24, 48].G, screen[24, 48].B));
+        Assert.Equal((255, 255, 255), (screen[0, 0].R, screen[0, 0].G, screen[0, 0].B));
+        Assert.Equal((255, 255, 255), (screen[24, 48].R, screen[24, 48].G, screen[24, 48].B));
 
         // Cartridge execution starts during vblank, matching the stock CGB firmware's
         // phase closely enough that a first-frame interrupt cannot fire during line 0.

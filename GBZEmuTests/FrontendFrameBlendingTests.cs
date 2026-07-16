@@ -61,18 +61,76 @@ public sealed class FrontendFrameBlendingTests
     }
 
     /// <summary>
-    /// Verifies that the frontend exposes an explicit raw-frame mode while blending remains the default.
+    /// Verifies Modern Balanced correction applies the CGB curve and green-blue LCD mixing.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0, 255, 0, 107, 255)]
+    [InlineData(0, 255, 0, 0, 213, 0)]
+    [InlineData(82, 165, 123, 88, 190, 149)]
+    [InlineData(255, 255, 255, 255, 255, 255)]
+    public void ModernBalancedCorrectsCgbColors(
+        byte red,
+        byte green,
+        byte blue,
+        byte expectedRed,
+        byte expectedGreen,
+        byte expectedBlue)
+    {
+        var blender = new FrameBlender();
+        var destination = CreateDestination();
+
+        blender.Process(CreateFrame(red, green, blue), destination, blend: false, correctCgbColors: true);
+
+        Assert.Equal((expectedRed, expectedGreen, expectedBlue), GetRGB(destination[0]));
+    }
+
+    /// <summary>
+    /// Verifies nonlinear CGB correction occurs before adjacent corrected frames are blended.
     /// </summary>
     [Fact]
-    public void RawFramesOptionIsOptIn()
+    public void CgbCorrectionPrecedesFrameBlending()
+    {
+        var blender = new FrameBlender();
+        var destination = CreateDestination();
+
+        blender.Process(CreateFrame(0, 0, 0), destination, blend: true, correctCgbColors: true);
+        blender.Process(CreateFrame(0, 0, 255), destination, blend: true, correctCgbColors: true);
+
+        Assert.Equal((0, 54, 128), GetRGB(destination[0]));
+    }
+
+    /// <summary>
+    /// Verifies CGB correction is limited to native CGB presentation and can be bypassed explicitly.
+    /// </summary>
+    [Theory]
+    [InlineData(false, true, false, true)]
+    [InlineData(true, true, false, false)]
+    [InlineData(false, false, false, false)]
+    [InlineData(false, true, true, false)]
+    public void CgbCorrectionRequiresNativeCgbPresentation(
+        bool forceDmg,
+        bool cgbCartridge,
+        bool rawColors,
+        bool expected)
+    {
+        Assert.Equal(expected, Frontend.ShouldCorrectCgbColors(forceDmg, cgbCartridge, rawColors));
+    }
+
+    /// <summary>
+    /// Verifies that the frontend exposes independent raw-frame and raw-color modes while both effects remain enabled by default.
+    /// </summary>
+    [Fact]
+    public void RawPresentationOptionsAreOptIn()
     {
         using var rom = TestRom.Create(0x00);
 
-        var blended = FrontendOptions.Parse([rom.Path]);
-        var raw = FrontendOptions.Parse([rom.Path, "--raw-frames"]);
+        var presented = FrontendOptions.Parse([rom.Path]);
+        var raw = FrontendOptions.Parse([rom.Path, "--raw-frames", "--raw-colors"]);
 
-        Assert.False(blended.RawFrames);
+        Assert.False(presented.RawFrames);
+        Assert.False(presented.RawColors);
         Assert.True(raw.RawFrames);
+        Assert.True(raw.RawColors);
     }
 
     private static GBZEmuLibrary.Color[,] CreateFrame(byte red, byte green, byte blue)

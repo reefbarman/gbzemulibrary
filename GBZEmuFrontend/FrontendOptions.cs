@@ -11,6 +11,7 @@ internal sealed class FrontendOptions
     public bool SkipBootROM { get; init; }
     public bool StartPaused { get; init; }
     public bool RawFrames { get; init; }
+    public bool RawColors { get; init; }
 
     public static FrontendOptions Parse(string[] args)
     {
@@ -29,6 +30,7 @@ internal sealed class FrontendOptions
         var skipBootROM = false;
         var startPaused = false;
         var rawFrames = false;
+        var rawColors = false;
 
         for (var i = 0; i < args.Length; i++)
         {
@@ -64,6 +66,9 @@ internal sealed class FrontendOptions
                     break;
                 case "--raw-frames":
                     rawFrames = true;
+                    break;
+                case "--raw-colors":
+                    rawColors = true;
                     break;
                 default:
                     if (args[i].StartsWith("-", StringComparison.Ordinal))
@@ -116,7 +121,8 @@ internal sealed class FrontendOptions
             ForceDMG = forceDMG,
             SkipBootROM = skipBootROM,
             StartPaused = startPaused,
-            RawFrames = rawFrames
+            RawFrames = rawFrames,
+            RawColors = rawColors
         };
     }
 
@@ -136,6 +142,7 @@ internal sealed class FrontendOptions
         "  --skip-bios       Skip the boot ROM animation entirely\n" +
         "  --paused          Start emulation paused\n" +
         "  --raw-frames      Disable LCD frame blending for raw framebuffer inspection\n" +
+        "  --raw-colors      Disable CGB Modern Balanced color correction\n" +
         "\n" +
         "Controls:\n" +
         "  Arrow keys  D-pad / ROM selection\n" +

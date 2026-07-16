@@ -16,7 +16,7 @@ internal sealed class FrameBlender
     /// <summary>
     /// Converts a raw core framebuffer to presentation pixels and retains it for the next frame.
     /// </summary>
-    public void Process(EmulatorColor[,] source, RaylibColor[] destination, bool blend)
+    public void Process(EmulatorColor[,] source, RaylibColor[] destination, bool blend, bool correctCgbColors = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(destination);
@@ -33,6 +33,11 @@ internal sealed class FrameBlender
             {
                 var index = y * Display.HORIZONTAL_RESOLUTION + x;
                 var current = source[x, y];
+                if (correctCgbColors)
+                {
+                    current = CgbColorCorrection.ApplyModernBalanced(current);
+                }
+
                 var output = blend && _hasPreviousFrame
                     ? Blend(_previousFrame[index], current)
                     : current;

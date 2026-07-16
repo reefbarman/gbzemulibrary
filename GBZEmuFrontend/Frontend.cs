@@ -46,6 +46,7 @@ internal sealed class Frontend : IDisposable
     private bool _frameStepRepeatArmed;
     private bool _audioNeedsReset;
     private bool _rawFrames;
+    private bool _correctCgbColors;
     private bool _videoFrameReady;
     private int _audioQueueReadFrame;
     private int _audioQueueWriteFrame;
@@ -80,8 +81,11 @@ internal sealed class Frontend : IDisposable
 
         // Boot each cartridge on its native hardware: GBC-flagged carts get the GBC
         // boot ROM, everything else boots as an original DMG.
+        var cgbCartridge = IsGBCCartridge(romPath);
+        var cgbHardware = !options.ForceDMG && cgbCartridge;
+        _correctCgbColors = ShouldCorrectCgbColors(options.ForceDMG, cgbCartridge, options.RawColors);
         var bootMode = options.ForceDMG ? BootMode.DMG | BootMode.Force
-            : IsGBCCartridge(romPath) ? BootMode.GBC
+            : cgbHardware ? BootMode.GBC
             : BootMode.DMG;
         if (options.SkipBootROM)
         {
@@ -188,6 +192,14 @@ internal sealed class Frontend : IDisposable
         stream.Position = 0x143;
         var gbcFlag = stream.ReadByte();
         return gbcFlag == 0x80 || gbcFlag == 0xC0;
+    }
+
+    /// <summary>
+    /// Determines whether native CGB execution should use the frontend color profile.
+    /// </summary>
+    internal static bool ShouldCorrectCgbColors(bool forceDmg, bool cgbCartridge, bool rawColors)
+    {
+        return !forceDmg && cgbCartridge && !rawColors;
     }
 
     private static string? SelectROM(string romDirectory)
@@ -352,7 +364,7 @@ internal sealed class Frontend : IDisposable
     private void AdvanceFrame(bool queueAudio)
     {
         _emulator.Update();
-        _frameBlender.Process(_emulator.GetScreenData(), _pixels, !_rawFrames);
+        _frameBlender.Process(_emulator.GetScreenData(), _pixels, !_rawFrames, _correctCgbColors);
         _videoFrameReady = true;
         var source = _emulator.GetSoundSamples(out var sampleFrameCount);
 

@@ -699,7 +699,7 @@ namespace GBZEmuLibrary
         /// </summary>
         private void BlankDisplay()
         {
-            var color = _gbcMode ? new Color(248, 248, 248) : new Color(Display.DefaultPalette[0]);
+            var color = _gbcMode ? new Color(byte.MaxValue, byte.MaxValue, byte.MaxValue) : new Color(Display.DefaultPalette[0]);
             for (var y = 0; y < Display.VERTICAL_RESOLUTION; y++)
             {
                 for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
@@ -1027,11 +1027,19 @@ namespace GBZEmuLibrary
             var colorBytes = palette[index] | (palette[index + 1] << 8);
 
             return new Color(
-                    r: (byte)((colorBytes & 0x1F) * 8),
-                    g: (byte)(((colorBytes >> 5) & 0x1F) * 8),
-                    b: (byte)(((colorBytes >> 10) & 0x1F) * 8)
+                    r: ExpandFiveBit(colorBytes & 0x1F),
+                    g: ExpandFiveBit((colorBytes >> 5) & 0x1F),
+                    b: ExpandFiveBit((colorBytes >> 10) & 0x1F)
                 )
             { Index = colorValue };
+        }
+
+        /// <summary>
+        /// Expands a five-bit palette component across the full eight-bit output range.
+        /// </summary>
+        private static byte ExpandFiveBit(int value)
+        {
+            return (byte)((value << 3) | (value >> 2));
         }
 
         private bool IsInterruptEnabled(LCDStatusBits status)
