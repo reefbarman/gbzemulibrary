@@ -110,6 +110,7 @@ namespace GBZEmuLibrary
 
         private readonly byte[] _videoRAM = new byte[MemorySchema.MAX_VRAM_SIZE];
         private readonly byte[] _spriteAttributeTable = new byte[MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START];
+        private readonly byte[] _lineSpriteXCoordinates = new byte[10];
         private readonly byte[] _gpuRegisters = new byte[MemorySchema.GPU_REGISTERS_END - MemorySchema.GPU_REGISTERS_START];
 
         private byte _bgPaletteIndex;
@@ -121,6 +122,8 @@ namespace GBZEmuLibrary
         private int _vRAMBank;
 
         private int _cycleCounter;
+        private int _hBlankClockTarget = HBLANK_CLOCKS;
+        private int _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
         private bool _pendingVBlankInterrupt;
         private bool _statInterruptLineHigh;
         private bool _dmgVBlankMode2InterruptSource;
@@ -147,6 +150,8 @@ namespace GBZEmuLibrary
             _gbcMode = gbcMode;
             _statInterruptLineHigh = false;
             _dmgVBlankMode2InterruptSource = false;
+            _hBlankClockTarget = HBLANK_CLOCKS;
+            _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
         }
 
@@ -369,6 +374,8 @@ namespace GBZEmuLibrary
             {
                 // Reset LY and mode while retaining the frozen coincidence source as STAT edge history.
                 _gpuRegisters[(int)Registers.Scanline] = 0;
+                _hBlankClockTarget = HBLANK_CLOCKS;
+                _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
                 SetStatusRegister(LCDStatus.HBlank);
                 return;
             }
@@ -415,9 +422,9 @@ namespace GBZEmuLibrary
 
         private void HandleHBlank()
         {
-            if (_cycleCounter >= HBLANK_CLOCKS)
+            if (_cycleCounter >= _hBlankClockTarget)
             {
-                _cycleCounter -= HBLANK_CLOCKS;
+                _cycleCounter -= _hBlankClockTarget;
 
                 ScanLine++;
 
@@ -470,15 +477,18 @@ namespace GBZEmuLibrary
             {
                 _cycleCounter -= SEARCHING_SPRITES_ATTRIBUTES_CLOCKS;
 
+                var spriteFetchPenalty = CalculateSpriteFetchPenalty();
+                _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + spriteFetchPenalty;
+                _hBlankClockTarget = HBLANK_CLOCKS - spriteFetchPenalty;
                 SetStatusRegister(LCDStatus.TransferringDataToLCDDriver);
             }
         }
 
         private void TransferringDataToLCDDriver()
         {
-            if (_cycleCounter >= TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS)
+            if (_cycleCounter >= _mode3ClockTarget)
             {
-                _cycleCounter -= TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
+                _cycleCounter -= _mode3ClockTarget;
 
                 SetStatusRegister(LCDStatus.HBlank);
 
@@ -489,6 +499,74 @@ namespace GBZEmuLibrary
 
                 DrawScanLine();
             }
+        }
+
+        /// <summary>
+        /// Calculates the mode-3 stalls caused by the first ten OAM entries intersecting the current scanline.
+        /// Each fetched sprite costs six dots, while sprites in one fetcher-aligned group share the initial wait
+        /// described by Pan Docs. Sprites at X 168 or later consume an OAM slot but are not fetched.
+        /// </summary>
+        private int CalculateSpriteFetchPenalty()
+        {
+            var control = _gpuRegisters[(int)Registers.LCDControl];
+            if ((!_gbcMode && !Helpers.TestBit(control, (int)LCDControlBits.SpriteDisplayEnabled)) ||
+                ScanLine >= Display.VERTICAL_RESOLUTION)
+            {
+                return 0;
+            }
+
+            var spriteHeight = Helpers.TestBit(control, (int)LCDControlBits.SpriteSize) ? 16 : 8;
+            var scrollX = _gpuRegisters[(int)Registers.ScrollX];
+            var selectedSpriteCount = 0;
+
+            for (var offset = 0; offset < _spriteAttributeTable.Length && selectedSpriteCount < 10; offset += 4)
+            {
+                var spriteY = _spriteAttributeTable[offset] - 16;
+                if (ScanLine < spriteY || ScanLine >= spriteY + spriteHeight)
+                {
+                    continue;
+                }
+
+                _lineSpriteXCoordinates[selectedSpriteCount++] = _spriteAttributeTable[offset + 1];
+            }
+
+            // Mode 2 selects in OAM order, but mode 3 fetches the selected sprites from left to right.
+            for (var index = 1; index < selectedSpriteCount; index++)
+            {
+                var spriteX = _lineSpriteXCoordinates[index];
+                var insertionIndex = index;
+                while (insertionIndex > 0 && _lineSpriteXCoordinates[insertionIndex - 1] > spriteX)
+                {
+                    _lineSpriteXCoordinates[insertionIndex] = _lineSpriteXCoordinates[insertionIndex - 1];
+                    insertionIndex--;
+                }
+
+                _lineSpriteXCoordinates[insertionIndex] = spriteX;
+            }
+
+            var penalty = 0;
+            var previousFetchGroup = int.MinValue;
+            for (var index = 0; index < selectedSpriteCount; index++)
+            {
+                var spriteX = _lineSpriteXCoordinates[index];
+                if (spriteX >= Display.HORIZONTAL_RESOLUTION + 8)
+                {
+                    break;
+                }
+
+                var fetchPosition = spriteX + scrollX;
+                // OAM X=0 always pays the full initial fetch wait, regardless of background scroll alignment.
+                var distanceFromGroupStart = spriteX == 0 ? 0 : fetchPosition & 0x07;
+                var fetchGroup = fetchPosition & ~0x07;
+                penalty += fetchGroup != previousFetchGroup && distanceFromGroupStart < 5
+                    ? 11 - distanceFromGroupStart
+                    : 6;
+                previousFetchGroup = fetchGroup;
+            }
+
+            // The PPU currently advances in CPU-supplied machine-cycle batches. Preserve the hardware-derived
+            // dot cost, but expose only complete four-dot groups so mode transitions occur on the same boundary.
+            return penalty & ~0x03;
         }
 
         private bool IsLCDEnabled()

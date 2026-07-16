@@ -196,6 +196,122 @@ public sealed class GpuRegisterTests
         Assert.Equal(0x5A, gpu.ReadByte(0xFE00));
     }
 
+    /// <summary>
+    /// Verifies sprite fetches extend mode 3 by six dots each and share one alignment wait at the same X coordinate.
+    /// </summary>
+    [Theory]
+    [InlineData(new byte[] { 0 }, 8)]
+    [InlineData(new byte[] { 0, 0 }, 16)]
+    [InlineData(new byte[] { 0, 1 }, 16)]
+    [InlineData(new byte[] { 8, 0 }, 20)]
+    [InlineData(new byte[] { 168 }, 0)]
+    public void SpriteFetchesExtendMode3ByPosition(byte[] spriteXCoordinates, int expectedPenalty)
+    {
+        var gpu = CreateGpuAtMode3(spriteXCoordinates);
+
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + expectedPenalty - 1);
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(1);
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+    }
+
+    /// <summary>
+    /// Verifies that an object at OAM X=0 pays the full initial fetch wait regardless of SCX alignment.
+    /// </summary>
+    [Fact]
+    public void SpriteAtZeroUsesFullFetchWaitWhenBackgroundIsScrolled()
+    {
+        var gpu = CreateGpuAtMode3(new byte[] { 0 }, scrollX: 7);
+        const int expectedPenalty = 8;
+
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + expectedPenalty - 1);
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(1);
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+    }
+
+    /// <summary>
+    /// Verifies that LCDC.1 gates sprite fetch timing on DMG while CGB hardware continues fetching objects.
+    /// </summary>
+    [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 8)]
+    public void SpriteFetchTimingHonorsHardwareModeWhenObjectsAreDisabled(bool gbcMode, int expectedPenalty)
+    {
+        var gpu = CreateGpuAtMode3(new byte[] { 0 }, gbcMode, objectsEnabled: false);
+
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + expectedPenalty - 1);
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(1);
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+    }
+
+    /// <summary>
+    /// Verifies that the first ten Y-matching OAM entries consume the scanline sprite limit even when clipped.
+    /// </summary>
+    [Fact]
+    public void SpriteFetchTimingHonorsTenSpriteScanlineLimit()
+    {
+        var gpu = CreateGpuAtMode3(new byte[] { 168, 168, 168, 168, 168, 168, 168, 168, 168, 168, 0 });
+
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS);
+
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+    }
+
+    /// <summary>
+    /// Verifies that extending sprite transfer shortens HBlank so each visible scanline remains exactly 456 dots.
+    /// </summary>
+    [Fact]
+    public void SpriteFetchPenaltyPreservesScanlineLength()
+    {
+        var gpu = CreateGpuAtMode3(new byte[] { 0 });
+        const int spritePenalty = 8;
+
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + spritePenalty);
+        gpu.Update(HBLANK_CLOCKS - spritePenalty - 1);
+
+        Assert.Equal(1, gpu.ReadByte(0xFF44));
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(1);
+
+        Assert.Equal(2, gpu.ReadByte(0xFF44));
+        Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
+    }
+
+    private const int HBLANK_CLOCKS = 204;
+    private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
+
+    private static GPU CreateGpuAtMode3(
+        byte[] spriteXCoordinates,
+        bool gbcMode = false,
+        bool objectsEnabled = true,
+        byte scrollX = 0)
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(gbcMode);
+        gpu.WriteByte(scrollX, 0xFF43);
+
+        for (var index = 0; index < spriteXCoordinates.Length; index++)
+        {
+            var spriteAddress = MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + index * 4;
+            gpu.WriteByte(17, spriteAddress);
+            gpu.WriteByte(spriteXCoordinates[index], spriteAddress + 1);
+        }
+
+        gpu.Update(4);
+        gpu.WriteByte((byte)(objectsEnabled ? 0x82 : 0x80), 0xFF40);
+        gpu.Update(HBLANK_CLOCKS);
+        gpu.Update(80);
+
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+        return gpu;
+    }
+
     private static (GPU Gpu, Func<int> GetInterruptRequests) CreateInterruptCountingGpu(bool gbcMode = false)
     {
         var messageBus = new MessageBus();
