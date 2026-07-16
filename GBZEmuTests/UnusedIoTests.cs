@@ -65,7 +65,7 @@ public sealed class UnusedIoTests
 
         emulator.Debug.PokeByte(0x03, MemorySchema.SWITCHABLE_WORK_RAM_REGISTER);
 
-        Assert.Equal(0x03, emulator.Debug.PeekByte(MemorySchema.SWITCHABLE_WORK_RAM_REGISTER));
+        Assert.Equal(0xFB, emulator.Debug.PeekByte(MemorySchema.SWITCHABLE_WORK_RAM_REGISTER));
         emulator.Terminate();
     }
 }
