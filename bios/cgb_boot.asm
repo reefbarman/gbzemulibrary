@@ -1,8 +1,8 @@
 ; GBZEmu CGB boot ROM (2304 bytes)
 ;
-; An original replacement for the stock CGB boot ROM, SameBoy-style: a
-; large pixel-doubled "GBZEmu" wordmark is the hero graphic — black on
-; white with a rainbow color sweep washing through it — with the
+; An original replacement for the stock CGB boot ROM, inspired by the
+; restraint and motion of SameBoy's replacement: a purpose-rasterized, shaded
+; 128x24 "GBZEmu" wordmark is revealed by a diagonal rainbow band, with the
 ; cartridge's own header logo ($0104-$0133) and a registered-trademark
 ; symbol rendered beneath it exactly like real firmware draws them. The
 ; classic two-note chime plays and a default DMG-compatibility palette is
@@ -78,12 +78,10 @@ Main:
     ldh [$FF48], a          ; OBP0
     ldh [$FF49], a          ; OBP1
 
-    ; CGB palette RAM. BG palette 0 is a white-to-black grayscale ramp:
-    ; it is both the boot background and the palette DMG carts keep in
-    ; compatibility mode (matching real-hardware defaults for unlisted
-    ; carts). Palettes 1-6 belong to one pair of wordmark columns each
-    ; (black until the color sweep animates them); palette 7 renders the
-    ; header logo and trademark in black.
+    ; CGB palette RAM. Palette 0 starts white so the wordmark can reveal
+    ; cleanly; palettes 1-6 form its rainbow trail and palette 7 is the
+    ; settled navy lockup. Palette 0 is restored to the compatibility
+    ; grayscale ramp immediately before hand-off.
     ld a, $80
     ldh [$FF68], a          ; BCPS: index 0, auto-increment
     ld hl, BGPalettes
@@ -94,12 +92,12 @@ Main:
     dec b
     jr nz, .bgPal
 
-    ; All OBJ palettes get the grayscale ramp (palette 0 of the BG table).
+    ; All OBJ palettes get the compatibility grayscale ramp.
     ld a, $80
     ldh [$FF6A], a          ; OCPS: index 0, auto-increment
     ld b, 8
 .objPals
-    ld hl, BGPalettes
+    ld hl, GrayscalePalette
     ld d, 8
 .objPalByte
     ld a, [hl+]
@@ -109,21 +107,18 @@ Main:
     dec b
     jr nz, .objPals
 
-    ; Decode the GBZEmu wordmark (tiles 1-24), then the cartridge header
-    ; logo (tiles 25-48). Both use the header-logo nibble format: each
-    ; nibble is bit-doubled and written as two rows on bitplane 0 only,
-    ; so 48x8 source pixels render 96x16 in color 1.
-    ld de, HeroLogo
-    ld hl, $8010
-.decodeHero
-    ld a, [de]
-    call ExpandNibble
-    call ExpandNibble.next
-    inc de
-    ld a, e
-    cp LOW(HeroLogoEnd)
-    jr nz, .decodeHero
+    ; Decompress the shaded 128x24 wordmark into tiles 1-48. The compact
+    ; stream is PackBits-style RLE; B counts tiles and C bytes per tile.
+    ld hl, HeroLogoRLE
+    ld de, $8010
+    ld b, 48
+    ld c, 16
+    call DecodeRLE
+
+    ; Decode the cartridge header logo into tiles 49-72. Each nibble is
+    ; bit-doubled into two rows and both bitplanes so it uses color 3.
     ld de, $0104
+    ld hl, $8310
 .decodeHeader
     ld a, [de]
     call ExpandNibble
@@ -133,7 +128,7 @@ Main:
     cp $34
     jr nz, .decodeHeader
 
-    ; Registered-trademark tile (49), both bitplanes set (color 3).
+    ; Registered-trademark tile (73), both bitplanes set (color 3).
     ld de, TrademarkTile
     ld b, $08
 .copyTrademark
@@ -144,34 +139,35 @@ Main:
     dec b
     jr nz, .copyTrademark
 
-    ; Tilemap: wordmark on rows 6-7, header logo on rows 10-11 (columns
-    ; 4-15 each), trademark superscript at row 10, column 16. The tile
-    ; number in A runs on from row to row.
-    ld hl, $9800 + 6 * 32 + 4
+    ; Tilemap: the wide wordmark occupies rows 5-7, with the cartridge
+    ; header logo on rows 10-11 and its trademark in the superscript cell.
+    ld hl, $9800 + 5 * 32 + 2
     ld a, $01
-    call MapRow
-    ld l, LOW($9800 + 7 * 32 + 4)
-    call MapRow
+    ld b, 16
+    call MapCells
+    ld l, LOW($9800 + 6 * 32 + 2)
+    ld b, 16
+    call MapCells
+    ld l, LOW($9800 + 7 * 32 + 2)
+    ld b, 16
+    call MapCells
     ld hl, $9800 + 10 * 32 + 4
-    call MapRow
+    ld b, 12
+    call MapCells
     ld l, LOW($9800 + 11 * 32 + 4)
-    call MapRow
+    ld b, 12
+    call MapCells
     ld l, LOW($9800 + 10 * 32 + 16)
     ld [hl], a
 
-    ; Bank-1 attributes: wordmark column pairs get palettes 1-6 for the
-    ; sweep; the header logo rows and trademark cell get palette 7. KEY1
-    ; reads $FF in DMG mode, where VBK and the attribute map do not exist
-    ; and the writes below would corrupt the bank-0 tilemap instead.
+    ; Bank-1 attributes: the hero starts on all-white palette 0; the header
+    ; logo and trademark use the settled palette 7. KEY1 reads $FF in DMG
+    ; mode, where VBK is ignored and these writes would hit the tilemap.
     ldh a, [$FF4D]
     inc a
     jr z, .noAttributes
     ld a, $01
     ldh [$FF4F], a          ; VBK = 1
-    ld hl, $9800 + 6 * 32 + 4
-    call WriteSweepAttributes
-    ld l, LOW($9800 + 7 * 32 + 4)
-    call WriteSweepAttributes
     ld hl, $9800 + 10 * 32 + 4
     ld b, 13                ; 12 logo cells plus the trademark at column 16
     ld a, $07
@@ -183,76 +179,42 @@ Main:
     ldh [$FF4F], a          ; VBK = 0
 .noAttributes
 
-    ; The CGB boot does not scroll: switch the LCD on with the lockup
-    ; already centered, black on white, like the original firmware.
+    ; Switch the LCD on with the cartridge mark centered and the hero hidden.
     ld a, $91
     ldh [$FF40], a          ; LCDC: LCD on, BG on, unsigned tile data
 
-    ; Color sweep: a rainbow band washes through the wordmark left to
-    ; right, then it settles back to black. Each frame updates color 1
-    ; (the logo pixel color) of the six column-pair palettes; the writes
-    ; happen right after vblank starts. In DMG mode the palette writes
-    ; are ignored and the logo simply holds.
-    ;
-    ; For frame counter B, column pair C shows hue (B/2 - 4 - 3*C);
-    ; values outside the hue table render black, which gives the lead-in,
-    ; the band, and the settle without extra phases.
-    ld b, $00
-.sweepFrame
-    push bc
+    ; Reveal the wordmark with a fine 8-pixel rainbow band. Every two
+    ; frames, colored cells advance one palette and the next white cell
+    ; enters the band; the three rows are offset for a subtle diagonal.
+    ; Palette 7 is terminal, leaving the whole mark in deep navy.
+    ld b, 25
+.revealFrame
     call WaitFrame
-    pop bc
-    push bc
-    ld a, b
-    srl a
-    sub a, $04
-    ld d, a                 ; d = base hue step (may wrap negative)
-    ld c, $00               ; c = column-pair index
-.sweepPair
-    ; BCPS: palette (C+1), color 1, auto-increment
-    ld a, c
+    call WaitFrame
+    ldh a, [$FF4D]
     inc a
-    add a, a
-    add a, a
-    add a, a
-    add a, $02
-    or a, $80
-    ldh [$FF68], a
-    ; h = d - 3*C; wrapped negatives fail the range check and render black
-    ld a, c
-    add a, c
-    add a, c
-    ld e, a
-    ld a, d
-    sub a, e
-    cp $08
-    jr c, .hueColor
-    xor a
-    ldh [$FF69], a
-    ldh [$FF69], a
-    jr .nextPair
-.hueColor
-    add a, a
-    ld hl, HueTable
-    add a, l
-    ld l, a
-    jr nc, .hueNoCarry
-    inc h
-.hueNoCarry
-    ld a, [hl+]
-    ldh [$FF69], a
-    ld a, [hl]
-    ldh [$FF69], a
-.nextPair
-    inc c
-    ld a, c
-    cp $06
-    jr nz, .sweepPair
-    pop bc
-    inc b
+    jr z, .nextRevealFrame
+    ld a, $01
+    ldh [$FF4F], a          ; VBK = 1
+    ld hl, $9800 + 5 * 32 + 2
+    call AdvanceRevealRow
     ld a, b
-    cp 62                   ; (4 lead-in + 8 hues + 15 pair offset) * 2
-    jr nz, .sweepFrame
+    cp 25
+    jr z, .skipMiddleRow
+    ld hl, $9800 + 6 * 32 + 2
+    call AdvanceRevealRow
+.skipMiddleRow
+    ld a, b
+    cp 24
+    jr nc, .skipBottomRow
+    ld hl, $9800 + 7 * 32 + 2
+    call AdvanceRevealRow
+.skipBottomRow
+    xor a
+    ldh [$FF4F], a          ; VBK = 0
+.nextRevealFrame
+    dec b
+    jr nz, .revealFrame
 
     ; Two-note chime on channel 1.
     ld a, $83
@@ -270,27 +232,37 @@ Main:
     ldh [$FF14], a          ; trigger ~2080 Hz
 
     ; Hold the logo, then hand off.
-    ld c, 45
+    ld c, 36
 .hold
     call WaitFrame
     dec c
     jr nz, .hold
 
-    ; Clear the attributes (safe: the hold loop just returned at the
-    ; start of vblank) so compatibility-mode games start with a clean
-    ; attribute map. The tile indices remain, like stock firmware
-    ; leftovers, dimming to the ramp's gray at hand-off.
+    ; Restore the grayscale compatibility palette and clear attributes
+    ; during vblank, so DMG games inherit the expected clean palette/map.
     ldh a, [$FF4D]
     inc a
     jr z, .noAttrClear
+    ld a, $80
+    ldh [$FF68], a
+    ld hl, GrayscalePalette
+    ld b, 8
+.restoreGray
+    ld a, [hl+]
+    ldh [$FF69], a
+    dec b
+    jr nz, .restoreGray
     ld a, $01
     ldh [$FF4F], a          ; VBK = 1
-    ld hl, $9800 + 6 * 32 + 4
-    ld b, 12
+    ld hl, $9800 + 5 * 32 + 2
+    ld b, 16
     xor a
     call FillCells
-    ld l, LOW($9800 + 7 * 32 + 4)
-    ld b, 12
+    ld l, LOW($9800 + 6 * 32 + 2)
+    ld b, 16
+    call FillCells
+    ld l, LOW($9800 + 7 * 32 + 2)
+    ld b, 16
     call FillCells
     ld hl, $9800 + 10 * 32 + 4
     ld b, 13
@@ -313,16 +285,22 @@ ClearVRAM:
     jr nz, .loop
     ret
 
-; Writes palette indices 1-6 across the twelve wordmark cells starting at
-; HL, two columns per palette.
-WriteSweepAttributes:
-    ld a, $01
-.pair
-    ld [hl+], a
-    ld [hl+], a
-    inc a
+; Advances the active rainbow band across one 16-cell wordmark row.
+; Settled palette-7 cells are skipped; advancing a white cell starts the
+; new leading edge and ends this row for the current animation step.
+AdvanceRevealRow:
+    ld c, 16
+.cell
+    ld a, [hl]
     cp $07
-    jr nz, .pair
+    jr z, .next
+    inc [hl]
+    or a
+    ret z
+.next
+    inc hl
+    dec c
+    jr nz, .cell
     ret
 
 ; Writes A to B consecutive cells starting at HL. A is preserved.
@@ -333,9 +311,8 @@ FillCells:
     jr nz, .cell
     ret
 
-; Writes twelve consecutive tile numbers starting at A to the map row at HL.
-MapRow:
-    ld b, $0C
+; Writes B consecutive tile numbers starting at A to the map row at HL.
+MapCells:
 .cell
     ld [hl+], a
     inc a
@@ -357,8 +334,8 @@ WaitFrame:
     ret
 
 ; Bit-doubles the next nibble of C into A and writes it as two tile rows
-; on bitplane 0. Entry point ExpandNibble primes C from A first; calling
-; .next afterwards processes the remaining nibble.
+; on both bitplanes (color 3). Entry point ExpandNibble primes C from A;
+; calling .next afterwards processes the remaining nibble.
 ExpandNibble:
     ld c, a
 .next
@@ -373,43 +350,120 @@ ExpandNibble:
     dec b
     jr nz, .bit
     ld [hl+], a
-    inc hl
     ld [hl+], a
-    inc hl
+    ld [hl+], a
+    ld [hl+], a
     ret
 
-; RGB555 background palettes: palette 0 is the white-to-black grayscale
-; ramp; palettes 1-6 belong to one pair of wordmark columns each (the
-; sweep animates their color 1); palette 7 renders the header logo
-; (color 1) and trademark (color 3) in black on white.
+; Expands the PackBits-style wordmark stream from HL into tiles at DE.
+; Literal controls encode 1-128 following bytes; controls with bit 7 set
+; encode 2-129 repetitions. B/C track 48 tiles of 16 output bytes.
+DecodeRLE:
+.block
+    ld a, [hl+]
+    bit 7, a
+    jr nz, .repeat
+    inc a
+    ldh [$FF80], a
+.literalByte
+    ld a, [hl+]
+    ld [de], a
+    inc de
+    dec c
+    jr nz, .literalCount
+    ld c, 16
+    dec b
+.literalCount
+    ldh a, [$FF80]
+    dec a
+    ldh [$FF80], a
+    jr nz, .literalByte
+    ld a, b
+    or a
+    jr nz, .block
+    ret
+.repeat
+    and a, $7F
+    add a, $02
+    ldh [$FF80], a
+    ld a, [hl+]
+    ldh [$FF81], a
+.repeatByte
+    ldh a, [$FF81]
+    ld [de], a
+    inc de
+    dec c
+    jr nz, .repeatCount
+    ld c, 16
+    dec b
+.repeatCount
+    ldh a, [$FF80]
+    dec a
+    ldh [$FF80], a
+    jr nz, .repeatByte
+    ld a, b
+    or a
+    jr nz, .block
+    ret
+
+; RGB555 background palettes. The wordmark's three ink levels use a light
+; edge, midtone, and solid fill; the band progresses from cyan through
+; warm hues to violet before settling into the palette-7 navy.
 BGPalettes:
-    dw $7FFF, $56B5, $294A, $0000 ; 0: grayscale ramp (kept by DMG carts)
-    dw $7FFF, $0000, $0000, $0000 ; 1: wordmark columns 1-2
-    dw $7FFF, $0000, $0000, $0000 ; 2: wordmark columns 3-4
-    dw $7FFF, $0000, $0000, $0000 ; 3: wordmark columns 5-6
-    dw $7FFF, $0000, $0000, $0000 ; 4: wordmark columns 7-8
-    dw $7FFF, $0000, $0000, $0000 ; 5: wordmark columns 9-10
-    dw $7FFF, $0000, $0000, $0000 ; 6: wordmark columns 11-12
-    dw $7FFF, $0000, $294A, $0000 ; 7: header logo and trademark
+    dw $7FFF, $7FFF, $7FFF, $7FFF ; 0: invisible white lead-in
+    dw $7FFF, $7F97, $7B2E, $7AC4 ; 1: cyan
+    dw $7FFF, $6BB8, $4F6F, $3325 ; 2: green
+    dw $7FFF, $5F9F, $373F, $0ADF ; 3: gold
+    dw $7FFF, $5F3F, $325F, $055F ; 4: orange
+    dw $7FFF, $6B1E, $51FD, $34BC ; 5: pink
+    dw $7FFF, $771C, $6E18, $64F4 ; 6: violet
+    dw $7FFF, $6B17, $520E, $38C4 ; 7: settled navy
 
-; The color-sweep band, warm to cool (RGB555).
-HueTable:
-    dw $109F ; red
-    dw $025F ; orange
-    dw $039E ; yellow
-    dw $2342 ; green
-    dw $6720 ; teal
-    dw $7D84 ; blue
-    dw $7098 ; purple
-    dw $609C ; magenta
+GrayscalePalette:
+    dw $7FFF, $56B5, $294A, $0000
 
-; "GBZEmu" as a 48x8 wordmark in the header-logo nibble format
-; (generated from the GBZEmu font; see bios/README.md).
-HeroLogo:
-    db $37, $EC, $EE, $00, $FF, $CF, $CE, $6C, $FF, $01, $EE, $C8, $FF, $CF, $EE, $0C
-    db $00, $EF, $00, $CE, $00, $CC, $00, $66, $CC, $73, $E6, $EC, $CC, $FF, $66, $EC
-    db $36, $FF, $00, $EE, $FC, $FF, $C0, $EE, $DD, $DD, $66, $66, $CC, $F7, $66, $EC
-HeroLogoEnd:
+; Shaded 128x24 GBZEmu wordmark, stored in tile order with compact RLE.
+HeroLogoRLE:
+    db $86, $00, $07, $01, $00, $01, $00, $03, $01, $07, $03, $82, $00, $0B, $18, $07
+    db $6F, $1F, $BF, $7F, $FF, $FF, $F3, $FC, $E8, $F0, $82, $00, $0B, $18, $E0, $F4
+    db $F8, $FA, $FC, $FD, $FE, $DE, $3F, $1F, $0F, $82, $00, $0B, $07, $00, $05, $03
+    db $03, $07, $0B, $07, $8B, $07, $8F, $07, $82, $00, $01, $FF, $00, $84, $FF, $03
+    db $C0, $FF, $A1, $C0, $82, $00, $0B, $C0, $00, $30, $C0, $E8, $F0, $F5, $F8, $F5
+    db $F8, $FC, $F8, $82, $00, $0A, $FF, $00, $FF, $7F, $7F, $FF, $7F, $FF, $80, $7F
+    db $01, $83, $00, $0B, $FF, $00, $FE, $FF, $FE, $FF, $FE, $FF, $FD, $FE, $FA, $FC
+    db $82, $00, $0B, $1F, $00, $97, $0F, $8F, $1F, $2F, $1F, $2F, $1F, $3E, $1F, $82
+    db $00, $01, $FF, $00, $84, $FF, $02, $00, $FF, $80, $83, $00, $0A, $F0, $00, $F0
+    db $E0, $F0, $E0, $D0, $E0, $30, $C0, $07, $8D, $00, $01, $F1, $0E, $8C, $00, $01
+    db $98, $07, $8C, $00, $00, $C7, $8D, $00, $00, $E1, $8D, $00, $0A, $F0, $00, $0B
+    db $07, $0F, $07, $07, $0F, $07, $0F, $07, $83, $0F, $36, $07, $0F, $D0, $E0, $A0
+    db $C0, $83, $C0, $C1, $83, $45, $83, $47, $83, $44, $83, $C7, $80, $10, $0F, $00
+    db $00, $FF, $00, $FE, $FF, $FE, $FF, $FF, $FE, $3D, $FE, $FD, $1E, $87, $0F, $17
+    db $0F, $1F, $0F, $1F, $0F, $0F, $1F, $2F, $1F, $2F, $1F, $3E, $1F, $81, $C0, $BF
+    db $C1, $C7, $83, $FF, $30, $83, $FF, $83, $01, $82, $01, $F4, $F8, $F4, $F8, $E8
+    db $F0, $E0, $C0, $D0, $E0, $E8, $F0, $F0, $F8, $F1, $F8, $02, $01, $05, $03, $0B
+    db $07, $17, $0F, $2F, $1F, $5F, $3F, $BE, $7F, $7D, $FE, $F4, $F8, $E8, $F0, $D0
+    db $E0, $A0, $C0, $40, $80, $80, $83, $00, $13, $1E, $3F, $5E, $3F, $5F, $3F, $7F
+    db $3F, $3F, $7F, $BC, $7F, $BE, $7C, $FA, $7C, $00, $00, $FF, $00, $84, $FF, $01
+    db $00, $FF, $82, $00, $10, $0B, $07, $CB, $07, $4F, $87, $C7, $8F, $47, $8F, $97
+    db $0F, $1F, $0F, $0F, $1F, $9F, $81, $FF, $54, $C7, $FF, $87, $CF, $87, $CF, $C7
+    db $8F, $57, $8F, $1F, $8F, $6F, $9F, $FF, $FF, $E3, $FF, $D7, $E3, $A7, $C3, $83
+    db $C7, $C3, $87, $4B, $87, $A3, $C7, $CB, $E7, $CF, $E7, $C7, $EF, $C7, $EF, $F7
+    db $CF, $F7, $CF, $BF, $CF, $A0, $C1, $E2, $C1, $A3, $C1, $81, $C3, $81, $C3, $C5
+    db $83, $47, $83, $43, $87, $E0, $F0, $E0, $F0, $E0, $F0, $F0, $E0, $F0, $E0, $F0
+    db $E0, $D0, $E0, $C0, $E0, $07, $0F, $0F, $07, $0B, $07, $05, $03, $03, $85, $00
+    db $03, $A0, $C0, $DF, $E0, $82, $FF, $03, $7F, $FF, $E0, $1F, $82, $00, $0A, $1C
+    db $3E, $3E, $FC, $FE, $FC, $FA, $FC, $E8, $F0, $E0, $83, $00, $0A, $1E, $3F, $5E
+    db $3F, $5F, $3F, $7F, $3F, $3F, $7F, $7F, $83, $00, $03, $02, $01, $FD, $03, $82
+    db $FF, $02, $FE, $FF, $FF, $83, $00, $0A, $F2, $F9, $FD, $F3, $E3, $F7, $DB, $E7
+    db $4B, $87, $0F, $83, $00, $03, $FA, $FC, $FB, $FC, $85, $FF, $85, $00, $08, $FF
+    db $00, $FB, $FC, $FB, $FC, $F8, $FD, $FD, $83, $00, $04, $7A, $FC, $7B, $FC, $7F
+    db $84, $FF, $85, $00, $01, $FF, $00, $85, $FF, $83, $00, $0A, $0F, $1F, $AF, $1F
+    db $3E, $9F, $9E, $3F, $9F, $3E, $BF, $83, $00, $0A, $8F, $1F, $AF, $1F, $AE, $1F
+    db $3E, $1F, $1E, $3F, $3F, $83, $00, $0A, $0F, $87, $87, $0F, $97, $0F, $97, $0F
+    db $1F, $0F, $1F, $83, $00, $0B, $AF, $DF, $8F, $DF, $CF, $9F, $5F, $8F, $57, $8F
+    db $8C, $03, $82, $00, $04, $0B, $87, $37, $8F, $9F, $81, $FF, $03, $E7, $FF, $7F
+    db $80, $82, $00, $0A, $C0, $E0, $E0, $C0, $A0, $C0, $80, $C0, $80, $C0, $C0, $83
+    db $00
 
 ; 8x8 registered-trademark symbol (circled R).
 TrademarkTile:

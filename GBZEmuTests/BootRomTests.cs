@@ -93,21 +93,24 @@ public sealed class BootRomTests
         emulator.Debug.PokeByte(0x06, 0xFF68);
         Assert.Equal(0x00, emulator.Debug.PeekByte(0xFF69));
 
-        // BG palette 1 color 1 (the logo pixel color the sweep animates) also ends black.
-        emulator.Debug.PokeByte(0x0A, 0xFF68);
-        Assert.Equal(0x00, emulator.Debug.PeekByte(0xFF69));
+        // BG palette 7 color 3 is the deep-navy fill where the reveal settles ($38C4).
+        emulator.Debug.PokeByte(0x3E, 0xFF68);
+        Assert.Equal(0xC4, emulator.Debug.PeekByte(0xFF69));
+        emulator.Debug.PokeByte(0x3F, 0xFF68);
+        Assert.Equal(0x38, emulator.Debug.PeekByte(0xFF69));
 
-        // The last boot frame renders a white background with the black GBZEmu
+        // The last boot frame renders a white background with the navy GBZEmu
         // wordmark (the attribute clear lands after the final rendered frame). The
         // header logo area is blank because the test ROM's logo bytes are zero.
         var screen = emulator.GetScreenData();
         Assert.Equal((248, 248, 248), (screen[0, 0].R, screen[0, 0].G, screen[0, 0].B));
-        Assert.Equal((0, 0, 0), (screen[36, 48].R, screen[36, 48].G, screen[36, 48].B));
+        Assert.Equal((32, 48, 112), (screen[24, 48].R, screen[24, 48].G, screen[24, 48].B));
 
         // The attributes were cleared before hand-off, so compatibility-mode
         // games start with palette 0 everywhere.
         emulator.Debug.PokeByte(0x01, 0xFF4F);
-        Assert.Equal(0x00, emulator.Debug.PeekByte(0x98C4));
+        Assert.Equal(0x00, emulator.Debug.PeekByte(0x98A2));
+        Assert.Equal(0x00, emulator.Debug.PeekByte(0x98F1));
         emulator.Debug.PokeByte(0x00, 0xFF4F);
         emulator.Terminate();
     }

@@ -1,7 +1,7 @@
 ; GBZEmu DMG boot ROM (256 bytes)
 ;
-; An original replacement for the stock DMG boot ROM, SameBoy-style: a
-; large pixel-doubled "GBZEmu" wordmark is the hero graphic, with the
+; An original replacement for the stock DMG boot ROM: a compact italic
+; "GBZEmu" wordmark expands into a three-tone beveled hero graphic, with the
 ; cartridge's own header logo ($0104-$0133) and a registered-trademark
 ; symbol rendered beneath it exactly like real firmware draws them. The
 ; whole lockup scrolls down the screen and the classic two-note chime
@@ -33,9 +33,10 @@ SECTION "main", ROM0[$0000]
 Entry:
     ld sp, $FFFE
 
-    ; DMG-register palettes.
-    ld a, $FC
-    ldh [$FF47], a          ; BGP: colors 1-3 darkest, color 0 lightest
+    ; Use all four DMG shades during the animation. The generated second
+    ; bitplane gives each mark a light edge, dark fill, and trailing shadow.
+    ld a, $E4
+    ldh [$FF47], a          ; BGP: linear light-to-dark ramp
     ld a, $FF
     ldh [$FF48], a          ; OBP0
     ldh [$FF49], a          ; OBP1
@@ -71,7 +72,7 @@ Entry:
     dec b
     jr nz, .copyTrademark
 
-    ; Tilemap: wordmark on rows 6-7, header logo on rows 10-11 (columns
+    ; Tilemap: wordmark on rows 6-7, header logo on rows 9-10 (columns
     ; 4-15 each), trademark superscript at row 10, column 16. The tile
     ; number in A runs on from row to row.
     ld hl, $9800 + 6 * 32 + 4
@@ -79,26 +80,27 @@ Entry:
     call MapRow
     ld l, LOW($9800 + 7 * 32 + 4)
     call MapRow
-    ld hl, $9800 + 10 * 32 + 4
+    ld hl, $9800 + 9 * 32 + 4
     call MapRow
-    ld l, LOW($9800 + 11 * 32 + 4)
+    ld l, LOW($9800 + 10 * 32 + 4)
     call MapRow
-    ld l, LOW($9800 + 10 * 32 + 16)
+    ld l, LOW($9800 + 9 * 32 + 16)
     ld [hl], a
 
-    ; Start with the lockup above the viewport and switch the LCD on. 99
+    ; Start with the lockup above the viewport and switch the LCD on. 60
     ; is divisible by both supported scroll speeds (1 and 3), so the
     ; scroll loop lands exactly on 0 without clamping.
-    ld a, $63
-    ldh [$FF42], a          ; SCY = 99
+    ld a, 60
+    ldh [$FF42], a          ; SCY = 60
     ld a, $91
     ldh [$FF40], a          ; LCDC: LCD on, BG on, unsigned tile data
 
-    ; Scroll down SPEED pixels per frame until SCY reaches 0.
-.scroll
-    call WaitFrame
+    ; Scroll down SPEED pixels per frame until SCY reaches 0. Keep the
+    ; speed in B for the later hold countdown as well.
     ld a, [SPEED_ADDR]
     ld b, a
+.scroll
+    call WaitFrame
     ldh a, [$FF42]
     sub b
     ldh [$FF42], a
@@ -119,13 +121,11 @@ Entry:
     ld a, $87
     ldh [$FF14], a          ; trigger ~2080 Hz
 
-    ; Hold the logo for 75 frames divided by the scroll speed (75 divides
+    ; Hold the logo for 60 frames divided by the scroll speed (60 divides
     ; exactly by both speeds, so the countdown lands on zero).
-    ld c, 75
+    ld c, 60
 .hold
     call WaitFrame
-    ld a, [SPEED_ADDR]
-    ld b, a
     ld a, c
     sub b
     ld c, a
@@ -135,8 +135,11 @@ Entry:
     ld bc, $0013
     ld de, $00D8
     ld hl, $014D
-    ld a, $FF
-    add a, $01              ; F = Z-HC = $B0
+    ; Restore the post-boot palette. Adding four to $FC also produces zero
+    ; with F = Z-HC = $B0, setting the required hand-off flags compactly.
+    ld a, $FC
+    ldh [$FF47], a
+    add a, $04
     ld a, $01
     jr Handoff
 
@@ -153,9 +156,10 @@ WaitFrame:
     jr nz, .waitVBlank
     ret
 
-; Bit-doubles the next nibble of C into A and writes it as two tile rows
-; on bitplane 0. Entry point ExpandNibble primes C from A first; calling
-; .next afterwards processes the remaining nibble.
+; Bit-doubles the next nibble of C into A and writes it as two shaded tile
+; rows. One plane is rotated right and the plane order alternates by row,
+; producing dithered light/shadow edges around the dark overlap. Entry point
+; ExpandNibble primes C from A; calling .next processes the second nibble.
 ExpandNibble:
     ld c, a
 .next
@@ -170,9 +174,11 @@ ExpandNibble:
     dec b
     jr nz, .bit
     ld [hl+], a
-    inc hl
+    rrca
     ld [hl+], a
-    inc hl
+    ld [hl+], a
+    rlca
+    ld [hl+], a
     ret
 
 ; Writes twelve consecutive tile numbers starting at A to the map row at HL.
@@ -185,12 +191,12 @@ MapRow:
     jr nz, .cell
     ret
 
-; "GBZEmu" as a 48x8 wordmark in the header-logo nibble format
-; (generated from the GBZEmu font; see bios/README.md).
+; Italic "GBZEmu" as a purpose-rasterized 48x8 wordmark in the compact
+; header-logo nibble format. It expands to a crisp 96x16 lockup.
 HeroLogo:
-    db $37, $EC, $EE, $00, $FF, $CF, $CE, $6C, $FF, $01, $EE, $C8, $FF, $CF, $EE, $0C
-    db $00, $EF, $00, $CE, $00, $CC, $00, $66, $CC, $73, $E6, $EC, $CC, $FF, $66, $EC
-    db $36, $FF, $00, $EE, $FC, $FF, $C0, $EE, $DD, $DD, $66, $66, $CC, $F7, $66, $EC
+    db $13, $76, $FF, $07, $1B, $33, $FF, $BF, $3B, $81, $FF, $EC, $77, $6F, $EE, $0E
+    db $00, $FD, $00, $FB, $00, $76, $00, $66, $67, $30, $7F, $E0, $B7, $70, $3F, $F0
+    db $BF, $70, $8E, $E0, $CF, $F0, $1D, $D0, $9B, $B0, $BB, $30, $66, $70, $CC, $C0
 HeroLogoEnd:
 
 ; 8x8 registered-trademark symbol (circled R).
