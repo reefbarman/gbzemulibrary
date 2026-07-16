@@ -177,7 +177,7 @@ namespace GBZEmuLibrary
 
                 case APUSchema.SQUARE_1_VOLUME_ENVELOPE:
                     // Register Format VVVV APPP Starting volume, Envelope add mode, period
-                    _channel1.SetEnvelope(data);
+                    _channel1.SetEnvelope(data, _gbcMode);
                     _channel1.ToggleDAC(Helpers.GetBitsIsolated(data, 3, 5) != 0);
                     break;
 
@@ -219,7 +219,7 @@ namespace GBZEmuLibrary
 
                 case APUSchema.SQUARE_2_VOLUME_ENVELOPE:
                     // Register Format VVVV APPP Starting volume, Envelope add mode, period
-                    _channel2.SetEnvelope(data);
+                    _channel2.SetEnvelope(data, _gbcMode);
                     _channel2.ToggleDAC(Helpers.GetBitsIsolated(data, 3, 5) != 0);
                     break;
 
@@ -298,7 +298,7 @@ namespace GBZEmuLibrary
 
                 case APUSchema.NOISE_4_VOLUME_ENVELOPE:
                     // Register Format VVVV APPP Starting volume, Envelope add mode, period
-                    _channel4.SetEnvelope(data);
+                    _channel4.SetEnvelope(data, _gbcMode);
                     _channel4.ToggleDAC(Helpers.GetBitsIsolated(data, 3, 5) != 0);
                     break;
 

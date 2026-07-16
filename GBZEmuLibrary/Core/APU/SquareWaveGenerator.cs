@@ -129,8 +129,7 @@ namespace GBZEmuLibrary
                 CalculateNewFrequency();
             }
 
-            _volume = _initialVolume;
-            _envelopePeriod = _initialEnvelopePeriod == 0 ? 8 : _initialEnvelopePeriod;
+            RestartEnvelope();
         }
 
         protected override int GetSample()

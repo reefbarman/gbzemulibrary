@@ -83,6 +83,8 @@ namespace GBZEmuLibrary
         /// </summary>
         public void ClockFrameSequencer()
         {
+            UpdateEnvelopeWriteClock();
+
             // Length clocks at 256 Hz on steps 0, 2, 4, and 6.
             if (_sequenceTimer % 2 == 0)
             {
@@ -146,6 +148,10 @@ namespace GBZEmuLibrary
         }
 
         protected virtual void UpdateEnvelop()
+        {
+        }
+
+        protected virtual void UpdateEnvelopeWriteClock()
         {
         }
 

@@ -43,6 +43,31 @@ public sealed class FixtureIntegrityTests
     }
 
     /// <summary>
+    /// Verifies only the two defined CGB cartridge-header values select CGB hardware for ROM execution.
+    /// </summary>
+    [Theory]
+    [InlineData(0x00, false)]
+    [InlineData(0x80, true)]
+    [InlineData(0xC0, true)]
+    [InlineData(0xFF, false)]
+    public void CgbHeaderClassificationUsesDefinedValues(int cgbFlag, bool expected)
+    {
+        Assert.Equal(expected, RomManifest.IsCgbHeader(cgbFlag));
+    }
+
+    /// <summary>
+    /// Verifies CGB-compatible SameSuite APU fixtures are not forced onto DMG hardware.
+    /// </summary>
+    [Fact]
+    public void CgbCompatibleApuFixturesUseCgbHardware()
+    {
+        var tests = RomManifest.Load().Tests.ToDictionary(test => test.Id, StringComparer.Ordinal);
+
+        Assert.Equal(HardwareMode.Cgb, tests["samesuite/apu/channel_2/channel_2_nrx2_glitch"].Hardware);
+        Assert.Equal(HardwareMode.Cgb, tests["samesuite/apu/channel_2/channel_2_nrx2_speed_change"].Hardware);
+    }
+
+    /// <summary>
     /// Supplies two fixture paths that normalize to the same test ID and verifies discovery rejects the collision.
     /// This prevents one ROM from silently replacing another before the locked inventory comparison runs.
     /// </summary>

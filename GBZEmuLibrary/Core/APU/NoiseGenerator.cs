@@ -82,8 +82,7 @@ namespace GBZEmuLibrary
 
             SetFrequency();
 
-            _volume = _initialVolume;
-            _envelopePeriod = _initialEnvelopePeriod == 0 ? 8 : _initialEnvelopePeriod;
+            RestartEnvelope();
         }
 
         public void SetDivRatio(byte data)

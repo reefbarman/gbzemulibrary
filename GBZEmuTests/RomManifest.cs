@@ -43,6 +43,14 @@ internal sealed class RomManifest
                ?? throw new InvalidOperationException("ROM manifest is empty.");
     }
 
+    /// <summary>
+    /// Returns whether the cartridge header requests CGB-compatible or CGB-only execution.
+    /// </summary>
+    internal static bool IsCgbHeader(int cgbFlag)
+    {
+        return cgbFlag == 0x80 || cgbFlag == 0xC0;
+    }
+
     internal static void EnsureUniqueIds(IEnumerable<RomTestCase> tests, string source)
     {
         var duplicates = tests
@@ -76,7 +84,7 @@ internal sealed class RomManifest
                 if (stream.Length > 0x143)
                 {
                     stream.Position = 0x143;
-                    if (stream.ReadByte() == 0xC0)
+                    if (IsCgbHeader(stream.ReadByte()))
                     {
                         test.Hardware = HardwareMode.Cgb;
                     }

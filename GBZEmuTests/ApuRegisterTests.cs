@@ -350,6 +350,108 @@ public sealed class ApuRegisterTests
     }
 
     /// <summary>
+    /// Verifies active CGB NRx2 writes apply the deterministic channel-2 volume transitions measured by SameSuite.
+    /// </summary>
+    [Theory]
+    [InlineData(0x20, 0x20, 0x20)]
+    [InlineData(0x08, 0x08, 0x10)]
+    [InlineData(0x22, 0x22, 0x20)]
+    [InlineData(0x32, 0x32, 0x30)]
+    [InlineData(0x20, 0x08, 0xD0)]
+    [InlineData(0x08, 0x47, 0xF0)]
+    [InlineData(0x22, 0x08, 0xC0)]
+    [InlineData(0x08, 0x32, 0xF0)]
+    public void CgbActiveEnvelopeWritesApplyZombieVolumeTransitions(byte oldEnvelope, byte newEnvelope, byte expectedPcm)
+    {
+        var apu = CreatePulse2Apu(GBCMode.GBCSupport, oldEnvelope);
+
+        apu.WriteByte(newEnvelope, APUSchema.SQUARE_2_VOLUME_ENVELOPE);
+
+        Assert.Equal(expectedPcm, apu.ReadByte(APUSchema.PCM_12));
+    }
+
+    /// <summary>
+    /// Verifies an active CGB NRx2 write changes the trigger configuration without directly loading its initial volume.
+    /// </summary>
+    [Fact]
+    public void CgbEnvelopeWriteLoadsInitialVolumeOnlyOnTrigger()
+    {
+        var apu = CreatePulse2Apu(GBCMode.GBCSupport, 0x20);
+
+        apu.WriteByte(0x70, APUSchema.SQUARE_2_VOLUME_ENVELOPE);
+        Assert.Equal(0x20, apu.ReadByte(APUSchema.PCM_12));
+
+        apu.WriteByte(0x87, APUSchema.SQUARE_2_FREQUENCY_MSB);
+        Assert.Equal(0x70, apu.ReadByte(APUSchema.PCM_12));
+    }
+
+    /// <summary>
+    /// Keeps the existing DMG NRx2 write behavior separate from the deterministic CGB transition model.
+    /// </summary>
+    [Fact]
+    public void DmgEnvelopeWriteDoesNotApplyCgbZombieTransition()
+    {
+        var channel = new SquareWaveGenerator();
+        channel.Init();
+        channel.SetDutyCycle(0x40);
+        channel.SetEnvelope(0x20, gbcMode: false);
+        channel.ToggleDAC(true);
+        channel.HandleTrigger();
+
+        channel.SetEnvelope(0x08, gbcMode: false);
+
+        Assert.Equal(0x00, channel.DigitalOutput);
+    }
+
+    /// <summary>
+    /// Verifies enabling a CGB envelope clocks it once on the next even DIV-APU step.
+    /// </summary>
+    [Fact]
+    public void CgbEnvelopeEnableClocksOnNextEvenFrameStep()
+    {
+        var apu = CreatePulse2Apu(GBCMode.GBCSupport, 0x08);
+
+        apu.WriteByte(0x47, APUSchema.SQUARE_2_VOLUME_ENVELOPE);
+        Assert.Equal(0xF0, apu.ReadByte(APUSchema.PCM_12));
+
+        apu.ClockFrameSequencer();
+        Assert.Equal(0xF0, apu.ReadByte(APUSchema.PCM_12));
+
+        apu.ClockFrameSequencer();
+        Assert.Equal(0xE0, apu.ReadByte(APUSchema.PCM_12));
+    }
+
+    /// <summary>
+    /// Verifies writing a zero envelope pace stops automatic volume clocks immediately.
+    /// </summary>
+    [Fact]
+    public void CgbZeroEnvelopePeriodDisablesAutomaticUpdates()
+    {
+        var apu = CreatePulse2Apu(GBCMode.GBCSupport, 0x11);
+
+        apu.WriteByte(0x10, APUSchema.SQUARE_2_VOLUME_ENVELOPE);
+        ClockEnvelope(apu);
+        ClockEnvelope(apu);
+
+        Assert.Equal(0x10, apu.ReadByte(APUSchema.PCM_12));
+    }
+
+    /// <summary>
+    /// Verifies reaching an envelope boundary locks automatic updates until the next trigger.
+    /// </summary>
+    [Fact]
+    public void CgbEnvelopeBoundaryLocksFurtherAutomaticUpdates()
+    {
+        var apu = CreatePulse2Apu(GBCMode.GBCSupport, 0x11);
+
+        ClockEnvelope(apu);
+        ClockEnvelope(apu);
+        apu.WriteByte(0x19, APUSchema.SQUARE_2_VOLUME_ENVELOPE);
+
+        Assert.Equal(0xE0, apu.ReadByte(APUSchema.PCM_12));
+    }
+
+    /// <summary>
     /// Verifies CGB PCM34 exposes channel 3 in the low nibble and channel 4 in the high nibble.
     /// </summary>
     [Fact]
@@ -398,6 +500,25 @@ public sealed class ApuRegisterTests
         AssertFullRead(apu, APUSchema.NOISE_4_LENGTH_LOAD, 0x00, 0xFF);
         AssertFullRead(apu, APUSchema.NOISE_4_TRIGGER, 0x00, 0xBF);
         AssertFullRead(apu, APUSchema.SOUND_ENABLED, 0x80, 0xF0);
+    }
+
+    private static APU CreatePulse2Apu(GBCMode mode, byte envelope)
+    {
+        var apu = new APU();
+        apu.Init(mode);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0x40, APUSchema.SQUARE_2_DUTY_LENGTH_LOAD);
+        apu.WriteByte(envelope, APUSchema.SQUARE_2_VOLUME_ENVELOPE);
+        apu.WriteByte(0x87, APUSchema.SQUARE_2_FREQUENCY_MSB);
+        return apu;
+    }
+
+    private static void ClockEnvelope(APU apu)
+    {
+        for (var step = 0; step < 8; step++)
+        {
+            apu.ClockFrameSequencer();
+        }
     }
 
     private static APU CreateWaveApu(GBCMode mode)
