@@ -9,17 +9,10 @@ public sealed class RomTestRunnerTests
     [Fact]
     public void SerialRunnerDetectsPassedOutput()
     {
-        using var rom = TestRom.Create(
-            0x3E, (byte)'P', 0xEA, 0x01, 0xFF, 0x3E, 0x81, 0xEA, 0x02, 0xFF,
-            0x3E, (byte)'a', 0xEA, 0x01, 0xFF, 0x3E, 0x81, 0xEA, 0x02, 0xFF,
-            0x3E, (byte)'s', 0xEA, 0x01, 0xFF, 0x3E, 0x81, 0xEA, 0x02, 0xFF,
-            0x3E, (byte)'s', 0xEA, 0x01, 0xFF, 0x3E, 0x81, 0xEA, 0x02, 0xFF,
-            0x3E, (byte)'e', 0xEA, 0x01, 0xFF, 0x3E, 0x81, 0xEA, 0x02, 0xFF,
-            0x3E, (byte)'d', 0xEA, 0x01, 0xFF, 0x3E, 0x81, 0xEA, 0x02, 0xFF,
-            0x18, 0xFE);
+        using var rom = TestRom.Create(BuildSerialOutputProgram("Passed"));
         using var runner = new RomTestRunner(rom.Path);
 
-        var output = runner.RunSerialProtocol(1);
+        var output = runner.RunSerialProtocol(2);
 
         Assert.Equal("Passed", output);
     }
@@ -31,19 +24,7 @@ public sealed class RomTestRunnerTests
     [Fact]
     public void SerialRunnerRejectsOutputContainingPassedAndFailedMarkers()
     {
-        using var rom = TestRom.Create(
-            0x21, 0x00, 0x02,
-            0x06, 12,
-            0x2A,
-            0xEA, 0x01, 0xFF,
-            0x3E, 0x81,
-            0xEA, 0x02, 0xFF,
-            0x05,
-            0x20, 0xF4,
-            0x18, 0xFE);
-        var bytes = File.ReadAllBytes(rom.Path);
-        "PassedFailed"u8.CopyTo(bytes.AsSpan(0x0200));
-        File.WriteAllBytes(rom.Path, bytes);
+        using var rom = TestRom.Create(BuildSerialOutputProgram("PassedFailed"));
         using var runner = new RomTestRunner(rom.Path);
 
         var exception = Assert.Throws<InvalidOperationException>(() => runner.RunSerialProtocol(1));
@@ -58,20 +39,7 @@ public sealed class RomTestRunnerTests
     [Fact]
     public void MooneyeRunnerIncludesSerialFailureDiagnostic()
     {
-        using var rom = TestRom.Create(
-            0x21, 0x00, 0x02,
-            0x06, 4,
-            0x2A,
-            0xEA, 0x01, 0xFF,
-            0x3E, 0x81,
-            0xEA, 0x02, 0xFF,
-            0x05,
-            0x20, 0xF4,
-            0x40,
-            0x18, 0xFE);
-        var bytes = File.ReadAllBytes(rom.Path);
-        "FF03"u8.CopyTo(bytes.AsSpan(0x0200));
-        File.WriteAllBytes(rom.Path, bytes);
+        using var rom = TestRom.Create(BuildSerialOutputProgram("FF03", signalMooneyeCompletion: true));
         using var runner = new RomTestRunner(rom.Path);
 
         var exception = Assert.Throws<InvalidOperationException>(() => runner.RunMooneyeProtocol(1));
@@ -102,5 +70,41 @@ public sealed class RomTestRunnerTests
         Assert.Equal(0x0305, state.BC);
         Assert.Equal(0x080D, state.DE);
         Assert.Equal(0x1522, state.HL);
+    }
+
+    /// <summary>
+    /// Builds a synthetic ROM routine that sends each character through the internal serial clock and waits for SC
+    /// bit 7 to clear before loading the next byte, matching the handshake used by real diagnostic ROMs.
+    /// </summary>
+    private static byte[] BuildSerialOutputProgram(string output, bool signalMooneyeCompletion = false)
+    {
+        // Keep executable code beyond the cartridge header fields that TestRom.Create normalizes at 0x0147-0x0149.
+        var program = new List<byte> { 0xC3, 0x50, 0x01 }; // JP 0x0150
+        while (program.Count < 0x50)
+        {
+            program.Add(0x00);
+        }
+
+        foreach (var character in output)
+        {
+            program.AddRange(new byte[]
+            {
+                0x3E, (byte)character, // LD A, character
+                0xE0, 0x01,            // LDH (SB), A
+                0x3E, 0x81,            // LD A, transfer start with internal clock
+                0xE0, 0x02,            // LDH (SC), A
+                0xF0, 0x02,            // wait: LDH A, (SC)
+                0x87,                  // ADD A, A; SC bit 7 moves into carry
+                0x38, 0xFB             // JR C, wait
+            });
+        }
+
+        if (signalMooneyeCompletion)
+        {
+            program.Add(0x40); // LD B, B
+        }
+
+        program.AddRange(new byte[] { 0x18, 0xFE }); // JR forever
+        return program.ToArray();
     }
 }

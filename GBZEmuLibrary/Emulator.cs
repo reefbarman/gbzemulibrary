@@ -62,7 +62,7 @@ namespace GBZEmuLibrary
             _divideRegister = new DivideRegister(_timerState);
             _joypad = new Joypad(_messageBus);
             _apu = new APU();
-            _serialRegisters = new SerialRegisters();
+            _serialRegisters = new SerialRegisters(_messageBus);
             _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu, _serialRegisters, _bootROM, _messageBus);
             _cpu = new CPU(_mmu, _messageBus);
             _cpu.OnClockTick += UpdateSystems;
@@ -236,8 +236,10 @@ namespace GBZEmuLibrary
         /// </summary>
         private void UpdateSystems(int cycles)
         {
-            // DIV and TIMA are driven by the CPU clock and therefore run twice as fast in CGB double-speed mode.
+            // DIV, TIMA, and the serial clock are driven by the CPU clock and therefore run twice as fast in CGB
+            // double-speed mode. Their independent dividers advance across the same raw CPU-clock interval.
             _timerState.Update(cycles);
+            _serialRegisters.Update(cycles);
 
             cycles /= _cpu.SpeedFactor;
             _clocksThisUpdate += cycles;

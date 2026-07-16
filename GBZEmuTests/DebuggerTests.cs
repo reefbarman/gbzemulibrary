@@ -113,13 +113,13 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
-    /// Starts an internal-clock serial transfer and verifies the debug byte event plus immediate completion.
-    /// Test ROM protocols depend on this intentional fast path instead of emulating link timing frame by frame.
+    /// Starts an internal-clock serial transfer and verifies completion occurs during emulated CPU time rather than
+    /// at the SC write, including the debug byte event and serial interrupt request.
     /// </summary>
     [Fact]
-    public void SerialTransferRaisesByteAndCompletesImmediately()
+    public void InternalClockSerialTransferCompletesAfterClockedDelay()
     {
-        using var rom = TestRom.Create(0x00);
+        using var rom = TestRom.Create(0x18, 0xFE);
         var emulator = EmulatorFactory.Start(rom);
         byte? transferred = null;
         emulator.Debug.SerialByteTransferred += value => transferred = value;
@@ -128,14 +128,43 @@ public sealed class DebuggerTests
         emulator.Debug.PokeByte((byte)'P', 0xFF01);
         emulator.Debug.PokeByte(0x81, 0xFF02);
 
+        Assert.Null(transferred);
+        Assert.Equal(0xFF, emulator.Debug.PeekByte(0xFF02));
+
+        emulator.Update();
+
         Assert.Equal((byte)'P', transferred);
         Assert.Equal(0x7F, emulator.Debug.PeekByte(0xFF02));
+        Assert.Equal(0xFF, emulator.Debug.PeekByte(0xFF01));
+        Assert.NotEqual(0, emulator.Debug.PeekByte(0xFF0F) & (1 << (int)Interrupts.Serial));
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Enables the serial interrupt, starts an internal-clock transfer, and verifies CPU dispatch reaches vector 58h.
+    /// </summary>
+    [Fact]
+    public void InternalClockSerialTransferDispatchesInterrupt()
+    {
+        using var rom = TestRom.Create(
+            0x3E, 1 << (int)Interrupts.Serial, // LD A, serial interrupt mask
+            0xEA, 0xFF, 0xFF,                 // LD (IE), A
+            0xAF,                             // XOR A
+            0xE0, 0x0F,                       // LDH (IF), A
+            0x3E, 0x81,                       // LD A, transfer start with internal clock
+            0xE0, 0x02,                       // LDH (SC), A
+            0xFB,                             // EI
+            0x18, 0xFE);                      // JR forever while transfer runs
+        var emulator = EmulatorFactory.Start(rom);
+
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0x0058, 1));
+
         emulator.Terminate();
     }
 
     /// <summary>
     /// Starts an external-clock serial transfer and verifies that it remains pending without a link partner.
-    /// This prevents the debug fast path from inventing clock edges that real external-clock hardware requires.
+    /// This prevents the emulator from inventing clock edges that real external-clock hardware requires.
     /// </summary>
     [Fact]
     public void ExternalClockSerialTransferRemainsPending()

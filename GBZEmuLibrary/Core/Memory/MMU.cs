@@ -153,6 +153,7 @@ namespace GBZEmuLibrary
         public void Reset(bool usingBootROM)
         {
             _mainMemory.InBootROM = usingBootROM;
+            _serialRegisters.Reset(usingBootROM);
 
             if (usingBootROM)
             {

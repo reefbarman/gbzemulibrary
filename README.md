@@ -82,7 +82,7 @@ Each ROM is a normal test case: passing ROMs are green and failing ROMs are red 
 
 - `GetCpuState()` and `GetPpuState()` return immutable snapshots including registers, flags, interrupt state, PPU mode, and cycle counters.
 - `PeekByte(address)` / `PokeByte(value, address)` route through the MMU and therefore preserve hardware side effects.
-- `SerialByteTransferred` captures the serial debug convention. Internal-clock transfers complete immediately; external-clock transfers remain pending because no link partner supplies clock edges. Link-cable timing and serial interrupts are not emulated.
+- `SerialByteTransferred` captures the outgoing byte when an internal-clock transfer completes after eight emulated serial clock edges. Completion clears SC bit 7 and requests the serial interrupt. External-clock transfers remain pending because no link partner supplies clock edges.
 - `Trace` provides a bounded 4,096-entry pre-fetch CPU ring buffer with instruction-range and PC-breakpoint controls.
 - `RunUntilProgramCounter(address, maxFrames)` executes a bounded number of frames and stops before fetching the target instruction, which is useful for deterministic test-ROM diagnostics.
 - `RequestStop()` / `Resume()` cooperatively stop inside the current frame so breakpoint state can be inspected exactly.
@@ -293,7 +293,7 @@ GBZEmuTests/                    xUnit debug and ROM-conformance harness
 - Separate `Emulator` instances can run concurrently; their interrupt, MMU/DMA, HBlank, and boot-ROM state is instance-scoped.
 - A single `Emulator` instance and its reused public buffers are not thread-safe. Coordinate calls to one instance and copy output buffers before consuming them asynchronously.
 - The host owns real-time pacing and audio underrun/overrun handling; the core advances one approximately 59.7275 Hz hardware frame per `Update()`.
-- STOP behavior is incomplete. Serial debug transfers are exposed through `Emulator.Debug.SerialByteTransferred`; internal-clock starts complete immediately, while external-clock starts remain pending. Serial timing, interrupts, and link-cable emulation are not implemented.
+- STOP behavior is incomplete. Serial debug transfers are exposed through `Emulator.Debug.SerialByteTransferred`; internal-clock timing and completion interrupts are modeled, while external-clock starts remain pending. Link-cable peer exchange and externally supplied clock edges are not implemented.
 - The included frontend is deliberately minimal: no debugger UI, rewind, save states, configurable input mapping, or engine-specific adapter is included; ROM selection is limited to the configured directory picker.
 
 ## Legal and license status
