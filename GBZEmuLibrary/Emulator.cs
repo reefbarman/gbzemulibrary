@@ -62,11 +62,12 @@ namespace GBZEmuLibrary
             _divideRegister = new DivideRegister(_timerState);
             _joypad = new Joypad(_messageBus);
             _apu = new APU();
+            _timerState.OnApuClock = _apu.ClockFrameSequencer;
             _serialRegisters = new SerialRegisters(_messageBus);
             _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu, _serialRegisters, _bootROM, _messageBus);
             _cpu = new CPU(_mmu, _messageBus);
             _cpu.OnClockTick += UpdateSystems;
-            _cpu.OnSpeedSwitch += _timerState.WriteDivider;
+            _cpu.OnSpeedSwitch += HandleSpeedSwitch;
             Debug = new EmulatorDebugger(_cpu, _mmu, _gpu, _serialRegisters, () => _running, Update);
         }
 
@@ -229,6 +230,15 @@ namespace GBZEmuLibrary
         public void ToggleChannel(Sound.Channel channel, bool enabled)
         {
             _apu.ToggleChannel(channel, enabled);
+        }
+
+        /// <summary>
+        /// Resets DIV for a completed speed switch and selects the divider bit that keeps DIV-APU at 512 Hz.
+        /// </summary>
+        private void HandleSpeedSwitch()
+        {
+            _timerState.WriteDivider();
+            _timerState.SetDoubleSpeed(_cpu.SpeedFactor == 2);
         }
 
         /// <summary>

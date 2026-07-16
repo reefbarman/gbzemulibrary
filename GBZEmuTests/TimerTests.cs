@@ -50,6 +50,62 @@ public sealed class TimerTests
     }
 
     /// <summary>
+    /// Verifies the audio frame sequencer clocks when the normal-speed DIV-APU source falls.
+    /// </summary>
+    [Fact]
+    public void DividerClocksApuOnNormalSpeedFallingEdge()
+    {
+        var timer = CreateTimer(GBCMode.GBCSupport);
+        var apuClocks = 0;
+        timer.OnApuClock = () => apuClocks++;
+
+        timer.Update(8191);
+        Assert.Equal(0, apuClocks);
+
+        timer.Update(1);
+        Assert.Equal(1, apuClocks);
+    }
+
+    /// <summary>
+    /// Verifies a DIV reset clocks the APU only while the selected normal-speed source bit is high.
+    /// </summary>
+    [Fact]
+    public void DividerWriteClocksApuOnlyFromHighSource()
+    {
+        var timer = CreateTimer(GBCMode.GBCSupport);
+        var apuClocks = 0;
+        timer.OnApuClock = () => apuClocks++;
+
+        timer.Update(4095);
+        timer.WriteDivider();
+        Assert.Equal(0, apuClocks);
+
+        timer.Update(4096);
+        timer.WriteDivider();
+        Assert.Equal(1, apuClocks);
+    }
+
+    /// <summary>
+    /// Verifies double speed selects system-counter bit 13 so DIV-APU remains at 512 Hz.
+    /// </summary>
+    [Fact]
+    public void DoubleSpeedSelectsSlowerApuDividerBit()
+    {
+        var timer = CreateTimer(GBCMode.GBCSupport);
+        var apuClocks = 0;
+        timer.OnApuClock = () => apuClocks++;
+        timer.SetDoubleSpeed(true);
+
+        timer.Update(4096);
+        timer.WriteDivider();
+        Assert.Equal(0, apuClocks);
+
+        timer.Update(8192);
+        timer.WriteDivider();
+        Assert.Equal(1, apuClocks);
+    }
+
+    /// <summary>
     /// Verifies the timer glitch caused when a DIV reset lowers the selected timer input.
     /// </summary>
     [Fact]

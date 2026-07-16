@@ -122,6 +122,11 @@ namespace GBZEmuLibrary
         /// </summary>
         public void WriteByte(byte data, int address)
         {
+            if (address == APUSchema.PCM_12 || address == APUSchema.PCM_34)
+            {
+                return;
+            }
+
             if (!_powered &&
                 address != APUSchema.SOUND_ENABLED &&
                 !(address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END))
@@ -357,7 +362,9 @@ namespace GBZEmuLibrary
 
         public bool CanReadWriteByte(int address)
         {
-            return address >= MemorySchema.APU_REGISTERS_START && address < MemorySchema.APU_REGISTERS_END;
+            return address >= MemorySchema.APU_REGISTERS_START && address < MemorySchema.APU_REGISTERS_END ||
+                   address == APUSchema.PCM_12 ||
+                   address == APUSchema.PCM_34;
         }
 
         /// <summary>
@@ -365,6 +372,20 @@ namespace GBZEmuLibrary
         /// </summary>
         public byte ReadByte(int address)
         {
+            if (address == APUSchema.PCM_12)
+            {
+                return _gbcMode
+                    ? PackDigitalOutputs(_channel1.DigitalOutput, _channel2.DigitalOutput)
+                    : (byte)0xFF;
+            }
+
+            if (address == APUSchema.PCM_34)
+            {
+                return _gbcMode
+                    ? PackDigitalOutputs(_channel3.DigitalOutput, _channel4.DigitalOutput)
+                    : (byte)0xFF;
+            }
+
             if (address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END)
             {
                 return _channel3.ReadWaveByte(address, _gbcMode);
@@ -550,6 +571,14 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Packs the lower-numbered channel into the low nibble and the higher-numbered channel into the high nibble.
+        /// </summary>
+        private static byte PackDigitalOutputs(byte lowChannel, byte highChannel)
+        {
+            return (byte)(lowChannel | (highChannel << 4));
+        }
+
         private byte ReadByteInternal(int address)
         {
             if (address >= APUSchema.SQUARE_1_SWEEP_PERIOD && address < APUSchema.SQUARE_2_UNUSED)
@@ -618,7 +647,24 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Advances all audio channels from CPU-derived clocks and produces fixed-rate stereo samples.
+        /// Applies one falling edge of the shared DIV-APU source to every channel's frame sequencer.
+        /// </summary>
+        public void ClockFrameSequencer()
+        {
+            if (!_powered)
+            {
+                return;
+            }
+
+            _channel1.ClockFrameSequencer();
+            SynchronizeSweepFrequencyRegisters();
+            _channel2.ClockFrameSequencer();
+            _channel3.ClockFrameSequencer();
+            _channel4.ClockFrameSequencer();
+        }
+
+        /// <summary>
+        /// Advances channel frequency timers from CPU-derived clocks and produces fixed-rate stereo samples.
         /// </summary>
         public void Update(int cycles)
         {

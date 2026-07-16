@@ -97,7 +97,7 @@ public sealed class ApuRegisterTests
         // Frame sequencer step 2 is the first 128 Hz sweep clock after APU power-on.
         for (var step = 0; step < 3; step++)
         {
-            apu.Update(APUSchema.FRAME_SEQUENCER_UPDATE_THRESHOLD);
+            apu.ClockFrameSequencer();
         }
 
         apu.WriteByte(0x01, APUSchema.SQUARE_1_SWEEP_PERIOD);
@@ -310,6 +310,77 @@ public sealed class ApuRegisterTests
         Assert.Equal(0xBC, apu.ReadByte(APUSchema.WAVE_TABLE_START));
         Assert.Equal(0x34, apu.ReadByte(APUSchema.WAVE_TABLE_START + 1));
         Assert.Equal(0x00, apu.ReadByte(APUSchema.WAVE_TABLE_END - 1));
+    }
+
+    /// <summary>
+    /// Verifies a DIV-induced frame-sequencer tick clocks an enabled length counter.
+    /// </summary>
+    [Fact]
+    public void DivApuClockExpiresEnabledLengthCounter()
+    {
+        var apu = new APU();
+        apu.Init(GBCMode.GBCSupport);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0x3F, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0xF0, APUSchema.SQUARE_1_VOLUME_ENVELOPE);
+        apu.WriteByte(0xC0, APUSchema.SQUARE_1_FREQUENCY_MSB);
+        Assert.Equal(0x01, apu.ReadByte(APUSchema.SOUND_ENABLED) & 0x01);
+
+        apu.ClockFrameSequencer();
+
+        Assert.Equal(0x00, apu.ReadByte(APUSchema.SOUND_ENABLED) & 0x01);
+    }
+
+    /// <summary>
+    /// Verifies CGB PCM12 exposes channel 1 in the low nibble and channel 2 in the high nibble.
+    /// </summary>
+    [Fact]
+    public void CgbPcm12PacksPulseChannelDigitalOutputs()
+    {
+        var apu = new APU();
+        apu.Init(GBCMode.GBCSupport);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0x40, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0xF0, APUSchema.SQUARE_1_VOLUME_ENVELOPE);
+        WriteChannel1Frequency(apu, 0, trigger: true);
+
+        apu.WriteByte(0x00, APUSchema.PCM_12);
+
+        Assert.Equal(0x0F, apu.ReadByte(APUSchema.PCM_12));
+    }
+
+    /// <summary>
+    /// Verifies CGB PCM34 exposes channel 3 in the low nibble and channel 4 in the high nibble.
+    /// </summary>
+    [Fact]
+    public void CgbPcm34PacksWaveAndNoiseDigitalOutputs()
+    {
+        var apu = new APU();
+        apu.Init(GBCMode.GBCSupport);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0xAA, APUSchema.WAVE_TABLE_START);
+        apu.WriteByte(0x80, APUSchema.WAVE_3_DAC);
+        apu.WriteByte(0x20, APUSchema.WAVE_3_VOLUME);
+        apu.WriteByte(0xFF, APUSchema.WAVE_3_FREQUENCY_LSB);
+        apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
+
+        apu.Update(8);
+
+        Assert.Equal(0x0A, apu.ReadByte(APUSchema.PCM_34));
+    }
+
+    /// <summary>
+    /// Verifies inactive channels contribute zero to the CGB PCM amplitude registers.
+    /// </summary>
+    [Fact]
+    public void CgbPcmRegistersZeroInactiveChannels()
+    {
+        var apu = new APU();
+        apu.Init(GBCMode.GBCSupport);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+
+        Assert.Equal(0x00, apu.ReadByte(APUSchema.PCM_12));
+        Assert.Equal(0x00, apu.ReadByte(APUSchema.PCM_34));
     }
 
     /// <summary>

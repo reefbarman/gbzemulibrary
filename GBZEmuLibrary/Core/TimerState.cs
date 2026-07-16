@@ -16,6 +16,8 @@ namespace GBZEmuLibrary
         private const int TIMER_DIVIDER_BIT_262144_HZ = 3;
         private const int TIMER_DIVIDER_BIT_65536_HZ = 5;
         private const int TIMER_DIVIDER_BIT_16384_HZ = 7;
+        private const int APU_DIVIDER_BIT_NORMAL_SPEED = 12;
+        private const int APU_DIVIDER_BIT_DOUBLE_SPEED = 13;
 
         private ushort _systemCounter;
         private byte _tima;
@@ -24,8 +26,14 @@ namespace GBZEmuLibrary
         private int _overflowReloadClocks;
         private bool _reloadedThisMachineCycle;
         private bool _gbcMode;
+        private bool _doubleSpeed;
 
         private readonly MessageBus _messageBus;
+
+        /// <summary>
+        /// Signals a falling edge of the DIV-APU source used by the audio frame sequencer.
+        /// </summary>
+        public System.Action OnApuClock;
 
         /// <summary>
         /// Creates timer state connected to the interrupt bus for its owning emulator.
@@ -51,6 +59,7 @@ namespace GBZEmuLibrary
             _overflowReloadClocks = 0;
             _reloadedThisMachineCycle = false;
             _gbcMode = mode != GBCMode.NoGBC;
+            _doubleSpeed = false;
         }
 
         /// <summary>
@@ -71,12 +80,19 @@ namespace GBZEmuLibrary
                 }
 
                 var oldTimerSignal = TimerSignal(_systemCounter, _tac);
+                var oldApuSignal = ApuSignal(_systemCounter, _doubleSpeed);
                 _systemCounter++;
                 var newTimerSignal = TimerSignal(_systemCounter, _tac);
+                var newApuSignal = ApuSignal(_systemCounter, _doubleSpeed);
 
                 if (oldTimerSignal && !newTimerSignal)
                 {
                     IncrementTimer();
+                }
+
+                if (oldApuSignal && !newApuSignal)
+                {
+                    OnApuClock?.Invoke();
                 }
             }
         }
@@ -95,6 +111,7 @@ namespace GBZEmuLibrary
         public void WriteDivider()
         {
             var oldTimerSignal = TimerSignal(_systemCounter, _tac);
+            var oldApuSignal = ApuSignal(_systemCounter, _doubleSpeed);
             _systemCounter = 0;
 
             // Resetting a selected high divider bit creates the same falling edge as normal counting.
@@ -102,6 +119,19 @@ namespace GBZEmuLibrary
             {
                 IncrementTimer();
             }
+
+            if (oldApuSignal)
+            {
+                OnApuClock?.Invoke();
+            }
+        }
+
+        /// <summary>
+        /// Selects the system-counter bit that keeps DIV-APU at 512 Hz in the active CPU speed mode.
+        /// </summary>
+        public void SetDoubleSpeed(bool enabled)
+        {
+            _doubleSpeed = enabled;
         }
 
         /// <summary>
@@ -189,6 +219,15 @@ namespace GBZEmuLibrary
             {
                 _overflowReloadClocks = OVERFLOW_RELOAD_DELAY;
             }
+        }
+
+        /// <summary>
+        /// Returns the system-counter signal observed by the audio frame sequencer.
+        /// </summary>
+        private static bool ApuSignal(ushort systemCounter, bool doubleSpeed)
+        {
+            var bit = doubleSpeed ? APU_DIVIDER_BIT_DOUBLE_SPEED : APU_DIVIDER_BIT_NORMAL_SPEED;
+            return (systemCounter & (1 << bit)) != 0;
         }
 
         /// <summary>

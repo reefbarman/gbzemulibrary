@@ -64,8 +64,14 @@ public sealed class UnusedIoTests
         }));
 
         emulator.Debug.PokeByte(0x03, MemorySchema.SWITCHABLE_WORK_RAM_REGISTER);
+        var pcm12 = emulator.Debug.PeekByte(APUSchema.PCM_12);
+        var pcm34 = emulator.Debug.PeekByte(APUSchema.PCM_34);
+        emulator.Debug.PokeByte(0xFF, APUSchema.PCM_12);
+        emulator.Debug.PokeByte(0xFF, APUSchema.PCM_34);
 
         Assert.Equal(0xFB, emulator.Debug.PeekByte(MemorySchema.SWITCHABLE_WORK_RAM_REGISTER));
+        Assert.Equal(pcm12, emulator.Debug.PeekByte(APUSchema.PCM_12));
+        Assert.Equal(pcm34, emulator.Debug.PeekByte(APUSchema.PCM_34));
         emulator.Terminate();
     }
 }

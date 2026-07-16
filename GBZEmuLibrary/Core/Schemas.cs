@@ -204,7 +204,8 @@
         public const int WAVE_TABLE_START = UNUSED_END;
         public const int WAVE_TABLE_END = 0xFF40;
 
-        public const int FRAME_SEQUENCER_UPDATE_THRESHOLD = GameBoySchema.MAX_DMG_CLOCK_CYCLES / FRAME_SEQUENCER_RATE;
+        public const int PCM_12 = 0xFF76;
+        public const int PCM_34 = 0xFF77;
 
         public static readonly int[][] DUTY_WAVE_FORM =
         {

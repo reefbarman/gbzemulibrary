@@ -8,6 +8,11 @@ namespace GBZEmuLibrary
         public bool Enabled { get; set; } = true;
         public bool Status => _enabled && _dacEnabled;
 
+        /// <summary>
+        /// Returns the channel's current four-bit generation-circuit output for CGB PCM readback.
+        /// </summary>
+        public byte DigitalOutput => Status ? (byte)(GetSample() & 0x0F) : (byte)0;
+
         protected bool _dacEnabled;
         protected bool _enabled;
 
@@ -19,7 +24,6 @@ namespace GBZEmuLibrary
         protected int _frequency;
         protected int _frequencyCount;
 
-        protected int _frameSequenceTimer;
         protected int _sequenceTimer;
 
         protected Generator(int maxLength)
@@ -34,7 +38,6 @@ namespace GBZEmuLibrary
 
         public virtual void Init()
         {
-            _frameSequenceTimer = 0;
             _sequenceTimer = 0;
         }
 
@@ -69,37 +72,36 @@ namespace GBZEmuLibrary
 
         public void Update(bool powered, int cycles)
         {
-            _frameSequenceTimer += cycles;
-
             if (powered)
             {
-                if (_frameSequenceTimer >= APUSchema.FRAME_SEQUENCER_UPDATE_THRESHOLD)
-                {
-                    _frameSequenceTimer -= APUSchema.FRAME_SEQUENCER_UPDATE_THRESHOLD;
-
-                    //256Hz
-                    if (_sequenceTimer % 2 == 0)
-                    {
-                        UpdateLength();
-                    }
-
-                    //128Hz
-                    if ((_sequenceTimer + 2) % 4 == 0)
-                    {
-                        UpdateSweep();
-                    }
-
-                    //64Hz
-                    if (_sequenceTimer % 7 == 0)
-                    {
-                        UpdateEnvelop();
-                    }
-
-                    _sequenceTimer = (_sequenceTimer + 1) % 8;
-                }
-
                 UpdateFrequency(cycles);
             }
+        }
+
+        /// <summary>
+        /// Applies one shared DIV-APU frame-sequencer tick to this channel.
+        /// </summary>
+        public void ClockFrameSequencer()
+        {
+            // Length clocks at 256 Hz on steps 0, 2, 4, and 6.
+            if (_sequenceTimer % 2 == 0)
+            {
+                UpdateLength();
+            }
+
+            // Channel 1 sweep clocks at 128 Hz on steps 2 and 6.
+            if ((_sequenceTimer + 2) % 4 == 0)
+            {
+                UpdateSweep();
+            }
+
+            // Envelopes clock at 64 Hz on step 7.
+            if (_sequenceTimer == 7)
+            {
+                UpdateEnvelop();
+            }
+
+            _sequenceTimer = (_sequenceTimer + 1) % 8;
         }
 
         public void ToggleDAC(bool enabled)
