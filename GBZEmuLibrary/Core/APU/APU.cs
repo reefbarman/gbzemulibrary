@@ -347,7 +347,7 @@ namespace GBZEmuLibrary
 
                     if (address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END)
                     {
-                        _channel3.WriteByte(data, address);
+                        _channel3.WriteWaveByte(data, address, _gbcMode);
                         return;
                     }
 
@@ -365,6 +365,11 @@ namespace GBZEmuLibrary
         /// </summary>
         public byte ReadByte(int address)
         {
+            if (address >= APUSchema.WAVE_TABLE_START && address < APUSchema.WAVE_TABLE_END)
+            {
+                return _channel3.ReadWaveByte(address, _gbcMode);
+            }
+
             var realByte = ReadByteInternal(address);
             var lastByteORed = ReadByteLast(address);
             var lastByte = _memory[address - MemorySchema.APU_REGISTERS_START];

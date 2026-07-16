@@ -130,7 +130,10 @@ namespace GBZEmuLibrary
             }
         }
 
-        public void SetFrequency(int freq)
+        /// <summary>
+        /// Applies an 11-bit channel period and reloads the channel-specific frequency timer.
+        /// </summary>
+        public virtual void SetFrequency(int freq)
         {
             _originalFrequency = freq;
             SetFreqTimer(freq);
@@ -152,10 +155,21 @@ namespace GBZEmuLibrary
             }
         }
 
-        protected void SetFreqTimer(int freq)
+        /// <summary>
+        /// Reloads the channel timer from an 11-bit period using the pulse-channel clock divider.
+        /// </summary>
+        protected virtual void SetFreqTimer(int freq)
         {
-            _frequency = (MathSchema.MAX_11_BIT_VALUE - freq) * 4;
+            _frequency = GetFrequencyTimerPeriod(freq);
             _frequencyCount = 0;
+        }
+
+        /// <summary>
+        /// Converts an 11-bit hardware period into CPU clocks for this channel's timer.
+        /// </summary>
+        protected virtual int GetFrequencyTimerPeriod(int freq)
+        {
+            return (MathSchema.MAX_11_BIT_VALUE - freq) * 4;
         }
     }
 }

@@ -1,31 +1,52 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Emulates channel 3's programmable wave table, sample buffer, and active wave-RAM access behavior.
+    /// </summary>
     internal class WaveGenerator : Generator
     {
+        // SameSuite measures a three-tick channel 3 trigger pipeline; each channel 3 timer tick is two CPU clocks.
+        private const int TriggerDelayClocks = 6;
+
         private int _volumeLevel;
         private int _volumeShift;
 
-        private byte[] _waveTable = new byte[(APUSchema.WAVE_TABLE_END - APUSchema.WAVE_TABLE_START) * 2];
+        private readonly byte[] _waveTable = new byte[(APUSchema.WAVE_TABLE_END - APUSchema.WAVE_TABLE_START) * 2];
         private int _wavePos;
         private byte _currentSample;
+        private int _clocksSinceWaveByteRead;
+        private int _frequencyReload;
 
         public WaveGenerator() : base(byte.MaxValue + 1)
         {
         }
 
-        public void WriteByte(byte data, int address)
+        /// <summary>
+        /// Writes wave RAM while applying the current-byte redirection and DMG fetch-window restriction.
+        /// </summary>
+        public void WriteWaveByte(byte data, int address, bool gbcMode)
         {
             var index = address - APUSchema.WAVE_TABLE_START;
+
+            if (Status)
+            {
+                if (!gbcMode && _clocksSinceWaveByteRead >= 2)
+                {
+                    return;
+                }
+
+                index = _wavePos / 2;
+            }
 
             _waveTable[index * 2] = (byte)Helpers.GetBitsIsolated(data, 4, 4);
             _waveTable[index * 2 + 1] = Helpers.GetBits(data, 4);
         }
 
+        /// <summary>
+        /// Reads channel registers or the packed wave-RAM byte at the requested address.
+        /// </summary>
         public override byte ReadByte(int address)
         {
             if (address >= APUSchema.WAVE_3_DAC && address < APUSchema.NOISE_4_UNUSED)
@@ -59,8 +80,27 @@ namespace GBZEmuLibrary
                 throw new IndexOutOfRangeException();
             }
 
-            var index = (address - APUSchema.WAVE_TABLE_START);
-            return (byte)((_waveTable[index * 2] << 4) | _waveTable[(index * 2) + 1]);
+            return ReadWaveByte(address - APUSchema.WAVE_TABLE_START);
+        }
+
+        /// <summary>
+        /// Reads wave RAM while applying the current-byte redirection and DMG fetch-window restriction.
+        /// </summary>
+        public byte ReadWaveByte(int address, bool gbcMode)
+        {
+            var index = address - APUSchema.WAVE_TABLE_START;
+
+            if (Status)
+            {
+                if (!gbcMode && _clocksSinceWaveByteRead >= 2)
+                {
+                    return 0xFF;
+                }
+
+                index = _wavePos / 2;
+            }
+
+            return ReadWaveByte(index);
         }
 
         public void SetVolume(byte data)
@@ -90,6 +130,8 @@ namespace GBZEmuLibrary
             base.Init();
             _wavePos = 0;
             _currentSample = 0;
+            _clocksSinceWaveByteRead = int.MaxValue;
+            SetFrequency(0);
         }
 
         public override void Reset()
@@ -97,6 +139,22 @@ namespace GBZEmuLibrary
             base.Reset();
 
             SetVolume(0);
+            _clocksSinceWaveByteRead = int.MaxValue;
+        }
+
+        /// <summary>
+        /// Changes the period used after the current channel 3 timer interval completes.
+        /// </summary>
+        public override void SetFrequency(int freq)
+        {
+            _originalFrequency = freq;
+            _frequencyReload = GetFrequencyTimerPeriod(freq);
+
+            if (!Status)
+            {
+                _frequency = _frequencyReload;
+                _frequencyCount = 0;
+            }
         }
 
         public override void HandleTrigger()
@@ -112,7 +170,10 @@ namespace GBZEmuLibrary
             }
 
             SetFreqTimer(_originalFrequency);
+            _frequencyCount = -TriggerDelayClocks;
+            _clocksSinceWaveByteRead = int.MaxValue;
 
+            // Trigger resets the index to sample 0; the first timer step advances to sample 1.
             _wavePos = 0;
         }
 
@@ -121,16 +182,43 @@ namespace GBZEmuLibrary
             return _currentSample >> _volumeShift;
         }
 
+        /// <summary>
+        /// Converts channel 3's period to CPU clocks; its sample timer advances twice as fast as pulse channels.
+        /// </summary>
+        protected override int GetFrequencyTimerPeriod(int freq)
+        {
+            return (MathSchema.MAX_11_BIT_VALUE - freq) * 2;
+        }
+
+        protected override void SetFreqTimer(int freq)
+        {
+            _frequencyReload = GetFrequencyTimerPeriod(freq);
+            _frequency = _frequencyReload;
+            _frequencyCount = 0;
+        }
+
         protected override void UpdateFrequency(int cycles)
         {
+            if (_clocksSinceWaveByteRead < int.MaxValue - cycles)
+            {
+                _clocksSinceWaveByteRead += cycles;
+            }
+
             _frequencyCount += cycles;
 
-            if (_frequencyCount >= _frequency)
+            while (_frequencyCount >= _frequency)
             {
                 _frequencyCount -= _frequency;
                 _wavePos = (_wavePos + 1) % 32;
                 _currentSample = _waveTable[_wavePos];
+                _frequency = _frequencyReload;
+                _clocksSinceWaveByteRead = _frequencyCount;
             }
+        }
+
+        private byte ReadWaveByte(int index)
+        {
+            return (byte)((_waveTable[index * 2] << 4) | _waveTable[(index * 2) + 1]);
         }
     }
 }

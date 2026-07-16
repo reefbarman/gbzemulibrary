@@ -107,6 +107,142 @@ public sealed class ApuRegisterTests
     }
 
     /// <summary>
+    /// Verifies channel 3 uses its two-clock timer multiplier and redirects active reads to the current wave byte.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void ActiveWaveRamReadsFollowCurrentSampleByte(int mode)
+    {
+        var apu = CreateWaveApu((GBCMode)mode);
+
+        apu.Update(10);
+        Assert.Equal(0x12, apu.ReadByte(APUSchema.WAVE_TABLE_END - 1));
+
+        apu.Update(4);
+        Assert.Equal(0x34, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+    }
+
+    /// <summary>
+    /// Verifies channel 3's first fetch includes the fixed trigger pipeline delay measured by SameSuite.
+    /// </summary>
+    [Fact]
+    public void WaveTriggerDelaysFirstSampleFetch()
+    {
+        var apu = CreateWaveApu(GBCMode.NoGBC);
+
+        apu.Update(9);
+        Assert.Equal(0xFF, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+
+        apu.Update(1);
+        Assert.Equal(0x12, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+    }
+
+    /// <summary>
+    /// Verifies a channel 3 period write affects the reload after the current timer interval completes.
+    /// </summary>
+    [Fact]
+    public void WaveFrequencyWriteAppliesAfterCurrentTimerInterval()
+    {
+        var apu = new APU();
+        apu.Init(GBCMode.GBCSupport);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0x12, APUSchema.WAVE_TABLE_START);
+        apu.WriteByte(0x34, APUSchema.WAVE_TABLE_START + 1);
+        apu.WriteByte(0x80, APUSchema.WAVE_3_DAC);
+        apu.WriteByte(0xFC, APUSchema.WAVE_3_FREQUENCY_LSB);
+        apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
+
+        apu.Update(14);
+        apu.WriteByte(0xFE, APUSchema.WAVE_3_FREQUENCY_LSB);
+        apu.Update(4);
+        Assert.Equal(0x12, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+
+        apu.Update(4);
+        Assert.Equal(0x34, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+    }
+
+    /// <summary>
+    /// Verifies DMG exposes active wave RAM for two clocks after a fetch while CGB keeps the current byte accessible.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0xFF)]
+    [InlineData(1, 0x12)]
+    public void ActiveWaveRamReadWindowDependsOnHardwareMode(int mode, byte expectedAfterWindow)
+    {
+        var apu = CreateWaveApu((GBCMode)mode);
+
+        apu.Update(10);
+        apu.Update(1);
+        Assert.Equal(0x12, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+
+        apu.Update(1);
+        Assert.Equal(expectedAfterWindow, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+    }
+
+    /// <summary>
+    /// Verifies one subsystem update catches up every channel 3 sample period that elapsed.
+    /// </summary>
+    [Fact]
+    public void WaveUpdateCatchesUpMultipleSamplePeriods()
+    {
+        var apu = CreateWaveApu(GBCMode.GBCSupport);
+
+        apu.Update(18);
+
+        Assert.Equal(0x34, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+    }
+
+    /// <summary>
+    /// Verifies a DMG retrigger closes the prior fetch window until the restarted channel fetches again.
+    /// </summary>
+    [Fact]
+    public void DmgWaveRetriggerClosesPriorFetchWindow()
+    {
+        var apu = CreateWaveApu(GBCMode.NoGBC);
+        apu.Update(10);
+        Assert.Equal(0x12, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+
+        apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
+        Assert.Equal(0xFF, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+    }
+
+    /// <summary>
+    /// Verifies active CGB writes target the current wave byte regardless of the CPU-addressed wave-RAM byte.
+    /// </summary>
+    [Fact]
+    public void CgbActiveWaveRamWriteTargetsCurrentByte()
+    {
+        var apu = CreateWaveApu(GBCMode.GBCSupport);
+        apu.Update(10);
+
+        apu.WriteByte(0xBC, APUSchema.WAVE_TABLE_END - 1);
+        apu.WriteByte(0x00, APUSchema.WAVE_3_DAC);
+
+        Assert.Equal(0xBC, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+        Assert.Equal(0x00, apu.ReadByte(APUSchema.WAVE_TABLE_END - 1));
+    }
+
+    /// <summary>
+    /// Verifies active DMG writes target the current byte only during the two-clock wave-fetch window.
+    /// </summary>
+    [Fact]
+    public void DmgActiveWaveRamWriteRequiresFetchWindow()
+    {
+        var apu = CreateWaveApu(GBCMode.NoGBC);
+        apu.Update(11);
+        apu.WriteByte(0xBC, APUSchema.WAVE_TABLE_END - 1);
+
+        apu.Update(1);
+        apu.WriteByte(0xDE, APUSchema.WAVE_TABLE_START + 1);
+        apu.WriteByte(0x00, APUSchema.WAVE_3_DAC);
+
+        Assert.Equal(0xBC, apu.ReadByte(APUSchema.WAVE_TABLE_START));
+        Assert.Equal(0x34, apu.ReadByte(APUSchema.WAVE_TABLE_START + 1));
+        Assert.Equal(0x00, apu.ReadByte(APUSchema.WAVE_TABLE_END - 1));
+    }
+
+    /// <summary>
     /// Powers on the APU and verifies complete read values so writable fields are not hidden by the unused-bit masks.
     /// </summary>
     [Fact]
@@ -121,6 +257,19 @@ public sealed class ApuRegisterTests
         AssertFullRead(apu, APUSchema.NOISE_4_LENGTH_LOAD, 0x00, 0xFF);
         AssertFullRead(apu, APUSchema.NOISE_4_TRIGGER, 0x00, 0xBF);
         AssertFullRead(apu, APUSchema.SOUND_ENABLED, 0x80, 0xF0);
+    }
+
+    private static APU CreateWaveApu(GBCMode mode)
+    {
+        var apu = new APU();
+        apu.Init(mode);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0x12, APUSchema.WAVE_TABLE_START);
+        apu.WriteByte(0x34, APUSchema.WAVE_TABLE_START + 1);
+        apu.WriteByte(0x80, APUSchema.WAVE_3_DAC);
+        apu.WriteByte(0xFE, APUSchema.WAVE_3_FREQUENCY_LSB);
+        apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
+        return apu;
     }
 
     private static void WriteChannel1Frequency(APU apu, int frequency, bool trigger)
