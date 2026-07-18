@@ -12,7 +12,7 @@ The library is intended to sit behind a host such as Unity or another C# engine:
 - LR35902 CPU instruction dispatch, including the CB-prefixed instruction set, interrupts, HALT handling, and CGB double-speed state.
 - Scanline-based DMG/CGB graphics with backgrounds, windows, sprites, palettes, VRAM banking, and DMA paths.
 - Four Game Boy audio channels: two square channels, the programmable wave channel, and the noise channel.
-- ROM-only, MBC1, MBC2, MBC3, and MBC5 cartridge header/banking paths.
+- ROM-only, MBC1, MBC2, MBC3, and MBC5 cartridge header/banking paths, including MBC5 rumble output.
 - File-backed external cartridge RAM.
 - Public RGB framebuffer, stereo sample buffer, and joypad API designed for host-engine adapters.
 - Targets `netstandard2.0` for compatibility with current Unity versions and modern .NET hosts.
@@ -30,6 +30,8 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | `GetSoundSamples(out frameCount)`   | Swap and return the reusable interleaved stereo byte buffer plus its valid stereo-frame count. Call once per emulation update.            |
 | `ButtonDown(...)` / `ButtonUp(...)` | Forward Game Boy button transitions to the joypad and interrupt logic.                                                                    |
 | `ToggleChannel(...)`                | Enable or mute one of the four emulated audio channels.                                                                                   |
+| `SupportsRumble` / `RumbleActive`   | Report whether the loaded cartridge has rumble hardware and its current motor-enable state.                                               |
+| `RumbleChanged`                     | Notify the host synchronously whenever an MBC5 rumble cartridge changes its motor-enable state.                                           |
 | `Terminate()`                       | Flush and close file-backed cartridge RAM. Safe to call repeatedly or before `Start()`.                                                   |
 
 Public constants and data types include:
@@ -200,6 +202,23 @@ emulator.Terminate();
 
 `SaveLocation` must already exist. If it is null or empty, saves are placed in the process working directory. `BootROM` bytes take precedence over `BootROMPath` when both are set. An `Emulator` instance supports one successful `Start()`; create a new instance to load or restart a ROM. Separate instances may run concurrently because their hardware bus and boot-ROM state are isolated. Give concurrent battery-backed cartridges distinct save paths unless the host coordinates access to the shared save file.
 
+Hosts can inspect ROM and boot-ROM files before constructing an emulator:
+
+```csharp
+CartridgeMetadata cartridge = CartridgeMetadata.Read(@"roms/game.gb");
+if (cartridge.Compatibility == CartridgeCompatibility.CgbOnly)
+{
+    // Do not offer a forced DMG launch for this cartridge.
+}
+
+if (BootRomMetadata.TryGetSystem(new FileInfo(@"firmware/cgb_boot.bin").Length, out BootRomSystem system))
+{
+    // The image has an exact supported DMG or CGB boot-ROM size.
+}
+```
+
+`CartridgeMetadata` reads only the required cartridge-header bytes and reports `DmgOnly`, `CgbCompatible`, or `CgbOnly`. `BootRomMetadata` exposes the same exact 256-byte DMG and 2,304-byte CGB image-size contract used by `Emulator.Start`. These APIs are engine-neutral so hosts can build ROM/firmware selection UI without duplicating core header rules.
+
 ### Video
 
 `GetScreenData()` returns the same `Color[160, 144]` array on every call. Pixels use `[x, y]` indexing, with scanline `0` at the top of the emulated display. CGB RGB555 palette components are expanded directly to the full 8-bit range by bit replication; the core does not apply an LCD color-response profile. The core publishes a completed frame to this host-visible buffer when the PPU enters VBlank, so an `Update()` call cannot expose a mixture of scanlines from adjacent hardware frames.
@@ -235,6 +254,19 @@ emulator.ButtonUp(JoypadButtons.Start);
 
 The core tracks active-low Game Boy joypad state and requests a joypad interrupt when an applicable button is newly pressed.
 
+### Rumble
+
+MBC5 rumble cartridges expose a binary motor output through `RumbleChanged` and `RumbleActive`. The event is raised synchronously on the thread calling `Update()` when cartridge register bit 3 changes, which preserves the on/off pulses games use to vary intensity. `SupportsRumble` distinguishes cartridge types `0x1C` through `0x1E` from ordinary MBC5 cartridges.
+
+```csharp
+emulator.RumbleChanged += active =>
+{
+    // Map active to host-configured controller motor speeds.
+};
+```
+
+`Terminate()` forces `RumbleActive` to `false` and raises one final off transition when necessary; repeated termination does not publish duplicates. A host should still stop its physical controller motors defensively on pause, focus loss, session replacement, and application shutdown. When emulation runs off the main thread, marshal controller API calls to the thread required by the host engine.
+
 ### Save data
 
 `Start()` opens or creates a save file named from the complete ROM filename plus `.sav`. For example, `game.gb` produces `game.gb.sav`. The file is created even for cartridges whose parsed RAM size is zero.
@@ -253,9 +285,9 @@ Timer-capable MBC3 cartridges append a BGB-compatible 48-byte RTC trailer after 
 | `GBC`   | Request Game Boy Color startup behavior.                                 | The default `Config` value; selects a supplied 2304-byte CGB image when booting.            |
 | `Skip`  | Begin from post-boot CPU/register state instead of executing a boot ROM. | Does not require firmware.                                                                  |
 | `Force` | Force the requested hardware mode where possible.                        | Forcing DMG mode rejects CGB-only cartridges.                                               |
-| `Short` | Use the shortened DMG startup animation.                                 | Applies the existing byte patch to a private copy of a supplied DMG image; ignored for CGB. |
+| `Short` | Use the shortened DMG startup animation.                                 | Shortens both the scroll and settled-logo pause in a private DMG-image copy; ignored for CGB. |
 
-The library embeds original GBZEmu boot ROMs (built from [bios/](bios/)) and uses them for any slot without a host-supplied image unless `Skip` is set. They render a custom "GBZEmu" wordmark with the cartridge header's own logo and a trademark symbol beneath it — the DMG image scrolls a two-tone italic lockup with the classic chime, while the CGB image reveals a shaded 128×24 wordmark through a diagonal rainbow band before settling to navy — and hand off with the same CPU and I/O state as the skip-boot profile (enforced by `GBZEmuTests/BootRomTests.cs`).
+The library embeds original GBZEmu boot ROMs (built from [bios/](bios/)) and uses them for any slot without a host-supplied image unless `Skip` is set. They render a custom "GBZEmu" wordmark with the cartridge header's own logo and a trademark symbol beneath it — the DMG image scrolls a two-tone italic lockup, holds the completed mark briefly, and plays the classic chime, while the CGB image reveals a shaded 128×24 wordmark through a diagonal rainbow band before settling to navy — and hand off with the same CPU and I/O state as the skip-boot profile (enforced by `GBZEmuTests/BootRomTests.cs`).
 
 To use real firmware instead, supply a 256-byte DMG or 2304-byte CGB image through `Emulator.Config.BootROMPath`, `Emulator.Config.BootROM`, or `Emulator.Config.BootROMPaths` (multiple files, each slotted by size; the single-image options win their slot). An invalid image length throws `ArgumentException`.
 
@@ -271,7 +303,7 @@ The cartridge header parser recognizes these controller families. Recognition do
 | MBC1             | Independent BANK1/BANK2/mode mapping, RAM banking, and MBC1M detection.                  | All 13 committed Mooneye MBC1 cases pass.                                                            |
 | MBC2             | A8-gated ROM/RAM commands and persistent 512×4-bit internal RAM.                         | All 7 committed Mooneye MBC2 cases pass.                                                             |
 | MBC3             | ROM/RAM banking plus cycle-driven RTC registers, latching, halt, carry, and persistence. | Broader game compatibility remains unverified.                                                       |
-| MBC5             | 9-bit ROM bank switching and RAM-bank selection.                                         | All 8 committed Mooneye MBC5 ROM-geometry cases pass; broader game compatibility remains unverified. |
+| MBC5             | 9-bit ROM banking, RAM-bank selection, and type-aware rumble output.                     | All 8 committed Mooneye MBC5 ROM-geometry cases pass; rumble has focused synthetic-ROM coverage.     |
 
 The header parser also detects DMG-only, CGB-compatible, and CGB-only ROM flags and includes the CGB work-RAM, VRAM, palette, speed-switch, and DMA paths.
 

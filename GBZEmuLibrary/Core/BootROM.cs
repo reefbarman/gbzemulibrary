@@ -8,8 +8,8 @@ namespace GBZEmuLibrary
     /// </summary>
     internal sealed class BootROM
     {
-        public const int DMG_SIZE = 0x100;
-        public const int GBC_SIZE = 0x900;
+        public const int DMG_SIZE = BootRomMetadata.DmgImageSize;
+        public const int GBC_SIZE = BootRomMetadata.CgbImageSize;
 
         private static readonly byte[] Empty = new byte[0];
 

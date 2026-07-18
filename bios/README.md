@@ -13,7 +13,7 @@ uses a small PackBits-style RLE stream.
 
 | Image          | Size       | Boot behavior                                                                                                                 |
 | -------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `dmg_boot.asm` | 256 bytes  | Two-tone italic lockup scrolls down above the original cartridge logo, chime, hand off (~1.1 s; ~0.5 s with `BootMode.Short`) |
+| `dmg_boot.asm` | 256 bytes  | Two-tone italic lockup scrolls down above the original cartridge logo, settles briefly, chimes, and hands off (~1.5 s; ~0.5 s with `BootMode.Short`) |
 | `cgb_boot.asm` | 2304 bytes | Shaded 128×24 wordmark reveals through a diagonal rainbow band and settles to navy (~1.6 s)                                   |
 
 The built binaries are embedded into `GBZEmuLibrary` as
@@ -28,8 +28,9 @@ without a host-supplied image (unless `BootMode.Skip` is set).
 - To fit 256 bytes, `dmg_boot` relies on two GBZEmu reset guarantees:
   VRAM starts zeroed and the APU reset profile is already applied. It is
   emulator-specific and would need those steps added for real hardware.
-- `dmg_boot` reads its scroll duration from byte `$00FD`; `BootMode.Short`
-  patches that byte from 60 frames to 20.
+- `dmg_boot` reads its scroll duration from byte `$00FD` and holds the settled
+  logo for half that duration; `BootMode.Short` patches the byte from 60 frames
+  to 20, shortening both phases.
 - `cgb_boot` uses all eight BG palettes for its white-to-rainbow-to-navy
   reveal, then restores a white-to-black grayscale ramp as palette 0 — the
   palette DMG carts keep in compatibility mode, matching real-hardware

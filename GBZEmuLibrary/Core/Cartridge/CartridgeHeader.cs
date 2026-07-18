@@ -15,6 +15,7 @@ namespace GBZEmuLibrary
         internal int ROMBanks { get; private set; } = 1;
         internal int RAMBanks { get; private set; } = 1;
         internal bool HasRTC { get; private set; }
+        internal bool HasRumble { get; private set; }
         internal bool CustomPalette { get; private set; }
 
         private bool _nintendoCart = false;
@@ -45,12 +46,12 @@ namespace GBZEmuLibrary
 
         private void ParseGBCMode(byte[] cart)
         {
-            switch (cart[CartridgeSchema.GBC_MODE_LOC])
+            switch (CartridgeMetadata.ClassifyCgbFlag(cart[CartridgeSchema.GBC_MODE_LOC]))
             {
-                case 0x80:
+                case CartridgeCompatibility.CgbCompatible:
                     GBCMode = GBCMode.GBCSupport;
                     break;
-                case 0xC0:
+                case CartridgeCompatibility.CgbOnly:
                     GBCMode = GBCMode.GBCOnly;
                     break;
             }
@@ -60,6 +61,7 @@ namespace GBZEmuLibrary
         {
             var code = cart[CartridgeSchema.MBC_MODE_LOC];
             HasRTC = code == 0x0F || code == 0x10;
+            HasRumble = code == 0x1C || code == 0x1D || code == 0x1E;
 
             switch (code)
             {

@@ -73,6 +73,42 @@ public sealed class BootRomTests
     }
 
     /// <summary>
+    /// The built-in DMG animation leaves its completed lockup visible long enough to avoid an
+    /// abrupt transition from the final scroll position into cartridge execution.
+    /// </summary>
+    [Fact]
+    public void BuiltInDmgBootRomHoldsSettledLogoBeforeHandoff()
+    {
+        using var rom = CreateRom(gbc: false);
+        var emulator = Start(rom, BootMode.DMG | BootMode.Force);
+        var sawScrolling = false;
+
+        for (var frame = 0; frame < LongBootFrameBudget; frame++)
+        {
+            emulator.Update();
+            var scrollY = emulator.Debug.PeekByte(0xFF42);
+            sawScrolling |= scrollY != 0;
+
+            if (sawScrolling && scrollY == 0)
+            {
+                break;
+            }
+        }
+
+        Assert.True(sawScrolling);
+        Assert.Equal(0, emulator.Debug.PeekByte(0xFF42));
+
+        for (var frame = 0; frame < 20; frame++)
+        {
+            emulator.Update();
+            Assert.NotEqual(0x00, emulator.Debug.PeekByte(0x0000));
+        }
+
+        Assert.True(emulator.Debug.RunUntilProgramCounter(CartridgeEntryPoint, LongBootFrameBudget));
+        emulator.Terminate();
+    }
+
+    /// <summary>
     /// A Nintendo-licensed DMG cart whose title checksum appears in the boot ROM hash table runs
     /// in GBC compatibility mode, colorized by the palettes the boot ROM wrote.
     /// </summary>

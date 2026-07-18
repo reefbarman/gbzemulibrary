@@ -81,7 +81,7 @@ internal sealed class Frontend : IDisposable
 
         // Boot each cartridge on its native hardware: GBC-flagged carts get the GBC
         // boot ROM, everything else boots as an original DMG.
-        var cgbCartridge = IsGBCCartridge(romPath);
+        var cgbCartridge = CartridgeMetadata.Read(romPath).Compatibility != CartridgeCompatibility.DmgOnly;
         var cgbHardware = !options.ForceDMG && cgbCartridge;
         _correctCgbColors = ShouldCorrectCgbColors(options.ForceDMG, cgbCartridge, options.RawColors);
         var bootMode = options.ForceDMG ? BootMode.DMG | BootMode.Force
@@ -178,21 +178,6 @@ internal sealed class Frontend : IDisposable
         }
     }
 
-    /// <summary>
-    /// Reads the cartridge header's GBC flag so each ROM boots on its native hardware.
-    /// </summary>
-    private static bool IsGBCCartridge(string romPath)
-    {
-        using var stream = File.OpenRead(romPath);
-        if (stream.Length <= 0x143)
-        {
-            return false;
-        }
-
-        stream.Position = 0x143;
-        var gbcFlag = stream.ReadByte();
-        return gbcFlag == 0x80 || gbcFlag == 0xC0;
-    }
 
     /// <summary>
     /// Determines whether native CGB execution should use the frontend color profile.

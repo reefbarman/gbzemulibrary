@@ -16,6 +16,20 @@ namespace GBZEmuLibrary
 
         public GBCMode GBCMode => _header.GBCMode;
         public bool CustomPalette => _header.CustomPalette;
+        /// <summary>
+        /// Gets whether the loaded cartridge declares an MBC5 rumble motor.
+        /// </summary>
+        public bool HasRumble => _header != null && _header.HasRumble;
+
+        /// <summary>
+        /// Gets the current motor-enable output for the loaded rumble cartridge.
+        /// </summary>
+        public bool RumbleActive { get; private set; }
+
+        /// <summary>
+        /// Raised synchronously when an MBC5 rumble cartridge changes its motor-enable bit.
+        /// </summary>
+        public event Action<bool> RumbleChanged;
 
         private readonly BootROM _bootROM;
         private readonly Func<long> _getUnixTimestamp;
@@ -61,6 +75,8 @@ namespace GBZEmuLibrary
         /// </summary>
         public bool LoadFile(string file, string saveLocation)
         {
+            SetRumble(false);
+
             if (File.Exists(file))
             {
                 try
@@ -95,20 +111,31 @@ namespace GBZEmuLibrary
             return false;
         }
 
+        /// <summary>
+        /// Turns off cartridge output, persists RTC state, and closes external RAM. Safe to call repeatedly.
+        /// </summary>
         public void Terminate()
         {
-            if (_externalRAM == null)
+            try
             {
-                return;
-            }
+                if (_externalRAM == null)
+                {
+                    return;
+                }
 
-            if (_mbc3RTC != null)
+                if (_mbc3RTC != null)
+                {
+                    _externalRAM.WriteRTCTrailer(_mbc3RTC.Save(_getUnixTimestamp()));
+                }
+
+                _externalRAM.Dispose();
+                _externalRAM = null;
+            }
+            finally
             {
-                _externalRAM.WriteRTCTrailer(_mbc3RTC.Save(_getUnixTimestamp()));
+                // Publish the off transition after storage cleanup so a host callback cannot prevent save flushing.
+                SetRumble(false);
             }
-
-            _externalRAM.Dispose();
-            _externalRAM = null;
         }
 
         public bool CanReadWriteByte(int address)
@@ -254,7 +281,9 @@ namespace GBZEmuLibrary
                             break;
 
                         case CartridgeSchema.MBCMode.MBC5:
-                            _ramBank = _header.RAMBanks == 0 ? 0 : Helpers.GetBits(data, 4) % _header.RAMBanks;
+                            var ramBankMask = _header.HasRumble ? 0x07 : 0x0F;
+                            _ramBank = _header.RAMBanks == 0 ? 0 : (data & ramBankMask) % _header.RAMBanks;
+                            SetRumble(_header.HasRumble && Helpers.TestBit(data, 3));
                             break;
                     }
                 }
@@ -435,6 +464,20 @@ namespace GBZEmuLibrary
             }
 
             _romBank %= _header.ROMBanks;
+        }
+
+        /// <summary>
+        /// Updates the emulated cartridge motor output and publishes only actual state transitions.
+        /// </summary>
+        private void SetRumble(bool active)
+        {
+            if (RumbleActive == active)
+            {
+                return;
+            }
+
+            RumbleActive = active;
+            RumbleChanged?.Invoke(active);
         }
     }
 }

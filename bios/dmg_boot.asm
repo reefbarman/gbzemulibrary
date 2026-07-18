@@ -19,8 +19,9 @@
 ;   A=$01 F=$B0 BC=$0013 DE=$00D8 HL=$014D SP=$FFFE PC=$0100
 ;   LCDC=$91 SCY=$00 BGP=$FC OBP0=OBP1=$FF
 ;
-; Byte $00FD is the scroll duration in frames (default 60). The emulator's
-; short-boot mode patches it to 20. The final two bytes must be LDH
+; Byte $00FD is the scroll duration in frames (default 60). Half that value
+; is also used for the settled-logo pause. The emulator's short-boot mode
+; patches it to 20. The final two bytes must be LDH
 ; [$FF50],A so the boot ROM unmaps
 ; itself with PC landing exactly on $0100.
 ;
@@ -107,10 +108,12 @@ Entry:
     ldh [$FF13], a
     ld a, $87
     ldh [$FF14], a          ; trigger ~1048 Hz
-    ld c, 8
+    ; Let the completed lockup breathe before the second note and hand-off.
+    ; Reuse half the scroll duration so short mode also shortens this pause.
+    srl b
 .noteGap
     call WaitFrame
-    dec c
+    dec b
     jr nz, .noteGap
     ld a, $C1
     ldh [$FF13], a

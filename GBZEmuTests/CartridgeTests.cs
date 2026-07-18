@@ -294,6 +294,74 @@ public sealed class CartridgeTests
     }
 
     /// <summary>
+    /// Runs a synthetic MBC5 rumble ROM and verifies the public host output, transition event, and shutdown reset.
+    /// </summary>
+    [Fact]
+    public void Mbc5RumbleRomPublishesMotorTransitions()
+    {
+        using var rom = CreateCartridge(0x1C, 0x00, 0x00);
+        var bytes = File.ReadAllBytes(rom.Path);
+        var program = new byte[]
+        {
+            0x3E, 0x08,       // LD A, $08
+            0xEA, 0x00, 0x40, // LD ($4000), A
+            0x18, 0xFE        // JR -2
+        };
+        Array.Copy(program, 0, bytes, 0x100, program.Length);
+        File.WriteAllBytes(rom.Path, bytes);
+
+        var emulator = EmulatorFactory.Start(rom);
+        var transitions = new List<bool>();
+        emulator.RumbleChanged += transitions.Add;
+
+        Assert.True(emulator.SupportsRumble);
+        Assert.False(emulator.RumbleActive);
+
+        emulator.Update();
+
+        Assert.True(emulator.RumbleActive);
+        Assert.Equal(new[] { true }, transitions);
+
+        emulator.Terminate();
+        emulator.Terminate();
+
+        Assert.False(emulator.RumbleActive);
+        Assert.Equal(new[] { true, false }, transitions);
+    }
+
+    /// <summary>
+    /// Verifies that rumble cartridges reserve RAM-bank bit 3 for the motor while ordinary MBC5 cartridges retain
+    /// all four RAM-bank bits.
+    /// </summary>
+    [Fact]
+    public void Mbc5RumbleReservesBitThreeFromRamBankSelection()
+    {
+        using var rumbleRom = CreateCartridge(0x1E, 0x00, 0x04);
+        var rumble = EmulatorFactory.Start(rumbleRom);
+        rumble.Debug.PokeByte(0x0A, 0x0000);
+        rumble.Debug.PokeByte(0x08, 0x4000);
+        rumble.Debug.PokeByte(0x44, 0xA000);
+        rumble.Debug.PokeByte(0x00, 0x4000);
+
+        Assert.False(rumble.RumbleActive);
+        Assert.Equal(0x44, rumble.Debug.PeekByte(0xA000));
+        rumble.Terminate();
+
+        using var ordinaryRom = CreateCartridge(0x1B, 0x00, 0x04);
+        var ordinary = EmulatorFactory.Start(ordinaryRom);
+        ordinary.Debug.PokeByte(0x0A, 0x0000);
+        ordinary.Debug.PokeByte(0x08, 0x4000);
+        ordinary.Debug.PokeByte(0x88, 0xA000);
+        ordinary.Debug.PokeByte(0x00, 0x4000);
+
+        Assert.False(ordinary.SupportsRumble);
+        Assert.NotEqual(0x88, ordinary.Debug.PeekByte(0xA000));
+        ordinary.Debug.PokeByte(0x08, 0x4000);
+        Assert.Equal(0x88, ordinary.Debug.PeekByte(0xA000));
+        ordinary.Terminate();
+    }
+
+    /// <summary>
     /// Confirms that address bit A8 selects between MBC2 RAM-enable and ROM-bank writes.
     /// Without this hardware gating, ordinary bank writes can accidentally enable RAM and corrupt saves.
     /// </summary>

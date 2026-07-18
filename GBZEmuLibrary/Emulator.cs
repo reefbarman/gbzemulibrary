@@ -43,6 +43,31 @@ namespace GBZEmuLibrary
 
         public EmulatorDebugger Debug { get; }
 
+        /// <summary>
+        /// Gets whether the loaded cartridge declares an MBC5 rumble motor.
+        /// </summary>
+        public bool SupportsRumble => _cartridge.HasRumble;
+
+        /// <summary>
+        /// Gets the current emulated cartridge motor-enable state.
+        /// </summary>
+        public bool RumbleActive => _cartridge.RumbleActive;
+
+        /// <summary>
+        /// Raised synchronously when a rumble cartridge changes its motor-enable state.
+        /// </summary>
+        public event Action<bool> RumbleChanged
+        {
+            add
+            {
+                _cartridge.RumbleChanged += value;
+            }
+            remove
+            {
+                _cartridge.RumbleChanged -= value;
+            }
+        }
+
         private int _clocksThisUpdate;
         private int _clocksThisFrame;
         private bool _hasStarted;
@@ -176,6 +201,9 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Stops cartridge output and flushes persistent cartridge state. Safe to call repeatedly.
+        /// </summary>
         public void Terminate()
         {
             if (!_running)
@@ -183,8 +211,14 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            _cartridge.Terminate();
-            _running = false;
+            try
+            {
+                _cartridge.Terminate();
+            }
+            finally
+            {
+                _running = false;
+            }
         }
 
         public void Update()
