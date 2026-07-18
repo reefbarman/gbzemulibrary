@@ -32,6 +32,9 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | `ToggleChannel(...)`                | Enable or mute one of the four emulated audio channels.                                                                                   |
 | `SupportsRumble` / `RumbleActive`   | Report whether the loaded cartridge has rumble hardware and its current motor-enable state.                                               |
 | `RumbleChanged`                     | Notify the host synchronously whenever an MBC5 rumble cartridge changes its motor-enable state.                                           |
+| `CaptureState()` / `RestoreState()` | Capture or restore a versioned snapshot bound to the running ROM, firmware, and hardware mode.                                            |
+| `AdvanceFrames(...)`                | Execute a bounded number of hardware frames without adding wall-clock pacing.                                                             |
+| `FastForward(...)`                  | Execute multiple hardware frames immediately while draining their core audio.                                                             |
 | `Terminate()`                       | Flush and close file-backed cartridge RAM. Safe to call repeatedly or before `Start()`.                                                   |
 
 Public constants and data types include:
@@ -91,6 +94,45 @@ Each ROM is a normal test case: passing ROMs are green and failing ROMs are red 
 - `RequestStop()` / `Resume()` cooperatively stop inside the current frame so breakpoint state can be inspected exactly.
 
 Debug state methods require a successfully started, non-terminated emulator. `Update()` returns immediately while stopped.
+
+## Time and progression control
+
+The core exposes engine-neutral building blocks for save states, rewind, and fast-forward. Hosts remain responsible for
+storage UI, button mapping, wall-clock pacing, and audio-device queue management.
+
+```csharp
+// Save and restore. ToArray()/FromArray() provide the persistence boundary.
+EmulatorState state = emulator.CaptureState();
+File.WriteAllBytes(path, state.ToArray());
+emulator.RestoreState(EmulatorState.FromArray(File.ReadAllBytes(path)));
+
+// Retain 10 seconds at roughly 10 checkpoints per second when Capture is called every six frames.
+var rewind = new RewindBuffer(capacity: 100);
+rewind.Capture(emulator);
+rewind.TryRewind(emulator);
+
+// Run ten hardware frames immediately and discard the audio they generate.
+int completedFrames = emulator.FastForward(10);
+```
+
+Save-state format version 1 captures CPU, interrupts, MMU/main/work RAM, cartridge banking and RAM, MBC3 RTC phase,
+timer/divider, serial, joypad, DMA, PPU/framebuffers, APU channels, and core audio buffers. A SHA-256 checksum rejects
+corrupt data. States are bound to the exact ROM bytes, selected boot-ROM bytes, and hardware mode; firmware is hashed,
+not embedded.
+Restoring a state into another running instance is supported when it was started with the same ROM and firmware setup.
+Other format versions and mismatched ROM/firmware identities are rejected explicitly.
+
+`RewindBuffer` is bound to one emulator instance until cleared and bounded by checkpoint count. Its duration
+and memory cost therefore depend on the host's capture cadence and each state's `SerializedLength`.
+`TryRewind()` drops the newest checkpoint and restores the preceding one;
+the oldest retained checkpoint is never crossed. Restoring cartridge RAM also restores the active file-backed `.sav`
+contents, so rewinding past an in-game save can intentionally roll that save data back.
+
+`AdvanceFrames(frameCount, discardAudio)` and `FastForward(frameCount)` do not introduce wall-clock timing. They execute
+the same hardware-frame path as repeated `Update()` calls; `FastForward` drains each frame's core audio. A host should
+also clear or reconcile any samples already queued to its audio device after restore, rewind, or a fast-forward mode
+transition. When `discardAudio` is false, the existing one-frame core buffer remains bounded; it does not accumulate an
+arbitrary multi-frame batch. All state and progression calls obey the existing single-instance thread-safety constraint.
 
 ## Test frontend
 
@@ -287,7 +329,7 @@ Timer-capable MBC3 cartridges append a BGB-compatible 48-byte RTC trailer after 
 | `Force` | Force the requested hardware mode where possible.                        | Forcing DMG mode rejects CGB-only cartridges.                                               |
 | `Short` | Use the shortened DMG startup animation.                                 | Shortens both the scroll and settled-logo pause in a private DMG-image copy; ignored for CGB. |
 
-The library embeds original GBZEmu boot ROMs (built from [bios/](bios/)) and uses them for any slot without a host-supplied image unless `Skip` is set. They render a custom "GBZEmu" wordmark with the cartridge header's own logo and a trademark symbol beneath it — the DMG image scrolls a two-tone italic lockup, holds the completed mark briefly, and plays the classic chime, while the CGB image reveals a shaded 128×24 wordmark through a diagonal rainbow band before settling to navy — and hand off with the same CPU and I/O state as the skip-boot profile (enforced by `GBZEmuTests/BootRomTests.cs`).
+The library embeds original GBZEmu boot ROMs (built from [bios/](bios/)) and uses them for any slot without a host-supplied image unless `Skip` is set. They render a custom "GBZEmu" wordmark with the cartridge header's own logo and a trademark symbol beneath it — the DMG image scrolls a two-tone italic lockup, holds the completed mark briefly, and plays the classic chime, while the CGB image reveals a shaded 128×24 wordmark through a diagonal rainbow band before settling to navy. For monochrome cartridges, the CGB replacement implements the original firmware's complete automatic title-specific BG/OBJ palette selection; boot-time manual palette button overrides are not implemented. The images hand off with the same CPU and I/O state as the skip-boot profile (enforced by `GBZEmuTests/BootRomTests.cs`).
 
 To use real firmware instead, supply a 256-byte DMG or 2304-byte CGB image through `Emulator.Config.BootROMPath`, `Emulator.Config.BootROM`, or `Emulator.Config.BootROMPaths` (multiple files, each slotted by size; the single-image options win their slot). An invalid image length throws `ArgumentException`.
 
@@ -366,7 +408,7 @@ GBZEmuTests/                    xUnit debug and ROM-conformance harness
 - A single `Emulator` instance and its reused public buffers are not thread-safe. Coordinate calls to one instance and copy output buffers before consuming them asynchronously.
 - The host owns real-time pacing and audio underrun/overrun handling; the core advances one approximately 59.7275 Hz hardware frame per `Update()`.
 - STOP behavior is incomplete. Serial debug transfers are exposed through `Emulator.Debug.SerialByteTransferred`; internal-clock timing and completion interrupts are modeled, while external-clock starts remain pending. Link-cable peer exchange and externally supplied clock edges are not implemented.
-- The included frontend is deliberately minimal: no debugger UI, rewind, save states, configurable input mapping, or engine-specific adapter is included; ROM selection is limited to the configured directory picker.
+- The included frontend is deliberately minimal: it has no debugger, rewind/save-state, fast-forward, configurable input-mapping, or engine-specific UI; ROM selection is limited to the configured directory picker.
 
 ## Legal and license status
 

@@ -16,6 +16,7 @@ namespace GBZEmuLibrary
 
         public GBCMode GBCMode => _header.GBCMode;
         public bool CustomPalette => _header.CustomPalette;
+        internal byte[] ROMBytes => _cartMemory;
         /// <summary>
         /// Gets whether the loaded cartridge declares an MBC5 rumble motor.
         /// </summary>
@@ -33,8 +34,10 @@ namespace GBZEmuLibrary
 
         private readonly BootROM _bootROM;
         private readonly Func<long> _getUnixTimestamp;
+        [SaveStateIgnore]
         private byte[] _cartMemory;
 
+        [SaveStateIgnore]
         private CartridgeHeader _header;
         private ExternalRAM _externalRAM;
         private MBC3RTC _mbc3RTC;
@@ -478,6 +481,17 @@ namespace GBZEmuLibrary
 
             RumbleActive = active;
             RumbleChanged?.Invoke(active);
+        }
+
+        /// <summary>
+        /// Synchronizes a host motor after a state restore changed the cartridge's serialized output latch.
+        /// </summary>
+        internal void PublishRestoredRumbleState(bool previousState)
+        {
+            if (previousState != RumbleActive)
+            {
+                RumbleChanged?.Invoke(RumbleActive);
+            }
         }
     }
 }

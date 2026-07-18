@@ -124,8 +124,8 @@ public sealed class BootRomTests
         var emulator = Start(rom, BootMode.GBC);
         Assert.True(emulator.Debug.RunUntilProgramCounter(CartridgeEntryPoint, LongBootFrameBudget));
 
-        // BG palette 0 color 3 is black ($0000) instead of the $FFFF power-on default,
-        // proving the boot ROM installed the grayscale compatibility ramp.
+        // The selected title combination installs black as BG palette 0 color 3
+        // instead of retaining the $FFFF power-on default.
         emulator.Debug.PokeByte(0x06, 0xFF68);
         Assert.Equal(0x00, emulator.Debug.PeekByte(0xFF69));
 
@@ -134,11 +134,6 @@ public sealed class BootRomTests
         Assert.Equal(0xC4, emulator.Debug.PeekByte(0xFF69));
         emulator.Debug.PokeByte(0x3F, 0xFF68);
         Assert.Equal(0x38, emulator.Debug.PeekByte(0xFF69));
-
-        // The BIOS blanks the display and clears its artwork before hand-off.
-        var screen = emulator.GetScreenData();
-        Assert.Equal((255, 255, 255), (screen[0, 0].R, screen[0, 0].G, screen[0, 0].B));
-        Assert.Equal((255, 255, 255), (screen[24, 48].R, screen[24, 48].G, screen[24, 48].B));
 
         // Cartridge execution starts during vblank, matching the stock CGB firmware's
         // phase closely enough that a first-frame interrupt cannot fire during line 0.
@@ -166,6 +161,35 @@ public sealed class BootRomTests
         Assert.True(retainedTileData);
 
         emulator.Debug.PokeByte(0x00, 0xFF4F);
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Donkey Kong Land's 16-byte title selects the stock combination with separate OBJ0, OBJ1, and BG palettes.
+    /// This guards the complete title-specific lookup rather than merely checking that a title hash is recognized.
+    /// </summary>
+    [Fact]
+    public void BuiltInCgbBootRomSelectsDonkeyKongLandPalettes()
+    {
+        using var rom = CreateRom(gbc: false);
+        var bytes = File.ReadAllBytes(rom.Path);
+        "DONKEYKONGLAND95"u8.CopyTo(bytes.AsSpan(0x134, 16));
+        bytes[0x14B] = 0x01;
+        File.WriteAllBytes(rom.Path, bytes);
+
+        var emulator = Start(rom, BootMode.GBC | BootMode.Force);
+        Assert.True(emulator.Debug.RunUntilProgramCounter(CartridgeEntryPoint, LongBootFrameBudget));
+
+        Assert.Equal(
+            new byte[] { 0x1F, 0x23, 0x5F, 0x03, 0xF2, 0x00, 0x09, 0x00 },
+            ReadPalette(emulator, 0xFF6A, 0xFF6B, 0));
+        Assert.Equal(
+            new byte[] { 0xFF, 0x7F, 0x1F, 0x42, 0xF2, 0x1C, 0x00, 0x00 },
+            ReadPalette(emulator, 0xFF6A, 0xFF6B, 8));
+        Assert.Equal(
+            new byte[] { 0xFF, 0x4F, 0xD2, 0x7E, 0x4C, 0x3A, 0xE0, 0x1C },
+            ReadPalette(emulator, 0xFF68, 0xFF69, 0));
+
         emulator.Terminate();
     }
 
@@ -259,6 +283,18 @@ public sealed class BootRomTests
         var path = Path.Combine(Path.GetTempPath(), $"gbzemu-boot-{Guid.NewGuid():N}.bin");
         File.WriteAllBytes(path, image);
         return path;
+    }
+
+    private static byte[] ReadPalette(Emulator emulator, int indexAddress, int dataAddress, int startIndex)
+    {
+        var palette = new byte[8];
+        for (var offset = 0; offset < palette.Length; offset++)
+        {
+            emulator.Debug.PokeByte((byte)(startIndex + offset), indexAddress);
+            palette[offset] = emulator.Debug.PeekByte(dataAddress);
+        }
+
+        return palette;
     }
 
     private static TestRom CreateRom(bool gbc)

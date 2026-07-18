@@ -5,7 +5,7 @@ namespace GBZEmuLibrary
     /// <summary>
     /// Provides file-backed cartridge RAM while preserving optional controller metadata appended after raw RAM bytes.
     /// </summary>
-    internal class ExternalRAM
+    internal class ExternalRAM : IStateSerializable
     {
         public bool Enabled
         {
@@ -102,6 +102,56 @@ namespace GBZEmuLibrary
         {
             _externalRAM.Position = address;
             return (byte)_externalRAM.ReadByte();
+        }
+
+        /// <summary>
+        /// Captures raw battery-backed RAM and the active RAM-enable latch without including persistence metadata.
+        /// </summary>
+        public void WriteState(BinaryWriter writer)
+        {
+            writer.Write(Length);
+            writer.Write(_enabled);
+
+            var originalPosition = _externalRAM.Position;
+            _externalRAM.Position = 0;
+            var data = new byte[Length];
+            var offset = 0;
+            while (offset < data.Length)
+            {
+                var read = _externalRAM.Read(data, offset, data.Length - offset);
+                if (read == 0)
+                {
+                    throw new EndOfStreamException("Cartridge RAM ended before its declared size.");
+                }
+
+                offset += read;
+            }
+
+            _externalRAM.Position = originalPosition;
+            writer.Write(data);
+        }
+
+        /// <summary>
+        /// Restores raw battery-backed RAM in place so subsequent cartridge writes continue using the same save file.
+        /// </summary>
+        public void ReadState(BinaryReader reader)
+        {
+            var length = reader.ReadInt32();
+            if (length != Length)
+            {
+                throw new InvalidDataException("Save state cartridge RAM size does not match the loaded ROM.");
+            }
+
+            _enabled = reader.ReadBoolean();
+            var data = reader.ReadBytes(length);
+            if (data.Length != length)
+            {
+                throw new EndOfStreamException("Save state ended inside cartridge RAM.");
+            }
+
+            _externalRAM.Position = 0;
+            _externalRAM.Write(data, 0, data.Length);
+            _externalRAM.Flush();
         }
     }
 }

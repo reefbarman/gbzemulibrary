@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Security.Cryptography;
 
 namespace GBZEmuLibrary
 {
@@ -72,6 +73,7 @@ namespace GBZEmuLibrary
         private int _clocksThisFrame;
         private bool _hasStarted;
         private bool _running;
+        private byte[] _stateIdentity;
 
         /// <summary>
         /// Creates an emulator instance with isolated hardware, boot-ROM, and internal-bus state.
@@ -174,11 +176,15 @@ namespace GBZEmuLibrary
 
                     if (config.BootMode.IsSet(BootMode.Force))
                     {
-                        mode = _cartridge.GBCMode == GBCMode.GBCOnly ? GBCMode.GBCOnly : GBCMode.GBCSupport;
+                        mode = _cartridge.GBCMode == GBCMode.NoGBC
+                            ? GBCMode.GBCCompatibility
+                            : _cartridge.GBCMode;
                     }
                     else
                     {
-                        mode = _cartridge.CustomPalette ? GBCMode.GBCSupport : _cartridge.GBCMode;
+                        mode = _cartridge.GBCMode == GBCMode.NoGBC
+                            ? GBCMode.GBCCompatibility
+                            : _cartridge.GBCMode;
                     }
                 }
 
@@ -188,10 +194,11 @@ namespace GBZEmuLibrary
                 _apu.Reset();
                 _timerState.Reset(useBootRom, mode);
                 _cpu.Reset(useBootRom, mode);
-                _gpu.Reset(mode != GBCMode.NoGBC);
+                _gpu.Reset(mode, useBootRom);
 
                 _hasStarted = true;
                 _running = true;
+                _stateIdentity = ComputeStateIdentity(mode);
                 return true;
             }
             catch
@@ -221,11 +228,113 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Advances emulated hardware until one 70,224-cycle frame budget completes.
+        /// </summary>
         public void Update()
+        {
+            UpdateFrame();
+        }
+
+        /// <summary>
+        /// Advances up to the requested number of hardware frames without applying wall-clock pacing.
+        /// </summary>
+        /// <param name="frameCount">Maximum completed frames to emulate.</param>
+        /// <param name="discardAudio">Whether to drain each completed frame's audio instead of leaving it for playback.</param>
+        /// <returns>The number of completed frames; debugger stops can return fewer.</returns>
+        public int AdvanceFrames(int frameCount, bool discardAudio = false)
+        {
+            if (frameCount < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(frameCount));
+            }
+
+            EnsureRunning();
+
+            var completed = 0;
+            while (completed < frameCount && UpdateFrame())
+            {
+                completed++;
+                if (discardAudio)
+                {
+                    _apu.GetSoundSamples(out _);
+                }
+            }
+
+            return completed;
+        }
+
+        /// <summary>
+        /// Advances multiple hardware frames while discarding their audio, suitable for host-controlled fast-forward.
+        /// </summary>
+        public int FastForward(int frameCount)
+        {
+            return AdvanceFrames(frameCount, true);
+        }
+
+        /// <summary>
+        /// Captures all mutable machine state in a versioned payload bound to the current ROM and boot-ROM setup.
+        /// </summary>
+        public EmulatorState CaptureState()
+        {
+            EnsureRunning();
+
+            var timing = new[] { _clocksThisUpdate, _clocksThisFrame };
+            var payload = StateSerialization.Write(
+                timing,
+                _cartridge,
+                _bootROM,
+                _gpu,
+                _timerState,
+                _joypad,
+                _apu,
+                _serialRegisters,
+                _mmu,
+                _cpu);
+            return StateEnvelope.Create(_stateIdentity, payload);
+        }
+
+        /// <summary>
+        /// Restores a compatible snapshot into this running instance without restarting the cartridge.
+        /// </summary>
+        public void RestoreState(EmulatorState state)
+        {
+            if (state == null)
+            {
+                throw new ArgumentNullException(nameof(state));
+            }
+
+            EnsureRunning();
+            var parsed = StateEnvelope.Parse(state.Data, _stateIdentity);
+            var timing = new int[2];
+            var previousRumbleState = _cartridge.RumbleActive;
+
+            StateSerialization.Read(
+                parsed.Payload,
+                timing,
+                _cartridge,
+                _bootROM,
+                _gpu,
+                _timerState,
+                _joypad,
+                _apu,
+                _serialRegisters,
+                _mmu,
+                _cpu);
+
+            _clocksThisUpdate = timing[0];
+            _clocksThisFrame = timing[1];
+            _cartridge.PublishRestoredRumbleState(previousRumbleState);
+        }
+
+        /// <summary>
+        /// Executes until one frame budget completes, preserving partial progress when debugger execution stops.
+        /// </summary>
+        private bool UpdateFrame()
         {
             if (Debug.StopRequested)
             {
-                return;
+                return false;
             }
 
             do
@@ -238,7 +347,10 @@ namespace GBZEmuLibrary
             if (_clocksThisFrame >= Display.CLOCK_CYCLES_PER_FRAME)
             {
                 _clocksThisFrame -= Display.CLOCK_CYCLES_PER_FRAME;
+                return true;
             }
+
+            return false;
         }
 
         public Color[,] GetScreenData()
@@ -291,6 +403,34 @@ namespace GBZEmuLibrary
             _cartridge.Update(cycles);
             _gpu.Update(cycles);
             _apu.Update(cycles);
+        }
+
+        /// <summary>
+        /// Rejects time-control operations when hardware or cartridge storage is not live.
+        /// </summary>
+        private void EnsureRunning()
+        {
+            if (!_running)
+            {
+                throw new InvalidOperationException("This operation requires a running emulator.");
+            }
+        }
+
+        /// <summary>
+        /// Hashes ROM and selected firmware identities without embedding copyrighted firmware bytes in state files.
+        /// </summary>
+        private byte[] ComputeStateIdentity(GBCMode mode)
+        {
+            using (var sha256 = SHA256.Create())
+            {
+                var romHash = sha256.ComputeHash(_cartridge.ROMBytes);
+                var bootHash = sha256.ComputeHash(_bootROM.Bytes ?? new byte[0]);
+                var combined = new byte[romHash.Length + bootHash.Length + 1];
+                Buffer.BlockCopy(romHash, 0, combined, 0, romHash.Length);
+                Buffer.BlockCopy(bootHash, 0, combined, romHash.Length, bootHash.Length);
+                combined[combined.Length - 1] = (byte)mode;
+                return sha256.ComputeHash(combined);
+            }
         }
     }
 }

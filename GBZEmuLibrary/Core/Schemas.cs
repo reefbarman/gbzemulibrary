@@ -55,7 +55,7 @@
         public const int BOOT_ROM_SECTION_2_START = 0x200;
         public const int BOOT_ROM_SECTION_2_END = 0x0900;
         public const int BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_START = 0x6C7;
-        public const int BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_END = 0x716;
+        public const int BOOT_ROM_CUSTOM_PALETTE_HASH_TABLE_END = 0x724;
 
         public const int MAX_RAM_SIZE = 0x10000;
         public const int MAX_VRAM_SIZE = 0x4000;
@@ -129,7 +129,8 @@
     {
         NoGBC,
         GBCSupport,
-        GBCOnly
+        GBCOnly,
+        GBCCompatibility
     }
 
     internal class CartridgeSchema

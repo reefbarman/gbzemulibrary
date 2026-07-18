@@ -302,6 +302,40 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// CGB DMG-compatibility mode maps a tile's two-bit color number through BGP before selecting
+    /// one of the four RGB555 colors installed by the boot ROM.
+    /// </summary>
+    [Fact]
+    public void CgbCompatibilityBackgroundUsesDmgPaletteRegisterMapping()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(GBCMode.GBCCompatibility, usingBootROM: false);
+
+        var palette = new byte[]
+        {
+            0x1F, 0x00,
+            0x00, 0x00,
+            0x00, 0x00,
+            0x00, 0x7C
+        };
+        gpu.WriteByte(0x80, MemorySchema.GPU_GBC_BG_PALETTE_INDEX_REGISTER);
+        foreach (var value in palette)
+        {
+            gpu.WriteByte(value, MemorySchema.GPU_GBC_BG_PALETTE_DATA_REGISTER);
+        }
+
+        // Tile color 0 maps to palette color 3, reversing red to blue.
+        gpu.WriteByte(0x03, 0xFF47);
+        gpu.Update(4);
+        gpu.WriteByte(0x91, 0xFF40);
+        AdvanceToVBlank(gpu);
+
+        var pixel = gpu.GetScreenData()[0, 1];
+        Assert.Equal((0, 0, 255), (pixel.R, pixel.G, pixel.B));
+        Assert.Equal(0, pixel.Index);
+    }
+
+    /// <summary>
     /// Verifies that disabling the CGB LCD immediately blanks the host-visible framebuffer.
     /// </summary>
     [Fact]

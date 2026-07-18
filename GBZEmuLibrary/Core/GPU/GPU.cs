@@ -136,6 +136,7 @@ namespace GBZEmuLibrary
         private bool _dmgVBlankMode2InterruptSource;
 
         private bool _gbcMode = false;
+        private bool _dmgCompatibilityMode;
 
         private readonly MessageBus _messageBus;
 
@@ -154,7 +155,16 @@ namespace GBZEmuLibrary
         /// </summary>
         public void Reset(bool gbcMode)
         {
-            _gbcMode = gbcMode;
+            Reset(gbcMode ? GBCMode.GBCSupport : GBCMode.NoGBC, usingBootROM: false);
+        }
+
+        /// <summary>
+        /// Resets mode-dependent PPU state while preserving native CGB behavior during a color boot ROM.
+        /// </summary>
+        public void Reset(GBCMode mode, bool usingBootROM)
+        {
+            _gbcMode = mode != GBCMode.NoGBC && (mode != GBCMode.GBCCompatibility || usingBootROM);
+            _dmgCompatibilityMode = mode == GBCMode.GBCCompatibility && !usingBootROM;
             _statInterruptLineHigh = false;
             _dmgVBlankMode2InterruptSource = false;
             _hBlankClockTarget = HBLANK_CLOCKS;
@@ -165,6 +175,15 @@ namespace GBZEmuLibrary
             _scanlineScrollXLow = 0;
             _line153EarlyReset = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
+        }
+
+        /// <summary>
+        /// Switches the PPU from boot-time CGB behavior to the DMG-compatible renderer at firmware handoff.
+        /// </summary>
+        public void EnterDmgCompatibilityMode()
+        {
+            _gbcMode = false;
+            _dmgCompatibilityMode = true;
         }
 
         /// <summary>
@@ -1009,7 +1028,9 @@ namespace GBZEmuLibrary
 
         private Color GetColor(bool bgWindow, byte colorValue, byte attributes, int paletteAddress)
         {
-            if (!_gbcMode)
+            var rawColorValue = colorValue;
+
+            if (!_gbcMode && !_dmgCompatibilityMode)
             {
                 var colorIndex = GetColorIndex(colorValue, MemorySchema.GPU_REGISTERS_START | paletteAddress);
 
@@ -1019,7 +1040,14 @@ namespace GBZEmuLibrary
                 }; //TODO replace with swappable colors
             }
 
-            var paletteIndex = Helpers.GetBits(attributes, 3);
+            var paletteIndex = _dmgCompatibilityMode
+                ? (bgWindow || !Helpers.TestBit(attributes, (int)SpriteAttributesBits.PaletteNum) ? 0 : 1)
+                : Helpers.GetBits(attributes, 3);
+
+            if (_dmgCompatibilityMode)
+            {
+                colorValue = (byte)GetColorIndex(colorValue, MemorySchema.GPU_REGISTERS_START | paletteAddress);
+            }
 
             var palette = bgWindow ? _bgPaletteData : _spritePaletteData;
 
@@ -1031,7 +1059,7 @@ namespace GBZEmuLibrary
                     g: ExpandFiveBit((colorBytes >> 5) & 0x1F),
                     b: ExpandFiveBit((colorBytes >> 10) & 0x1F)
                 )
-            { Index = colorValue };
+            { Index = rawColorValue };
         }
 
         /// <summary>

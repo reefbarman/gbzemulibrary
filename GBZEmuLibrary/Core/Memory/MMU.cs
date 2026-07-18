@@ -18,7 +18,9 @@ namespace GBZEmuLibrary
         private readonly WorkRAM _workRAM = new WorkRAM();
         private readonly APU _apu;
         private readonly BootROM _bootROM;
+        private readonly GPU _gpu;
         private readonly SerialRegisters _serialRegisters;
+        private readonly DMAController _dmaController;
 
         private readonly MainMemory _mainMemory = new MainMemory();
         private GBCMode _mode;
@@ -30,11 +32,13 @@ namespace GBZEmuLibrary
         {
             _apu = apu;
             _bootROM = bootROM;
+            _gpu = gpu;
             _serialRegisters = serialRegisters;
+            _dmaController = new DMAController(messageBus);
 
             var memoryUnits = new List<IMemoryUnit>
             {
-                cart, gpu, _workRAM, joypad, serialRegisters, divideRegister, timer, apu, new DMAController(messageBus), new UnmappedIO()
+                cart, gpu, _workRAM, joypad, serialRegisters, divideRegister, timer, apu, _dmaController, new UnmappedIO()
             };
 
             messageBus.OnReadByte = ReadByte;
@@ -141,6 +145,12 @@ namespace GBZEmuLibrary
             if (_memoryUnitLookup.ContainsKey(address))
             {
                 _memoryUnitLookup[address].WriteByte(data, address);
+
+                if (address == MemorySchema.BOOT_ROM_DISABLE_REGISTER && _mode == GBCMode.GBCCompatibility)
+                {
+                    _gpu.EnterDmgCompatibilityMode();
+                }
+
                 return;
             }
 

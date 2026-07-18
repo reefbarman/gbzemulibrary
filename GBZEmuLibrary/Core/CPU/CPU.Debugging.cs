@@ -6,6 +6,7 @@
         internal System.Action BreakpointHit;
 
         private ulong _totalClocks;
+        [SaveStateIgnore]
         private TraceBuffer _traceBuffer;
 
         internal CpuDebugState GetDebugState()

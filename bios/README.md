@@ -32,19 +32,23 @@ without a host-supplied image (unless `BootMode.Skip` is set).
   logo for half that duration; `BootMode.Short` patches the byte from 60 frames
   to 20, shortening both phases.
 - `cgb_boot` uses all eight BG palettes for its white-to-rainbow-to-navy
-  reveal, then restores a white-to-black grayscale ramp as palette 0 — the
-  palette DMG carts keep in compatibility mode, matching real-hardware
-  defaults for unlisted carts. Before hand-off it blanks the LCD, clears both
-  tile maps in both VRAM banks while preserving tile data, restarts the LCD,
+  reveal, then applies the original CGB firmware's automatic DMG compatibility
+  selection. Nintendo-licensed titles use the documented 16-byte title checksum
+  and fourth-letter disambiguation to select separate BG, OBJ0, and OBJ1 RGB555
+  palettes; other titles receive the original default combination. Before
+  hand-off it blanks the LCD, clears both tile maps in both VRAM banks while preserving tile data, restarts the LCD,
   and waits for VBlank so no boot artwork or line-0 startup phase leaks into
   cartridge rendering.
 - `cgb_boot` also runs cleanly when a DMG-only cart boots in DMG mode: it
   detects that mode via a KEY1 read and skips VBK/attribute work, and the
   ignored palette writes leave a plain dark-on-light logo.
-- `cgb_boot` carries the DMG title-checksum table at the stock offsets
-  (`$06C7-$0716`) that `CartridgeHeader` reads to grant known DMG carts a
-  compatibility palette. The checksums are factual data (sums of cartridge
-  title bytes, documented in Pan Docs).
+- `cgb_boot` carries the complete automatic-selection data documented by
+  [Pan Docs](https://gbdev.io/pandocs/Power_Up_Sequence.html#compatibility-palettes)
+  and [SameBoy](https://github.com/LIJI32/SameBoy/blob/master/BootROMs/cgb_boot.asm):
+  94 checksum/title-disambiguation entries, 51 stock combinations, and 30 stock
+  RGB555 palettes. Local oracle validation compares all 94 automatic selections
+  against an original CGB firmware image; proprietary firmware is never embedded
+  or committed. Manual boot-time button overrides remain outside this replacement's scope.
 
 ## Building
 

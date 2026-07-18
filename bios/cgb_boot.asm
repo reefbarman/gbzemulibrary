@@ -5,8 +5,8 @@
 ; 128x24 "GBZEmu" wordmark is revealed by a diagonal rainbow band, with the
 ; cartridge's own header logo ($0104-$0133) and a registered-trademark
 ; symbol rendered beneath it exactly like real firmware draws them. The
-; classic two-note chime plays and a default DMG-compatibility palette is
-; installed before handing off. This image contains no Nintendo code or
+; classic two-note chime plays and the documented title-specific CGB
+; compatibility palettes are installed before handing off. This image contains no Nintendo code or
 ; logo data and performs no header logo/checksum lock-up, so any
 ; cartridge boots.
 ;
@@ -34,6 +34,92 @@ SECTION "entry", ROM0[$0000]
 Entry:
     ld sp, $FFFE
     jp Main
+
+SECTION "compatibility_lookup", ROM0[$0006]
+
+; Selects the stock compatibility palette combination from the Nintendo
+; license code, 16-byte title checksum, and duplicate-checksum fourth letter.
+; The table values are factual hardware data documented by Pan Docs and SameBoy.
+InstallCompatibilityPalettes:
+    ld a, [$0143]
+    bit 7, a
+    ret nz                    ; Native CGB cartridges choose their own palettes.
+
+    ld a, [$014B]
+    cp $01
+    jr z, .checksum
+    cp $33
+    jr nz, .default
+    ld a, [$0144]
+    cp '0'
+    jr nz, .default
+    ld a, [$0145]
+    cp '1'
+    jr nz, .default
+
+.checksum
+    ld hl, $0134
+    ld b, 16
+    xor a
+.checksumByte
+    add [hl]
+    inc hl
+    dec b
+    jr nz, .checksumByte
+    ld e, a
+
+    ld hl, TitleChecksums
+    ld c, 0
+.search
+    ld a, c
+    cp ChecksumsEnd - TitleChecksums
+    jr z, .default
+    ld a, [hl+]
+    cp e
+    jr z, .possibleMatch
+.next
+    inc c
+    jr .search
+
+.possibleMatch
+    ld a, c
+    cp FirstChecksumWithDuplicate - TitleChecksums
+    jr c, .match
+    sub FirstChecksumWithDuplicate - TitleChecksums
+    push de
+    ld e, a
+    ld d, 0
+    push hl
+    ld hl, Dups4thLetterArray
+    add hl, de
+    ld a, [$0137]
+    cp [hl]
+    pop hl
+    pop de
+    jr nz, .next
+
+.match
+    ld b, 0
+    ld hl, PalettePerChecksum
+    add hl, bc
+    ld a, [hl]
+    and $7F
+    jp LoadCompatibilityPaletteCombination
+
+.default
+    xor a
+    jp LoadCompatibilityPaletteCombination
+
+PalettePerChecksum:
+    db 0, 4, 5, 35, 34, 3, 31, 15, 10, 5, 19, 36, $87, 37, 30, 44
+    db 21, 32, 31, 20, 5, 33, 13, 14, 5, 29, 5, 18, 9, 3, 2, 26
+    db 25, 25, 41, 42, 26, 45, 42, 45, 36, 38, $9A, 42, 30, 41, 34, 34
+    db 5, 42, 6, 5, 33, 25, 42, 42, 40, 2, 16, 25, 42, 42, 5, 0
+    db 39, 36, 22, 25, 6, 32, 12, 36, 11, 39, 18, 39, 24, 31, 50, 17
+    db 46, 6, 27, 0, 47, 41, 41, 0, 0, 19, 34, 23, 18, 29
+
+Dups4thLetterArray:
+    db "BEFAARBEKEK R-URAR INAILICE R"
 
 SECTION "tail", ROM0[$00EF]
 
@@ -238,20 +324,14 @@ Main:
     dec c
     jr nz, .hold
 
-    ; Restore the grayscale compatibility palette and clear attributes
-    ; during vblank, so DMG games inherit the expected clean palette/map.
+    ; Blank the published frame and keep palette/VRAM access unrestricted while
+    ; installing the cartridge-specific compatibility state.
+    xor a
+    ldh [$FF40], a
     ldh a, [$FF4D]
     inc a
     jr z, .noAttrClear
-    ld a, $80
-    ldh [$FF68], a
-    ld hl, GrayscalePalette
-    ld b, 8
-.restoreGray
-    ld a, [hl+]
-    ldh [$FF69], a
-    dec b
-    jr nz, .restoreGray
+    call InstallCompatibilityPalettes
     ld a, $01
     ldh [$FF4F], a          ; VBK = 1
     ld hl, $9800 + 5 * 32 + 2
@@ -278,8 +358,6 @@ Main:
     ; matching the stock firmware state used by games that expect a blank
     ; window map. Resume at vblank so cartridge startup does not begin at
     ; line 0 after the LCD timing reset.
-    xor a
-    ldh [$FF40], a          ; LCD off, allowing unrestricted VRAM access
     ld a, $01
     ldh [$FF4F], a
     call ClearTileMaps
@@ -494,14 +572,162 @@ HeroLogoRLE:
 TrademarkTile:
     db $3C, $42, $B9, $A9, $B1, $A9, $42, $3C
 
-; DMG title-checksum table at the stock offsets ($06C7-$0716); the
+; DMG title-checksum table at the stock starting offset ($06C7); the
 ; emulator reads it to grant known DMG carts a compatibility palette.
 SECTION "hashtable", ROM0[$06C7]
+TitleChecksums:
     db $00, $88, $16, $36, $D1, $DB, $F2, $3C, $8C, $92, $3D, $5C, $58, $C9, $3E, $70
     db $1D, $59, $69, $19, $35, $A8, $14, $AA, $75, $95, $99, $34, $6F, $15, $FF, $97
     db $4B, $90, $17, $10, $39, $F7, $F6, $A2, $49, $4E, $43, $68, $E0, $8B, $F0, $CE
     db $0C, $29, $E8, $B7, $86, $9A, $52, $01, $9D, $71, $9C, $BD, $5D, $6D, $67, $3F
-    db $6B, $B3, $46, $28, $A5, $C6, $D3, $27, $61, $18, $66, $6A, $BF, $0D, $F4, $42
+    db $6B
+FirstChecksumWithDuplicate:
+    db $B3, $46, $28, $A5, $C6, $D3, $27, $61, $18, $66, $6A, $BF, $0D, $F4, $B3, $46
+    db $28, $A5, $C6, $D3, $27, $61, $18, $66, $6A, $BF, $0D, $F4, $B3
+ChecksumsEnd:
+
+SECTION "compatibility_data", ROM0[$0725]
+
+MACRO palette_comb
+    db (\1) * 8, (\2) * 8, (\3) * 8
+ENDM
+
+MACRO raw_palette_comb
+    db (\1) * 2, (\2) * 2, (\3) * 2
+ENDM
+
+PaletteCombinations:
+    palette_comb 4, 4, 29
+    palette_comb 18, 18, 18
+    palette_comb 20, 20, 20
+    palette_comb 24, 24, 24
+    palette_comb 9, 9, 9
+    palette_comb 0, 0, 0
+    palette_comb 27, 27, 27
+    palette_comb 5, 5, 5
+    palette_comb 12, 12, 12
+    palette_comb 26, 26, 26
+    palette_comb 16, 8, 8
+    palette_comb 4, 28, 28
+    palette_comb 4, 2, 2
+    palette_comb 3, 4, 4
+    palette_comb 4, 29, 29
+    palette_comb 28, 4, 28
+    palette_comb 2, 17, 2
+    palette_comb 16, 16, 8
+    palette_comb 4, 4, 7
+    palette_comb 4, 4, 18
+    palette_comb 4, 4, 20
+    palette_comb 19, 19, 9
+    raw_palette_comb 4 * 4 - 1, 4 * 4 - 1, 11 * 4
+    palette_comb 17, 17, 2
+    palette_comb 4, 4, 2
+    palette_comb 4, 4, 3
+    palette_comb 28, 28, 0
+    palette_comb 3, 3, 0
+    palette_comb 0, 0, 1
+    palette_comb 18, 22, 18
+    palette_comb 20, 22, 20
+    palette_comb 24, 22, 24
+    palette_comb 16, 22, 8
+    palette_comb 17, 4, 13
+    raw_palette_comb 28 * 4 - 1, 0 * 4, 14 * 4
+    raw_palette_comb 28 * 4 - 1, 4 * 4, 15 * 4
+    raw_palette_comb 19 * 4, 23 * 4 - 1, 9 * 4
+    palette_comb 16, 28, 10
+    palette_comb 4, 23, 28
+    palette_comb 17, 22, 2
+    palette_comb 4, 0, 2
+    palette_comb 4, 28, 3
+    palette_comb 28, 3, 0
+    palette_comb 3, 28, 4
+    palette_comb 21, 28, 4
+    palette_comb 3, 28, 0
+    palette_comb 25, 3, 28
+    palette_comb 0, 28, 8
+    palette_comb 4, 3, 28
+    palette_comb 28, 3, 6
+    palette_comb 4, 28, 29
+
+Palettes:
+    dw $7FFF, $32BF, $00D0, $0000
+    dw $639F, $4279, $15B0, $04CB
+    dw $7FFF, $6E31, $454A, $0000
+    dw $7FFF, $1BEF, $0200, $0000
+    dw $7FFF, $421F, $1CF2, $0000
+    dw $7FFF, $5294, $294A, $0000
+    dw $7FFF, $03FF, $012F, $0000
+    dw $7FFF, $03EF, $01D6, $0000
+    dw $7FFF, $42B5, $3DC8, $0000
+    dw $7E74, $03FF, $0180, $0000
+    dw $67FF, $77AC, $1A13, $2D6B
+    dw $7ED6, $4BFF, $2175, $0000
+    dw $53FF, $4A5F, $7E52, $0000
+    dw $4FFF, $7ED2, $3A4C, $1CE0
+    dw $03ED, $7FFF, $255F, $0000
+    dw $036A, $021F, $03FF, $7FFF
+    dw $7FFF, $01DF, $0112, $0000
+    dw $231F, $035F, $00F2, $0009
+    dw $7FFF, $03EA, $011F, $0000
+    dw $299F, $001A, $000C, $0000
+    dw $7FFF, $027F, $001F, $0000
+    dw $7FFF, $03E0, $0206, $0120
+    dw $7FFF, $7EEB, $001F, $7C00
+    dw $7FFF, $3FFF, $7E00, $001F
+    dw $7FFF, $03FF, $001F, $0000
+    dw $03FF, $001F, $000C, $0000
+    dw $7FFF, $033F, $0193, $0000
+    dw $0000, $4200, $037F, $7FFF
+    dw $7FFF, $7E8C, $7C00, $0000
+    dw $7FFF, $1BEF, $6180, $0000
+
+; A is the combination ID. Each combination stores OBJ0, OBJ1, and BG
+; source offsets into the RGB555 palette table above.
+LoadCompatibilityPaletteCombination:
+    ld e, a
+    add a
+    add e
+    ld e, a
+    ld d, 0
+    ld hl, PaletteCombinations
+    add hl, de
+
+    ld a, [hl+]
+    push hl
+    ld b, 0
+    ld c, $6A
+    call LoadCompatibilityPalette
+    pop hl
+
+    ld a, [hl+]
+    push hl
+    ld b, 8
+    ld c, $6A
+    call LoadCompatibilityPalette
+    pop hl
+
+    ld a, [hl]
+    ld b, 0
+    ld c, $68
+
+; A is the source byte offset, B the destination byte index, and C the
+; CGB palette-index register's low address.
+LoadCompatibilityPalette:
+    ld e, a
+    ld d, 0
+    ld hl, Palettes
+    add hl, de
+    ld a, $80
+    or b
+    ldh [c], a
+    inc c
+    ld b, 8
+.byte
+    ld a, [hl+]
+    ldh [c], a
+    dec b
+    jr nz, .byte
+    ret
 
 ; Force the linked image to the full 2304-byte CGB boot ROM size.
 SECTION "endpad", ROM0[$08FF]

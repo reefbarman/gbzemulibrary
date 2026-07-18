@@ -16,9 +16,12 @@ namespace GBZEmuLibrary
         private static byte[] _defaultDMGBootROM;
         private static byte[] _defaultGBCBootROM;
 
+        [SaveStateIgnore]
         private byte[] _dmgBootROM;
+        [SaveStateIgnore]
         private byte[] _gbcBootROM;
 
+        [field: SaveStateIgnore]
         public byte[] Bytes { get; private set; } = Empty;
 
         public byte[] GBCBootROM => _gbcBootROM;
