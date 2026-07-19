@@ -33,7 +33,17 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Signals a falling edge of the DIV-APU source used by the audio frame sequencer.
         /// </summary>
-        public System.Action OnApuClock;
+        public System.Action<int> OnApuClock;
+
+        /// <summary>
+        /// Signals a CPU write that resets DIV so pulse channels can preserve the write-cycle phase.
+        /// </summary>
+        public System.Action OnDividerWrite;
+
+        /// <summary>
+        /// Gets the current level of the speed-selected DIV bit driving the APU frame sequencer.
+        /// </summary>
+        public bool ApuDividerHigh => ApuSignal(_systemCounter, _doubleSpeed);
 
         /// <summary>
         /// Creates timer state connected to the interrupt bus for its owning emulator.
@@ -92,7 +102,7 @@ namespace GBZEmuLibrary
 
                 if (oldApuSignal && !newApuSignal)
                 {
-                    OnApuClock?.Invoke();
+                    OnApuClock?.Invoke(i + 1);
                 }
             }
         }
@@ -113,6 +123,7 @@ namespace GBZEmuLibrary
             var oldTimerSignal = TimerSignal(_systemCounter, _tac);
             var oldApuSignal = ApuSignal(_systemCounter, _doubleSpeed);
             _systemCounter = 0;
+            OnDividerWrite?.Invoke();
 
             // Resetting a selected high divider bit creates the same falling edge as normal counting.
             if (oldTimerSignal)
@@ -122,7 +133,7 @@ namespace GBZEmuLibrary
 
             if (oldApuSignal)
             {
-                OnApuClock?.Invoke();
+                OnApuClock?.Invoke(0);
             }
         }
 

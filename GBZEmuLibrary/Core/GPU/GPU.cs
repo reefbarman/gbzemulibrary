@@ -175,6 +175,7 @@ namespace GBZEmuLibrary
             _scanlineScrollXLow = 0;
             _line153EarlyReset = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
+            BlankDisplay();
         }
 
         /// <summary>
@@ -1036,7 +1037,8 @@ namespace GBZEmuLibrary
 
                 return new Color(Display.DefaultPalette[colorIndex])
                 {
-                    Index = colorValue
+                    Index = colorValue,
+                    SgbIndex = (byte)colorIndex
                 }; //TODO replace with swappable colors
             }
 
@@ -1059,7 +1061,7 @@ namespace GBZEmuLibrary
                     g: ExpandFiveBit((colorBytes >> 5) & 0x1F),
                     b: ExpandFiveBit((colorBytes >> 10) & 0x1F)
                 )
-            { Index = rawColorValue };
+            { Index = rawColorValue, SgbIndex = colorValue };
         }
 
         /// <summary>

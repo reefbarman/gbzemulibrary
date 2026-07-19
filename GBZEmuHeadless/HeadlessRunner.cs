@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using GBZEmuLibrary;
@@ -57,6 +58,9 @@ public sealed class HeadlessRunner
                 .GroupBy(input => input.Frame)
                 .ToDictionary(group => group.Key, group => group.ToArray());
             var captures = new List<HeadlessCapture>();
+            using var audioCapture = options.AudioOutputPath == null
+                ? null
+                : new RawAudioCapture(options.AudioOutputPath);
 
             for (var frame = 1; frame <= options.Frames; frame++)
             {
@@ -77,6 +81,12 @@ public sealed class HeadlessRunner
 
                 emulator.Update();
 
+                if (audioCapture != null)
+                {
+                    var samples = emulator.GetSoundSamples(out var sampleFrameCount);
+                    audioCapture.Append(samples, sampleFrameCount);
+                }
+
                 if (ShouldCapture(options, frame))
                 {
                     captures.Add(Capture(emulator, options.OutputDirectory, frame));
@@ -92,6 +102,7 @@ public sealed class HeadlessRunner
                 CaptureEndFrame = options.CaptureEndFrame,
                 CaptureEvery = options.CaptureEvery,
                 BootMode = bootMode.ToString(),
+                Audio = audioCapture?.Complete(),
                 InputEvents = options.InputEvents.Select(input => new HeadlessInputEventReport
                 {
                     Frame = input.Frame,
@@ -110,6 +121,87 @@ public sealed class HeadlessRunner
         finally
         {
             emulator.Terminate();
+        }
+    }
+
+    private sealed class RawAudioCapture : IDisposable
+    {
+        private readonly string _path;
+        private readonly FileStream _stream;
+        private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        private readonly List<int> _emulatorFrameSampleCounts = [];
+        private int _sampleFrames;
+        private int? _firstNonZeroSampleFrame;
+        private float _minimumAmplitude = float.PositiveInfinity;
+        private float _maximumAmplitude = float.NegativeInfinity;
+        private bool _completed;
+
+        public RawAudioCapture(string path)
+        {
+            _path = Path.GetFullPath(path);
+            var directory = Path.GetDirectoryName(_path);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            _stream = File.Create(_path);
+        }
+
+        public void Append(float[] samples, int sampleFrameCount)
+        {
+            var sampleCount = checked(sampleFrameCount * 2);
+            if (sampleCount > samples.Length)
+            {
+                throw new InvalidOperationException("The core returned an invalid audio sample count.");
+            }
+
+            _emulatorFrameSampleCounts.Add(sampleFrameCount);
+            var bytes = MemoryMarshal.AsBytes(samples.AsSpan(0, sampleCount));
+            _stream.Write(bytes);
+            _hash.AppendData(bytes);
+
+            for (var i = 0; i < sampleCount; i++)
+            {
+                var amplitude = samples[i];
+                _minimumAmplitude = Math.Min(_minimumAmplitude, amplitude);
+                _maximumAmplitude = Math.Max(_maximumAmplitude, amplitude);
+                if (_firstNonZeroSampleFrame == null && amplitude != 0)
+                {
+                    _firstNonZeroSampleFrame = _sampleFrames + (i / 2);
+                }
+            }
+
+            _sampleFrames += sampleFrameCount;
+        }
+
+        public HeadlessAudioCapture Complete()
+        {
+            if (_completed)
+            {
+                throw new InvalidOperationException("The audio capture has already been completed.");
+            }
+
+            _completed = true;
+            _stream.Flush();
+            return new HeadlessAudioCapture
+            {
+                File = Path.GetFileName(_path),
+                Format = "float32-le-stereo-amplitude",
+                SampleRate = Sound.SAMPLE_RATE,
+                SampleFrames = _sampleFrames,
+                SHA256 = Convert.ToHexString(_hash.GetHashAndReset()).ToLowerInvariant(),
+                MinimumAmplitude = _sampleFrames == 0 ? 0f : _minimumAmplitude,
+                MaximumAmplitude = _sampleFrames == 0 ? 0f : _maximumAmplitude,
+                FirstNonZeroSampleFrame = _firstNonZeroSampleFrame,
+                EmulatorFrameSampleCounts = _emulatorFrameSampleCounts.ToArray()
+            };
+        }
+
+        public void Dispose()
+        {
+            _stream.Dispose();
+            _hash.Dispose();
         }
     }
 

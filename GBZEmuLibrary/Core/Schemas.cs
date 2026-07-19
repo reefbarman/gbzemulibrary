@@ -42,9 +42,21 @@
         };
     }
 
+    /// <summary>
+    /// Describes the Super Game Boy's SNES-side output surface and embedded Game Boy viewport.
+    /// </summary>
+    public static class SuperGameBoyDisplay
+    {
+        public const int HORIZONTAL_RESOLUTION = 256;
+        public const int VERTICAL_RESOLUTION = 224;
+        public const int GAME_BOY_X = 48;
+        public const int GAME_BOY_Y = 40;
+    }
+
     internal class GameBoySchema
     {
         public const int MAX_DMG_CLOCK_CYCLES = 4194304;
+        public const int SGB_NTSC_CLOCK_CYCLES = 21477272 / 5;
         public const int MAX_AUDIO_FRAMES_PER_VIDEO_FRAME = (int)
             (((long)Sound.SAMPLE_RATE * Display.CLOCK_CYCLES_PER_FRAME + MAX_DMG_CLOCK_CYCLES - 1) / MAX_DMG_CLOCK_CYCLES);
     }
@@ -131,6 +143,22 @@
         GBCSupport,
         GBCOnly,
         GBCCompatibility
+    }
+
+    internal enum SgbModel
+    {
+        None,
+        Sgb,
+        Sgb2
+    }
+
+    /// <summary>
+    /// Identifies the concrete handheld APU revisions intentionally modeled by the core.
+    /// </summary>
+    internal enum ApuHardwareRevision
+    {
+        DmgB,
+        CgbE
     }
 
     internal class CartridgeSchema

@@ -16,6 +16,7 @@ namespace GBZEmuLibrary
     {
         public const int DmgImageSize = 0x100;
         public const int CgbImageSize = 0x900;
+        public const int SgbImageSize = 0x100;
 
         /// <summary>
         /// Classifies a boot-ROM image by its exact byte length.

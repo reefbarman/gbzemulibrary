@@ -27,11 +27,15 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | `Start(Config)`                     | Load a ROM, create/open its save file, select a boot mode, and reset the emulated hardware. Returns `false` when cartridge loading fails. |
 | `Update()`                          | Execute enough CPU and subsystem clocks for one 70,224-cycle hardware frame (approximately 59.7275 Hz). The host owns scheduling.         |
 | `GetScreenData()`                   | Return the reusable 160×144 RGB framebuffer as `Color[x, y]`. This is the emulator's internal array, not a copy.                          |
-| `GetSoundSamples(out frameCount)`   | Swap and return the reusable interleaved stereo byte buffer plus its valid stereo-frame count. Call once per emulation update.            |
+| `GetSuperGameBoyScreenData()`       | Return the reusable 256×224 colorized SGB composite frame, including the active game-supplied or GBZEmu fallback border.                  |
+| `GetSoundSamples(out frameCount)`   | Swap and return reusable interleaved band-limited float amplitudes plus their valid stereo-frame count. Call once per emulation update.  |
 | `ButtonDown(...)` / `ButtonUp(...)` | Forward Game Boy button transitions to the joypad and interrupt logic.                                                                    |
+| `FrameRate` / `ClockRate`           | Report the selected model's host scheduling rate; SGB1 uses its approximately 2.4% faster NTSC clock.                                     |
 | `ToggleChannel(...)`                | Enable or mute one of the four emulated audio channels.                                                                                   |
-| `SupportsRumble` / `RumbleActive`   | Report whether the loaded cartridge has rumble hardware and its current motor-enable state.                                               |
-| `RumbleChanged`                     | Notify the host synchronously whenever an MBC5 rumble cartridge changes its motor-enable state.                                           |
+| `SupportsRumble` / `RumbleActive`   | Report whether the loaded cartridge has rumble hardware and its current raw motor-enable latch.                                           |
+| `RumbleChanged`                     | Notify compatibility consumers synchronously whenever the raw MBC5 motor-enable latch changes.                                            |
+| `RumbleStrength`                    | Report the most recently completed frame's cycle-integrated motor duty in the range `0..1`.                                               |
+| `RumbleStrengthUpdated`             | Notify hosts after every completed rumble-capable frame, including repeated strengths used to refresh timed haptics.                      |
 | `CaptureState()` / `RestoreState()` | Capture or restore a versioned snapshot bound to the running ROM, firmware, and hardware mode.                                            |
 | `AdvanceFrames(...)`                | Execute a bounded number of hardware frames without adding wall-clock pacing.                                                             |
 | `FastForward(...)`                  | Execute multiple hardware frames immediately while draining their core audio.                                                             |
@@ -43,6 +47,7 @@ Public constants and data types include:
 - `Display.VERTICAL_RESOLUTION`: `144`
 - `Display.CLOCK_CYCLES_PER_FRAME`: `70224`
 - `Display.FRAME_RATE`: approximately `59.7275`
+- `SuperGameBoyDisplay`: `256×224`, with the `160×144` Game Boy viewport at `(48, 40)`
 - `Sound.SAMPLE_RATE`: `44100`
 - `JoypadButtons`: D-pad, `A`, `B`, `Select`, and `Start`
 - `Color`: byte-valued `R`, `G`, and `B` components
@@ -80,7 +85,7 @@ dotnet test GBZEmuTests/GBZEmuTests.csproj -c Release
 
 The harness discovers every `.gb`/`.gbc` file under `GBZEmuTests/Fixtures/`, including suites from Blargg, Mooneye, dmg-acid2/cgb-acid2, SameSuite, and mealybug-tearoom-tests. It supports serial text, Blargg's `$A000` memory protocol, the Fibonacci register fingerprint used by Mooneye/SameSuite, and exact framebuffer comparison. ROM cases are interleaved across four xUnit classes so separate emulator instances can run in parallel while each shard remains serial.
 
-Each ROM is a normal test case: passing ROMs are green and failing ROMs are red in Test Explorer and `dotnet test` output. The complete suite therefore remains failing while conformance gaps exist; use test filters or Test Explorer selections for focused iteration. `GBZEmuTests/ExpectedRomIds.txt` locks the reviewed fixture inventory so missing, duplicate, or silently added ROMs fail the suite. Current test output is the authoritative source for pass/failure results. Fixture provenance, pins, licenses, and Blargg's explicit licensing ambiguity are documented in `GBZEmuTests/Fixtures/README.md`.
+Each applicable ROM is a normal test case: passing ROMs are green and failing ROMs are red in Test Explorer and `dotnet test` output. The APU deliberately targets DMG-B for DMG execution and CPU CGB-E for CGB execution. SameSuite ROMs whose names and upstream sources explicitly require another silicon revision remain visible as skipped tests with that revision in the reason; ordinary correctness failures on DMG-B or CGB-E remain red. The complete suite therefore remains failing while conformance gaps exist; use test filters or Test Explorer selections for focused iteration. `GBZEmuTests/ExpectedRomIds.txt` locks the reviewed fixture inventory so missing, duplicate, or silently added ROMs fail the suite. Current test output is the authoritative source for pass/failure results. Fixture provenance, pins, licenses, and Blargg's explicit licensing ambiguity are documented in `GBZEmuTests/Fixtures/README.md`.
 
 ## Debugging API
 
@@ -153,20 +158,35 @@ external file:
 dotnet run --project GBZEmuFrontend -- /path/to/game.gbc --bootrom-dir /path/to/bios/
 ```
 
+Run on the HLE Super Game Boy or Super Game Boy 2 profile. The frontend expands
+to 256×224, colorizes the Game Boy image, and displays game-transferred borders;
+an original GBZEmu border is used until a title supplies one:
+
+```sh
+dotnet run --project GBZEmuFrontend -- /path/to/game.gb --sgb
+dotnet run --project GBZEmuFrontend -- /path/to/game.gb --sgb2
+```
+
 Options:
 
 - `--rom-dir <path>`: show an in-window picker containing `.gb` and `.gbc` files from the directory instead of supplying a ROM path.
 - `--bootrom <path>`: a single firmware image; overrides any `--bootrom-dir` match of the same type.
 - `--bootrom-dir <path>`: directory searched for boot ROMs by the common names above; omit both options to use the built-in GBZEmu boot ROMs.
+- `--sgb-bootrom <path>` / `--sgb2-bootrom <path>`: explicit user-supplied 256-byte SGB-family firmware. Explicit slots are required because DMG, SGB, and SGB2 images have the same length.
 - `--skip-bios`: skip boot ROM execution entirely and start from the post-boot state.
 - `--save-dir <path>`: save directory; defaults to the ROM directory and is created by the frontend.
 - `--scale <1-10>`: integer window scale; defaults to 4 (640×576).
 - `--dmg`: request and force DMG mode; it rejects CGB-only cartridges.
+- `--sgb` / `--sgb2`: select SameBoy-style HLE SGB hardware and reject CGB-only cartridges.
 - `--paused`: start emulation paused before its first update.
 - `--raw-frames`: disable the frontend's default adjacent-frame LCD persistence blend. Use this for exact framebuffer inspection; normal playback blends completed frames to reproduce temporal-color and transparency effects that rely on the original LCD response.
 - `--raw-colors`: disable the frontend's default CGB Modern Balanced color profile and present the core's direct RGB555 expansion.
 
-Controls: arrow keys for the D-pad, **X** for A, **Z** for B, **Enter** for Start, **Right Shift** for Select, and **Escape** to quit. In the ROM picker, use **Up/Down** to choose a ROM and **Enter** to load it. Press **P** to pause or resume emulation. While paused, tap **N** to advance one emulation frame, or hold it for 400 ms to continue stepping at 15 frames per second. The window title includes `[PAUSED]` while frame-step mode is active. The frontend targets macOS, Windows, and Linux through Raylib-cs native packages. CGB color correction and frame blending are presentation-only: `Emulator.GetScreenData()` and `GBZEmuHeadless` continue exposing raw completed hardware frames.
+Keyboard controls: arrow keys for the D-pad, **X** for A, **Z** for B, **Enter** for Start, **Right Shift** for Select, and **Escape** to quit. Press **P** to pause or resume. While paused, tap **N** to advance one frame, or hold it for 400 ms to continue stepping at 15 frames per second. **F5** quick-saves and **F8** quick-loads; states are stored at `<save-dir>/States/<full ROM filename>.state`. Hold **R** to rewind retained checkpoints or **Tab** for 4x fast-forward. The rewind history retains 100 checkpoints captured every six emulated frames, approximately ten seconds at normal speed.
+
+The first available controller can also play and navigate the ROM picker. Its D-pad or left stick maps to the Game Boy D-pad; east/south face buttons map to A/B; Start/Back map to Start/Select; north/west face buttons quick-save/quick-load; left/right bumpers rewind/fast-forward; and left/right stick clicks pause/frame-step. When an SGB game requests two or four controllers, subsequent connected gamepads feed the corresponding SGB controller slots. MBC5 rumble cartridges drive supported controller vibration, which is stopped on cartridge motor-off, controller replacement, or frontend shutdown. Keyboard and first-controller states are merged before transitions are sent to the core, so switching or disconnecting inputs releases controls cleanly.
+
+The window title reports pause, rewind, fast-forward, and quick-state results. The frontend targets macOS, Windows, and Linux through Raylib-cs native packages. CGB color correction and frame blending are presentation-only: `Emulator.GetScreenData()` and `GBZEmuHeadless` continue exposing raw completed hardware frames.
 
 For local development, `.vscode/launch.json` contains F5 profiles for assets under the gitignored `runtime/` directory. `Frontend: ROM Picker (paused)` lists ROMs from `runtime/roms`, loads `runtime/bios/gbc_bios.bin`, and starts the selected ROM paused. ROM-specific profiles remain available for direct launches.
 
@@ -199,12 +219,13 @@ Options:
 - `--capture-every <count>`: capture cadence within that range; defaults to 1.
 - `--output <path>`: report and image directory; defaults to `./headless-output`.
 - `--save-dir <path>`: save directory; defaults to `<output>/saves` and is created by the host.
+- `--audio-out <path>`: capture every core audio frame as deterministic little-endian interleaved stereo float32 amplitudes.
 - `--bootrom <path>`: host-supplied DMG or CGB boot ROM; repeat to supply both types.
 - `--input <frame:button:down|up>`: deterministic joypad transition for `Right`, `Left`, `Up`, `Down`, `A`, `B`, `Select`, or `Start`.
 - `--dmg`: force DMG mode and reject CGB-only cartridges.
 - `--skip-bios`: use post-boot initialization instead of executing a boot ROM.
 
-Each binary PPM capture is named `frame-NNNNNN.ppm`. `report.json` records the ROM SHA-256, boot mode, capture settings, input events, frame number, framebuffer/top-row/right-column RGB hashes, CGB BG/OBJ palette RAM hashes, hashes of the first 4,048 tile-data bytes in both VRAM banks, unique RGB count, the 16 most common colors and their pixel counts, CPU registers/counters, PPU state, and `SCX`, `SCY`, `LYC`, `WX`, and `WY`. Capture paths in the report are relative to the output directory so the directory can be moved or compared as one artifact.
+Each binary PPM capture is named `frame-NNNNNN.ppm`. `report.json` records the ROM SHA-256, boot mode, capture settings, input events, frame number, framebuffer/top-row/right-column RGB hashes, CGB BG/OBJ palette RAM hashes, hashes of the first 4,048 tile-data bytes in both VRAM banks, unique RGB count, the 16 most common colors and their pixel counts, CPU registers/counters, PPU state, and `SCX`, `SCY`, `LYC`, `WX`, and `WY`. When `--audio-out` is present it also records the exact format, SHA-256, amplitude range, first non-zero sample, total sample frames, and each emulator frame's sample count. Capture paths in the report are relative to the output directory so the directory can be moved or compared as one artifact.
 
 ## Basic integration
 
@@ -228,11 +249,11 @@ if (!emulator.Start(config))
     throw new InvalidOperationException("The cartridge could not be loaded.");
 }
 
-// Once per 59.7275 Hz hardware frame:
+// Once per emulator.FrameRate hardware frame:
 emulator.Update();
 
 Color[,] frame = emulator.GetScreenData();
-byte[] audio = emulator.GetSoundSamples(out int audioFrameCount);
+float[] audio = emulator.GetSoundSamples(out int audioFrameCount);
 
 // From the host input callbacks:
 emulator.ButtonDown(JoypadButtons.A);
@@ -263,7 +284,9 @@ if (BootRomMetadata.TryGetSystem(new FileInfo(@"firmware/cgb_boot.bin").Length, 
 
 ### Video
 
-`GetScreenData()` returns the same `Color[160, 144]` array on every call. Pixels use `[x, y]` indexing, with scanline `0` at the top of the emulated display. CGB RGB555 palette components are expanded directly to the full 8-bit range by bit replication; the core does not apply an LCD color-response profile. The core publishes a completed frame to this host-visible buffer when the PPU enters VBlank, so an `Update()` call cannot expose a mixture of scanlines from adjacent hardware frames.
+`GetScreenData()` returns the same `Color[160, 144]` array on every call. Pixels use `[x, y]` indexing, with scanline `0` at the top of the emulated display. Immediately after a successful `Start()` and before the first `Update()`, the complete host-visible framebuffer is initialized to DMG palette color 0 for DMG rendering or white for native CGB rendering. This deterministic blank is startup state, not a completed emulated frame. CGB RGB555 palette components are expanded directly to the full 8-bit range by bit replication; the core does not apply an LCD color-response profile. The core publishes a completed frame to this host-visible buffer when the PPU enters VBlank, so an `Update()` call cannot expose a mixture of scanlines from adjacent hardware frames.
+
+SGB mode deliberately leaves that contract unchanged. `GetSuperGameBoyScreenData()` adds a separate reusable `Color[256, 224]` buffer. The HLE bridge reconstructs JOYP packets, applies the four screen palettes and 20×18 attribute map, implements mask/freeze state and multiplayer IDs, performs delayed `PAL_TRN`, `CHR_TRN`, `PCT_TRN`, and `ATTR_TRN` video transfers, and composites border pixels that overlap the centered Game Boy viewport.
 
 A host should copy or convert this buffer into its own texture format before the next emulator update. Do not mutate it or consume it concurrently with `Update()`. Rendering may run at a different refresh rate, but calls to `Update()` should represent 70,224-cycle hardware frames at `Display.FRAME_RATE`; the host should use elapsed time to catch up emulation and may duplicate or skip presentation when its display rate differs. Vsync should control presentation, not emulation speed.
 
@@ -277,13 +300,13 @@ A Unity adapter can flatten `frame[x, y]` into a `Color32[]`, upload it to a 160
 
 ### Audio
 
-Audio is generated at a fixed 44,100 Hz. `GetSoundSamples(out int sampleFrameCount)` returns a double-buffered byte array with interleaved channel amplitudes:
+Audio is generated at a fixed 44,100 Hz. `GetSoundSamples(out int sampleFrameCount)` returns a double-buffered float array with interleaved channel amplitudes reconstructed at 4× output rate through a 64-tap low-pass filter:
 
 ```text
 left, right, left, right, ...
 ```
 
-The buffer has capacity for 739 stereo sample frames. `sampleFrameCount` reports how many frames are valid for the completed emulation update; consume the first `sampleFrameCount * 2` bytes. These bytes are emulator channel amplitudes, not a ready-to-play Unity `float` buffer. The host is responsible for normalization/conversion, buffering, and submitting samples at the required cadence. Calling `GetSoundSamples(...)` swaps and clears the producer buffer, so it should be called once after each `Update()`. The returned array is internal storage that will be cleared and reused by the next `GetSoundSamples(...)` call; consume or copy it before then, especially when handing audio to an asynchronous host API.
+The buffer has capacity for 739 stereo sample frames. `sampleFrameCount` reports how many frames are valid for the completed emulation update; consume the first `sampleFrameCount * 2` floats. Values preserve fractional reconstruction and are intentionally not normalized to `-1..1`; the host applies hardware-model DC blocking, gain, device-rate conversion, and queueing. Calling `GetSoundSamples(...)` swaps and clears the producer buffer, so it should be called once after each `Update()`. The returned array is internal storage that will be cleared and reused by the next call; consume or copy it before asynchronous playback.
 
 ### Input
 
@@ -298,16 +321,17 @@ The core tracks active-low Game Boy joypad state and requests a joypad interrupt
 
 ### Rumble
 
-MBC5 rumble cartridges expose a binary motor output through `RumbleChanged` and `RumbleActive`. The event is raised synchronously on the thread calling `Update()` when cartridge register bit 3 changes, which preserves the on/off pulses games use to vary intensity. `SupportsRumble` distinguishes cartridge types `0x1C` through `0x1E` from ordinary MBC5 cartridges.
+MBC5 rumble cartridges expose their raw motor latch through `RumbleChanged` and `RumbleActive` for compatibility. Games can pulse that latch for only a few emulated milliseconds and return it to off within one `Update()`, so hosts should drive physical haptics from `RumbleStrengthUpdated` instead. The core integrates normalized hardware cycles spent on and off during each completed frame and publishes their ratio through `RumbleStrength` and the event's `0..1` argument. `SupportsRumble` distinguishes cartridge types `0x1C` through `0x1E` from ordinary MBC5 cartridges.
 
 ```csharp
-emulator.RumbleChanged += active =>
+emulator.RumbleStrengthUpdated += strength =>
 {
-    // Map active to host-configured controller motor speeds.
+    // Scale host-configured controller motors by strength.
+    // Repeated values are intentional so timed haptics can be refreshed.
 };
 ```
 
-`Terminate()` forces `RumbleActive` to `false` and raises one final off transition when necessary; repeated termination does not publish duplicates. A host should still stop its physical controller motors defensively on pause, focus loss, session replacement, and application shutdown. When emulation runs off the main thread, marshal controller API calls to the thread required by the host engine.
+Presentation-specific shaping remains a host policy: a frontend may apply a response curve, timed refresh, or a short minimum physical pulse while preserving the core's cycle-integrated strength. `Terminate()` forces `RumbleActive` and `RumbleStrength` to zero and raises one final raw off transition when necessary; repeated termination does not publish duplicates. A host should still stop its physical controller motors defensively on pause, focus loss, session replacement, and application shutdown. When emulation runs off the main thread, marshal controller API calls to the thread required by the host engine.
 
 ### Save data
 
@@ -321,17 +345,19 @@ Timer-capable MBC3 cartridges append a BGB-compatible 48-byte RTC trailer after 
 
 `BootMode` is a flags enum:
 
-| Flag    | Intent                                                                   | Behavior                                                                                    |
-| ------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `DMG`   | Request original Game Boy startup behavior.                              | Selects a supplied 256-byte DMG image when booting.                                         |
-| `GBC`   | Request Game Boy Color startup behavior.                                 | The default `Config` value; selects a supplied 2304-byte CGB image when booting.            |
-| `Skip`  | Begin from post-boot CPU/register state instead of executing a boot ROM. | Does not require firmware.                                                                  |
-| `Force` | Force the requested hardware mode where possible.                        | Forcing DMG mode rejects CGB-only cartridges.                                               |
+| Flag    | Intent                                                                   | Behavior                                                                                      |
+| ------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `DMG`   | Request original Game Boy startup behavior.                              | Selects a supplied 256-byte DMG image when booting.                                           |
+| `GBC`   | Request Game Boy Color startup behavior.                                 | The default `Config` value; selects a supplied 2304-byte CGB image when booting.              |
+| `Skip`  | Begin from post-boot CPU/register state instead of executing a boot ROM. | Does not require firmware.                                                                    |
+| `Force` | Force the requested hardware mode where possible.                        | Forcing DMG mode rejects CGB-only cartridges.                                                 |
 | `Short` | Use the shortened DMG startup animation.                                 | Shortens both the scroll and settled-logo pause in a private DMG-image copy; ignored for CGB. |
+| `SGB`   | Request NTSC Super Game Boy HLE hardware.                                | Selects the explicit or embedded 256-byte SGB image and uses the faster SGB1 clock.           |
+| `SGB2`  | Request Super Game Boy 2 HLE hardware.                                   | Selects the explicit or embedded 256-byte SGB2 image and uses the normal DMG clock.           |
 
-The library embeds original GBZEmu boot ROMs (built from [bios/](bios/)) and uses them for any slot without a host-supplied image unless `Skip` is set. They render a custom "GBZEmu" wordmark with the cartridge header's own logo and a trademark symbol beneath it — the DMG image scrolls a two-tone italic lockup, holds the completed mark briefly, and plays the classic chime, while the CGB image reveals a shaded 128×24 wordmark through a diagonal rainbow band before settling to navy. For monochrome cartridges, the CGB replacement implements the original firmware's complete automatic title-specific BG/OBJ palette selection; boot-time manual palette button overrides are not implemented. The images hand off with the same CPU and I/O state as the skip-boot profile (enforced by `GBZEmuTests/BootRomTests.cs`).
+The library embeds original GBZEmu boot ROMs (built from [bios/](bios/)) and uses them for any slot without a host-supplied image unless `Skip` is set. DMG and CGB render the custom GBZEmu startup artwork. The open SGB/SGB2 replacements forward the cartridge header over JOYP and hand off with the model's register state; the HLE SNES side supplies an original GBZEmu decorative border and SameBoy-compatible automatic palettes for common non-SGB titles. SGB-aware games can replace that border and palette state through ordinary hardware commands.
 
-To use real firmware instead, supply a 256-byte DMG or 2304-byte CGB image through `Emulator.Config.BootROMPath`, `Emulator.Config.BootROM`, or `Emulator.Config.BootROMPaths` (multiple files, each slotted by size; the single-image options win their slot). An invalid image length throws `ArgumentException`.
+To use real firmware instead, supply a 256-byte DMG or 2304-byte CGB image through `Emulator.Config.BootROMPath`, `Emulator.Config.BootROM`, or `Emulator.Config.BootROMPaths`. Supply SGB-family images through the explicit `SGBBootROMPath`/`SGBBootROM` and `SGB2BootROMPath`/`SGB2BootROM` slots because their 256-byte length is indistinguishable from DMG firmware. Proprietary firmware is never embedded.
 
 Do not commit proprietary boot ROMs, commercial ROMs, or generated save files to this repository.
 
@@ -339,13 +365,13 @@ Do not commit proprietary boot ROMs, commercial ROMs, or generated save files to
 
 The cartridge header parser recognizes these controller families. Recognition does not imply complete hardware compatibility:
 
-| Cartridge family | Implemented path                                                                         | Important caveats                                                                                    |
-| ---------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| ROM only         | Direct ROM access and optional external RAM file.                                        | Game compatibility remains unverified.                                                               |
-| MBC1             | Independent BANK1/BANK2/mode mapping, RAM banking, and MBC1M detection.                  | All 13 committed Mooneye MBC1 cases pass.                                                            |
-| MBC2             | A8-gated ROM/RAM commands and persistent 512×4-bit internal RAM.                         | All 7 committed Mooneye MBC2 cases pass.                                                             |
-| MBC3             | ROM/RAM banking plus cycle-driven RTC registers, latching, halt, carry, and persistence. | Broader game compatibility remains unverified.                                                       |
-| MBC5             | 9-bit ROM banking, RAM-bank selection, and type-aware rumble output.                     | All 8 committed Mooneye MBC5 ROM-geometry cases pass; rumble has focused synthetic-ROM coverage.     |
+| Cartridge family | Implemented path                                                                         | Important caveats                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| ROM only         | Direct ROM access and optional external RAM file.                                        | Game compatibility remains unverified.                                                           |
+| MBC1             | Independent BANK1/BANK2/mode mapping, RAM banking, and MBC1M detection.                  | All 13 committed Mooneye MBC1 cases pass.                                                        |
+| MBC2             | A8-gated ROM/RAM commands and persistent 512×4-bit internal RAM.                         | All 7 committed Mooneye MBC2 cases pass.                                                         |
+| MBC3             | ROM/RAM banking plus cycle-driven RTC registers, latching, halt, carry, and persistence. | Broader game compatibility remains unverified.                                                   |
+| MBC5             | 9-bit ROM banking, RAM-bank selection, and type-aware rumble output.                     | All 8 committed Mooneye MBC5 ROM-geometry cases pass; rumble has focused synthetic-ROM coverage. |
 
 The header parser also detects DMG-only, CGB-compatible, and CGB-only ROM flags and includes the CGB work-RAM, VRAM, palette, speed-switch, and DMA paths.
 
@@ -387,6 +413,7 @@ GBZEmuLibrary/
 │   ├── Cartridge/              Header parsing, MBC banking, and save RAM
 │   ├── GPU/                    DMG/CGB scanline renderer and public RGB color
 │   ├── Memory/                 MMU, RAM, and DMA routing
+│   ├── SGB/                    HLE packets, palettes, transfers, multiplayer, and border composition
 │   ├── BootMode.cs             Public boot-mode flags
 │   ├── BootROM.cs              Per-instance host-supplied boot-ROM storage
 │   ├── Joypad.cs               Input register and joypad interrupts
@@ -401,17 +428,23 @@ GBZEmuTests/                    xUnit debug and ROM-conformance harness
 
 ## Current limitations
 
-- The conformance suite still has failures, primarily in cycle/dot-accurate PPU, APU, DMA, interrupt, and hardware-revision behavior. `mooneye/acceptance/halt_ime0_nointr_timing` is currently deferred: resolving its remaining one-cycle discrepancy requires coordinated HALT wake, interrupt-polling, and VBlank phase modeling rather than another local timing adjustment. It remains a visible failing test instead of being suppressed. The core remains experimental while these failures remain.
-- Boot-ROM data is not included; hosts must provide firmware at runtime or use skip-boot initialization. DMG skip-boot restores deterministic DMG ABC P1, interrupt-request, and powered-APU state, but it does not yet reproduce the firmware-exit PPU phase; `mooneye/acceptance/boot_hwio-dmgABCmgb` therefore remains visibly red at its STAT check. Boot-state variants for other hardware revisions also remain known failures.
+- The conformance suite still has failures, primarily in cycle/dot-accurate PPU, DMA, interrupt, and hardware-revision behavior. All SameSuite APU cases applicable to the selected DMG-B and CGB-E targets pass; seven fixtures for other revisions remain explicit skips. `mooneye/acceptance/halt_ime0_nointr_timing` is currently deferred: resolving its remaining one-cycle discrepancy requires coordinated HALT wake, interrupt-polling, and VBlank phase modeling rather than another local timing adjustment. It remains a visible failing test instead of being suppressed. The core remains experimental while these failures remain.
+- Audio output now uses band-limited float reconstruction, but it does not yet model per-channel analog DAC attack/discharge, model-specific speaker/headphone response, electrical interference, cartridge VIN input, or adaptive host/device clock matching. Those are refinement work rather than known DMG-B/CGB-E register/timer conformance failures.
+- Original replacement boot-ROM data is included; official Nintendo firmware remains user-supplied. DMG skip-boot restores deterministic DMG ABC P1, interrupt-request, and powered-APU state, but it does not yet reproduce the firmware-exit PPU phase; `mooneye/acceptance/boot_hwio-dmgABCmgb` therefore remains visibly red at its STAT check. Boot-state variants for other hardware revisions also remain known failures.
+- SGB support is high-level, like SameBoy's default SGB path: it does not execute the proprietary SNES-side SGB system ROM. Border/color/attribute/mask/multiplayer commands are implemented; SNES sound program transfer, system menus, built-in Nintendo borders, and low-level SNES CPU/PPU behavior are outside this core.
 - Cartridge behavior remains partially verified: MBC3 RTC timing and BGB-compatible persistence pass the committed Mealybug and synthetic tests, but broader game compatibility is unverified.
 - Separate `Emulator` instances can run concurrently; their interrupt, MMU/DMA, HBlank, and boot-ROM state is instance-scoped.
 - A single `Emulator` instance and its reused public buffers are not thread-safe. Coordinate calls to one instance and copy output buffers before consuming them asynchronously.
-- The host owns real-time pacing and audio underrun/overrun handling; the core advances one approximately 59.7275 Hz hardware frame per `Update()`.
+- The host owns real-time pacing and audio underrun/overrun handling; use `Emulator.FrameRate` because SGB1 hardware frames run faster than DMG/CGB/SGB2 frames.
 - STOP behavior is incomplete. Serial debug transfers are exposed through `Emulator.Debug.SerialByteTransferred`; internal-clock timing and completion interrupts are modeled, while external-clock starts remain pending. Link-cable peer exchange and externally supplied clock edges are not implemented.
-- The included frontend is deliberately minimal: it has no debugger, rewind/save-state, fast-forward, configurable input-mapping, or engine-specific UI; ROM selection is limited to the configured directory picker.
+- The included frontend is deliberately minimal: it has no debugger, configurable input mapping, multi-slot save-state UI, or engine-specific UI; ROM selection is limited to the configured directory picker.
 
 ## Legal and license status
 
 Game Boy and Game Boy Color are trademarks of Nintendo. This project is not affiliated with or endorsed by Nintendo. Users are responsible for supplying software and firmware they are legally entitled to use.
+
+The SGB HLE implementation and open replacement bootstrap ROMs were adapted
+with reference to SameBoy under its Expat license; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 This repository currently has **no license file**. Unless a license is added, normal copyright restrictions apply; source availability alone does not grant permission to copy, modify, or redistribute the project.

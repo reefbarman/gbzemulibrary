@@ -221,6 +221,11 @@ namespace GBZEmuLibrary
                 _clocksSinceWaveByteRead += cycles;
             }
 
+            if (!Status)
+            {
+                return;
+            }
+
             _frequencyCount += cycles;
 
             while (_frequencyCount >= _frequency)

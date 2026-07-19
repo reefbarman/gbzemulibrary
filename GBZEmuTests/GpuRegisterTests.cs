@@ -292,7 +292,7 @@ public sealed class GpuRegisterTests
         gpu.Update(80);
         gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS);
 
-        Assert.Equal(0, gpu.GetScreenData()[0, 1].R);
+        Assert.Equal(byte.MaxValue, gpu.GetScreenData()[0, 1].R);
         AdvanceToVBlank(gpu);
 
         var pixel = gpu.GetScreenData()[0, 1];
@@ -520,7 +520,7 @@ public sealed class GpuRegisterTests
         gpu.Update(80);
         gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS);
 
-        Assert.Equal(0, gpu.GetScreenData()[0, 1].R);
+        Assert.Equal(Display.DefaultPalette[0].R, gpu.GetScreenData()[0, 1].R);
         AdvanceToVBlank(gpu);
 
         var pixel = gpu.GetScreenData()[0, 1];

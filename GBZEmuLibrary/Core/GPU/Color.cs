@@ -6,6 +6,7 @@
         public byte G { get; set; }
         public byte B { get; set; }
         internal int Index { get; set; }
+        internal byte SgbIndex { get; set; }
         internal bool BGPriority { get; set; }
 
         public Color(byte r, byte g, byte b)
@@ -15,6 +16,7 @@
             B = b;
 
             Index = 0;
+            SgbIndex = 0;
             BGPriority = false;
         }
 
@@ -25,6 +27,7 @@
             B = color.B;
 
             Index = color.Index;
+            SgbIndex = color.SgbIndex;
             BGPriority = color.BGPriority;
         }
     }

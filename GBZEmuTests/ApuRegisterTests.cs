@@ -81,6 +81,29 @@ public sealed class ApuRegisterTests
     }
 
     /// <summary>
+    /// Verifies powering NR52 while DIV-APU is high suppresses the first frame-sequencer edge.
+    /// </summary>
+    [Fact]
+    public void PowerOnDuringHighApuDividerSkipsFirstFrameSequencerClock()
+    {
+        var apu = new APU
+        {
+            IsApuDividerHigh = () => true,
+        };
+        apu.Init(GBCMode.GBCSupport);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0x3E, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0xF0, APUSchema.SQUARE_1_VOLUME_ENVELOPE);
+        apu.WriteByte(0xC0, APUSchema.SQUARE_1_FREQUENCY_MSB);
+
+        apu.ClockFrameSequencer();
+        Assert.Equal(0x01, apu.ReadByte(APUSchema.SOUND_ENABLED) & 0x01);
+
+        apu.ClockFrameSequencer();
+        Assert.Equal(0x00, apu.ReadByte(APUSchema.SOUND_ENABLED) & 0x01);
+    }
+
+    /// <summary>
     /// Replays Blargg's adjacent two's-complement sweep boundaries and verifies retriggering uses the swept period.
     /// </summary>
     [Theory]
@@ -102,6 +125,8 @@ public sealed class ApuRegisterTests
 
         apu.WriteByte(0x01, APUSchema.SQUARE_1_SWEEP_PERIOD);
         apu.WriteByte((byte)(0xC0 | (initialFrequency >> 8)), APUSchema.SQUARE_1_FREQUENCY_MSB);
+        // Allow the retrigger overflow check to complete through the sweep calculation pipeline.
+        apu.Update(40);
 
         Assert.Equal(expectedActive, (apu.ReadByte(APUSchema.SOUND_ENABLED) & 0x01) != 0);
     }
@@ -153,7 +178,7 @@ public sealed class ApuRegisterTests
         apu.WriteByte(0xFC, APUSchema.WAVE_3_FREQUENCY_LSB);
         apu.WriteByte(0x87, APUSchema.WAVE_3_FREQUENCY_MSB);
 
-        apu.Update(14);
+        apu.Update(10);
         apu.WriteByte(0xFE, APUSchema.WAVE_3_FREQUENCY_LSB);
         apu.Update(4);
         Assert.Equal(0x12, apu.ReadByte(APUSchema.WAVE_TABLE_START));
@@ -340,13 +365,114 @@ public sealed class ApuRegisterTests
         var apu = new APU();
         apu.Init(GBCMode.GBCSupport);
         apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
-        apu.WriteByte(0x40, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
+        apu.Update(2);
+        apu.WriteByte(0xC0, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
         apu.WriteByte(0xF0, APUSchema.SQUARE_1_VOLUME_ENVELOPE);
-        WriteChannel1Frequency(apu, 0, trigger: true);
+        WriteChannel1Frequency(apu, 0x7FF, trigger: true);
+        apu.Update(13);
+        Assert.Equal(0x00, apu.ReadByte(APUSchema.PCM_12));
+
+        apu.Update(1);
 
         apu.WriteByte(0x00, APUSchema.PCM_12);
 
         Assert.Equal(0x0F, apu.ReadByte(APUSchema.PCM_12));
+    }
+
+    /// <summary>
+    /// Verifies a pulse duty write is sampled by the timer edge rather than changing the current PCM level immediately.
+    /// </summary>
+    [Fact]
+    public void PulseDutyWriteTakesEffectOnNextTimerEdge()
+    {
+        var apu = new APU();
+        apu.Init(GBCMode.GBCSupport);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.Update(2);
+        apu.WriteByte(0xC0, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0xF0, APUSchema.SQUARE_1_VOLUME_ENVELOPE);
+        WriteChannel1Frequency(apu, 0x7FF, trigger: true);
+        apu.Update(14);
+        Assert.Equal(0x0F, apu.ReadByte(APUSchema.PCM_12));
+
+        apu.WriteByte(0x00, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
+        Assert.Equal(0x0F, apu.ReadByte(APUSchema.PCM_12));
+
+        apu.Update(4);
+        Assert.Equal(0x00, apu.ReadByte(APUSchema.PCM_12));
+    }
+
+    /// <summary>
+    /// Verifies a DIV reset preserves the trailing write cycle in the active CGB-E pulse phase.
+    /// </summary>
+    [Fact]
+    public void DividerWriteDelaysActivePulseEdgeByOneMachineCycle()
+    {
+        var apu = new APU();
+        apu.Init(GBCMode.GBCSupport);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.Update(2);
+        apu.WriteByte(0xC0, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0xF0, APUSchema.SQUARE_1_VOLUME_ENVELOPE);
+        WriteChannel1Frequency(apu, 0x7FF, trigger: true);
+
+        apu.HandleDividerWrite();
+        apu.Update(17);
+        Assert.Equal(0x00, apu.ReadByte(APUSchema.PCM_12));
+
+        apu.Update(1);
+        Assert.Equal(0x0F, apu.ReadByte(APUSchema.PCM_12));
+    }
+
+    /// <summary>
+    /// Verifies the trigger-time sweep overflow check completes through the CGB-E 1 MHz pipeline.
+    /// </summary>
+    [Fact]
+    public void SweepTriggerOverflowUsesDelayedCalculationPipeline()
+    {
+        var channel = new SquareWaveGenerator();
+        channel.Init();
+        channel.SetEnvelope(0xF0, ApuHardwareRevision.CgbE);
+        channel.ToggleDAC(true);
+        channel.SetSweep(0x17);
+        channel.SetFrequency(0x7FF);
+        channel.HandleTrigger();
+
+        channel.Update(powered: true, cycles: 39);
+        Assert.True(channel.Status);
+
+        channel.Update(powered: true, cycles: 1);
+        Assert.False(channel.Status);
+    }
+
+    /// <summary>
+    /// Verifies an active CGB-E NR14 write replays the prior pulse step only inside its countdown window.
+    /// </summary>
+    [Fact]
+    public void CgbFrequencyHighWriteCorrectsPulseStepInsideCountdownWindow()
+    {
+        var channel = CreateFrequencyWritePulse();
+        channel.Update(powered: true, cycles: 104);
+        channel.Update(powered: true, cycles: 2);
+
+        channel.SetFrequencyHigh(0x0FC, 0x87, 0x00, ApuHardwareRevision.CgbE);
+        channel.Update(powered: true, cycles: 14);
+
+        Assert.Equal(0x00, channel.DigitalOutput);
+    }
+
+    /// <summary>
+    /// Verifies a frequency-high write coincident with a pulse reload does not replay the prior step.
+    /// </summary>
+    [Fact]
+    public void CgbFrequencyHighWriteDoesNotCorrectCoincidentReload()
+    {
+        var channel = CreateFrequencyWritePulse();
+        channel.Update(powered: true, cycles: 120);
+
+        channel.SetFrequencyHigh(0x0FC, 0x87, 0x00, ApuHardwareRevision.CgbE);
+
+        Assert.Equal(0x0F, channel.DigitalOutput);
     }
 
     /// <summary>
@@ -394,11 +520,11 @@ public sealed class ApuRegisterTests
         var channel = new SquareWaveGenerator();
         channel.Init();
         channel.SetDutyCycle(0x40);
-        channel.SetEnvelope(0x20, gbcMode: false);
+        channel.SetEnvelope(0x20, ApuHardwareRevision.DmgB);
         channel.ToggleDAC(true);
         channel.HandleTrigger();
 
-        channel.SetEnvelope(0x08, gbcMode: false);
+        channel.SetEnvelope(0x08, ApuHardwareRevision.DmgB);
 
         Assert.Equal(0x00, channel.DigitalOutput);
     }
@@ -486,6 +612,148 @@ public sealed class ApuRegisterTests
     }
 
     /// <summary>
+    /// Verifies one subsystem update catches up every pulse timer period that elapsed.
+    /// </summary>
+    [Fact]
+    public void PulseUpdateCatchesUpMultipleDutySteps()
+    {
+        var channel = new SquareWaveGenerator();
+        channel.Init();
+        channel.SetDutyCycle(0x00);
+        channel.SetEnvelope(0xF0, ApuHardwareRevision.CgbE);
+        channel.ToggleDAC(true);
+        channel.SetFrequency(0x7FF);
+        channel.HandleTrigger();
+
+        channel.Update(powered: true, cycles: 36);
+
+        Assert.Equal(0x0F, channel.DigitalOutput);
+    }
+
+    /// <summary>
+    /// Verifies an inactive pulse channel retains its duty phase until the next trigger.
+    /// </summary>
+    [Fact]
+    public void InactivePulseTimerRetainsDutyPhase()
+    {
+        var channel = new SquareWaveGenerator();
+        channel.Init();
+        channel.SetDutyCycle(0x40);
+        channel.SetEnvelope(0xF0, ApuHardwareRevision.CgbE);
+        channel.ToggleDAC(true);
+        channel.SetFrequency(0x7FF);
+        channel.HandleTrigger();
+        channel.Update(powered: true, cycles: 38);
+
+        channel.ToggleDAC(false);
+        channel.Update(powered: true, cycles: 8);
+        channel.ToggleDAC(true);
+        channel.HandleTrigger();
+        channel.Update(powered: true, cycles: 14);
+
+        Assert.Equal(0x0F, channel.DigitalOutput);
+    }
+
+    /// <summary>
+    /// Verifies channel 1's second sweep overflow check disables the channel after its four-tick calculation delay.
+    /// </summary>
+    [Fact]
+    public void SweepSecondOverflowCheckCompletesAfterEightMachineCycles()
+    {
+        var channel = new SquareWaveGenerator();
+        channel.Init();
+        channel.SetDutyCycle(0xC0);
+        channel.SetEnvelope(0xF0, ApuHardwareRevision.CgbE);
+        channel.ToggleDAC(true);
+        channel.SetSweep(0x17);
+        channel.SetFrequency(0x7F0);
+        channel.HandleTrigger();
+
+        channel.ClockFrameSequencer();
+        channel.ClockFrameSequencer();
+        channel.ClockFrameSequencer();
+        Assert.True(channel.Status);
+
+        channel.Update(powered: true, cycles: 31);
+        Assert.True(channel.Status);
+
+        channel.Update(powered: true, cycles: 1);
+        Assert.False(channel.Status);
+    }
+
+    /// <summary>
+    /// Verifies fixed-rate output integrates rapid channel transitions instead of sampling one terminal level.
+    /// </summary>
+    [Fact]
+    public void AudioOutputIntegratesLevelsAcrossSampleWindow()
+    {
+        var apu = new APU();
+        apu.Init(GBCMode.GBCSupport);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0x70, APUSchema.VIN_VOL_CONTROL);
+        apu.WriteByte(0x20, APUSchema.STEREO_SELECT);
+        apu.WriteByte(0x80, APUSchema.SQUARE_2_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0xF0, APUSchema.SQUARE_2_VOLUME_ENVELOPE);
+        apu.WriteByte(0xFF, APUSchema.SQUARE_2_FREQUENCY_LSB);
+        apu.WriteByte(0x87, APUSchema.SQUARE_2_FREQUENCY_MSB);
+
+        for (var i = 0; i < 1000; i++)
+        {
+            apu.Update(4);
+        }
+
+        var samples = apu.GetSoundSamples(out var frameCount);
+
+        Assert.InRange(frameCount, 41, 43);
+        Assert.InRange(samples[(frameCount - 1) * 2], 1f, 14f);
+        Assert.Equal(0f, samples[((frameCount - 1) * 2) + 1]);
+    }
+
+    /// <summary>
+    /// Verifies channel 4 catches up every elapsed LFSR period and exposes its current output without a CPU-call-sized moving average.
+    /// </summary>
+    [Fact]
+    public void NoiseUpdateCatchesUpWithoutInstructionSizedSmoothing()
+    {
+        var channel = new NoiseGenerator();
+        channel.Init();
+        channel.SetEnvelope(0xF0, ApuHardwareRevision.CgbE);
+        channel.ToggleDAC(true);
+        channel.SetFrequencyParameters(0x00);
+        channel.HandleTrigger();
+        channel.ChannelState = APUSchema.CHANNEL_LEFT;
+
+        // The trigger-aligned divisor produces the fifteenth LFSR edge after 124 CPU clocks.
+        channel.Update(powered: true, cycles: 124);
+        var left = 0;
+        var right = 0;
+        channel.GetCurrentSample(ref left, ref right);
+
+        Assert.Equal(0x0F, channel.DigitalOutput);
+        Assert.Equal(0x0F, left);
+        Assert.Equal(0, right);
+    }
+
+    /// <summary>
+    /// Verifies a low-only pulse period write retains the upper bits stored in the write-only high register.
+    /// </summary>
+    [Fact]
+    public void PulseFrequencyLowWritePreservesStoredHighBits()
+    {
+        var apu = new APU();
+        apu.Init(GBCMode.GBCSupport);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0x40, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0xF0, APUSchema.SQUARE_1_VOLUME_ENVELOPE);
+        WriteChannel1Frequency(apu, 0, trigger: true);
+
+        apu.WriteByte(0xFF, APUSchema.SQUARE_1_FREQUENCY_LSB);
+        apu.Update(8192 + 24);
+
+        Assert.Equal(0x00, apu.ReadByte(APUSchema.PCM_12) & 0x0F);
+    }
+
+    /// <summary>
     /// Powers on the APU and verifies complete read values so writable fields are not hidden by the unused-bit masks.
     /// </summary>
     [Fact]
@@ -507,10 +775,24 @@ public sealed class ApuRegisterTests
         var apu = new APU();
         apu.Init(mode);
         apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
-        apu.WriteByte(0x40, APUSchema.SQUARE_2_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0xC0, APUSchema.SQUARE_2_DUTY_LENGTH_LOAD);
         apu.WriteByte(envelope, APUSchema.SQUARE_2_VOLUME_ENVELOPE);
+        apu.WriteByte(0xFF, APUSchema.SQUARE_2_FREQUENCY_LSB);
         apu.WriteByte(0x87, APUSchema.SQUARE_2_FREQUENCY_MSB);
+        apu.Update(12);
         return apu;
+    }
+
+    private static SquareWaveGenerator CreateFrequencyWritePulse()
+    {
+        var channel = new SquareWaveGenerator();
+        channel.Init();
+        channel.SetDutyCycle(0x00);
+        channel.SetEnvelope(0xF0, ApuHardwareRevision.CgbE);
+        channel.ToggleDAC(true);
+        channel.SetFrequency(0x7FC);
+        channel.HandleTrigger();
+        return channel;
     }
 
     private static void ClockEnvelope(APU apu)

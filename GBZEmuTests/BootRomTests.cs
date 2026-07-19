@@ -23,6 +23,41 @@ public sealed class BootRomTests
         0xFF10, 0xFF11, 0xFF12, 0xFF14, 0xFF24, 0xFF25, 0xFF26
     };
 
+    /// <summary>
+    /// Verifies that hosts see a complete mode-appropriate startup blank rather than default struct memory before VBlank publishes the first emulated frame.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Start_InitializesHostVisibleFramebufferBeforeFirstUpdate(bool gbc, bool skipBootRom)
+    {
+        using var rom = CreateRom(gbc);
+        var bootMode = gbc ? BootMode.GBC : BootMode.DMG | BootMode.Force;
+        if (skipBootRom)
+        {
+            bootMode |= BootMode.Skip;
+        }
+
+        var emulator = Start(rom, bootMode);
+        var screen = emulator.GetScreenData();
+        var expected = gbc
+            ? new Color(byte.MaxValue, byte.MaxValue, byte.MaxValue)
+            : Display.DefaultPalette[0];
+
+        for (var y = 0; y < Display.VERTICAL_RESOLUTION; y++)
+        {
+            for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
+            {
+                Assert.Equal((expected.R, expected.G, expected.B),
+                    (screen[x, y].R, screen[x, y].G, screen[x, y].B));
+            }
+        }
+
+        emulator.Terminate();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

@@ -10,6 +10,7 @@ public sealed class HeadlessOptions
     public required string ROMPath { get; init; }
     public required string OutputDirectory { get; init; }
     public required string SaveDirectory { get; init; }
+    public string? AudioOutputPath { get; init; }
     public IReadOnlyList<string> BootROMPaths { get; init; } = [];
     public IReadOnlyList<HeadlessInputEvent> InputEvents { get; init; } = [];
     public int Frames { get; init; }
@@ -29,6 +30,7 @@ public sealed class HeadlessOptions
         string? romPath = null;
         string? outputDirectory = null;
         string? saveDirectory = null;
+        string? audioOutputPath = null;
         int? captureStart = null;
         int? captureEnd = null;
         var frames = 1;
@@ -56,6 +58,9 @@ public sealed class HeadlessOptions
                     break;
                 case "--save-dir":
                     saveDirectory = ReadValue(args, ref i, "--save-dir");
+                    break;
+                case "--audio-out":
+                    audioOutputPath = ReadValue(args, ref i, "--audio-out");
                     break;
                 case "--bootrom":
                     bootROMPaths.Add(ReadValue(args, ref i, "--bootrom"));
@@ -98,6 +103,7 @@ public sealed class HeadlessOptions
 
         outputDirectory = Path.GetFullPath(outputDirectory ?? Path.Combine(Directory.GetCurrentDirectory(), "headless-output"));
         saveDirectory = Path.GetFullPath(saveDirectory ?? Path.Combine(outputDirectory, "saves"));
+        audioOutputPath = audioOutputPath == null ? null : Path.GetFullPath(audioOutputPath);
         captureStart ??= frames;
         captureEnd ??= frames;
 
@@ -125,6 +131,7 @@ public sealed class HeadlessOptions
             ROMPath = romPath,
             OutputDirectory = outputDirectory,
             SaveDirectory = saveDirectory,
+            AudioOutputPath = audioOutputPath,
             BootROMPaths = bootROMPaths,
             InputEvents = inputEvents.OrderBy(input => input.Frame).ToArray(),
             Frames = frames,
@@ -145,6 +152,7 @@ public sealed class HeadlessOptions
         "  --capture-every <count>       Capture every Nth frame in the range; defaults to 1\n" +
         "  --output <path>               Capture/report directory; defaults to ./headless-output\n" +
         "  --save-dir <path>             Save directory; defaults to <output>/saves\n" +
+        "  --audio-out <path>            Write exact interleaved float32 core amplitudes for every frame\n" +
         "  --bootrom <path>              Boot ROM image; may be repeated for DMG and CGB images\n" +
         "  --input <frame:button:state>   Apply a button down/up event before a frame\n" +
         "  --dmg                         Force DMG mode\n" +

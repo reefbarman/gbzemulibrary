@@ -13,8 +13,25 @@ public sealed class HeadlessReport
     public int CaptureEndFrame { get; init; }
     public int CaptureEvery { get; init; }
     public required string BootMode { get; init; }
+    public HeadlessAudioCapture? Audio { get; init; }
     public required IReadOnlyList<HeadlessInputEventReport> InputEvents { get; init; }
     public required IReadOnlyList<HeadlessCapture> Captures { get; init; }
+}
+
+/// <summary>
+/// Describes an exact, unfiltered capture of the core's reusable stereo amplitude buffer.
+/// </summary>
+public sealed class HeadlessAudioCapture
+{
+    public required string File { get; init; }
+    public required string Format { get; init; }
+    public int SampleRate { get; init; }
+    public int SampleFrames { get; init; }
+    public required string SHA256 { get; init; }
+    public float MinimumAmplitude { get; init; }
+    public float MaximumAmplitude { get; init; }
+    public int? FirstNonZeroSampleFrame { get; init; }
+    public required IReadOnlyList<int> EmulatorFrameSampleCounts { get; init; }
 }
 
 /// <summary>

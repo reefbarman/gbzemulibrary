@@ -24,3 +24,5 @@ build() {
 
 build dmg_boot 256
 build cgb_boot 2304
+build sgb_boot 256
+build sgb2_boot 256

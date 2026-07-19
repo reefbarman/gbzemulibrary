@@ -107,6 +107,8 @@ internal sealed class RomManifest
             Protocol = RomProtocol.Fibonacci
         };
 
+        test.RevisionRequirement = GetRevisionRequirement(test.Id);
+
         if (relativePath.StartsWith("blargg/", StringComparison.Ordinal))
         {
             test.Protocol = relativePath.StartsWith("blargg/dmg_sound/", StringComparison.Ordinal) ||
@@ -140,6 +142,18 @@ internal sealed class RomManifest
         {
             test.Hardware = HardwareMode.Cgb;
         }
+        else if (relativePath.StartsWith("samesuite/sgb/", StringComparison.Ordinal))
+        {
+            test.Hardware = HardwareMode.Sgb;
+        }
+        else if (relativePath == "mooneye/acceptance/boot_regs-sgb.gb")
+        {
+            test.Hardware = HardwareMode.Sgb;
+        }
+        else if (relativePath == "mooneye/acceptance/boot_regs-sgb2.gb")
+        {
+            test.Hardware = HardwareMode.Sgb2;
+        }
         else if (relativePath.StartsWith("mealybug/roms/", StringComparison.Ordinal))
         {
             test.Hardware = HardwareMode.Cgb;
@@ -156,6 +170,46 @@ internal sealed class RomManifest
 
         return test;
     }
+
+    private static HardwareRevisionRequirement GetRevisionRequirement(string testId)
+    {
+        if (!testId.StartsWith("samesuite/apu/", StringComparison.Ordinal))
+        {
+            return HardwareRevisionRequirement.Any;
+        }
+
+        if (testId.EndsWith("-cgb0BC", StringComparison.Ordinal))
+        {
+            return HardwareRevisionRequirement.Cgb0ThroughC;
+        }
+
+        if (testId.EndsWith("-cgb0B", StringComparison.Ordinal))
+        {
+            return HardwareRevisionRequirement.Cgb0ThroughB;
+        }
+
+        if (testId.EndsWith("-cgbDE", StringComparison.Ordinal))
+        {
+            return HardwareRevisionRequirement.CgbDThroughE;
+        }
+
+        if (testId.EndsWith("freq_change_timing-A", StringComparison.Ordinal))
+        {
+            return HardwareRevisionRequirement.AgbA;
+        }
+
+        if (testId.EndsWith("-cgb0", StringComparison.Ordinal))
+        {
+            return HardwareRevisionRequirement.Cgb0;
+        }
+
+        if (testId.EndsWith("-cgbB", StringComparison.Ordinal))
+        {
+            return HardwareRevisionRequirement.CgbB;
+        }
+
+        return HardwareRevisionRequirement.Any;
+    }
 }
 
 internal sealed class RomTestCase
@@ -166,13 +220,22 @@ internal sealed class RomTestCase
     public HardwareMode Hardware { get; set; }
     public int MaxFrames { get; set; } = 3600;
     public string? ReferenceImage { get; set; }
+    public HardwareRevisionRequirement RevisionRequirement { get; set; }
 
     public string RomPath => FixturePath(Rom);
     public string? ReferenceImagePath => ReferenceImage == null ? null : FixturePath(ReferenceImage);
 
+    public string? SkipReason => Hardware == HardwareMode.Cgb && !RevisionRequirement.SupportsCgbE()
+        ? $"Requires {RevisionRequirement.DisplayName()}; GBZEmu targets CPU CGB-E."
+        : null;
+
     public BootMode BootMode => Hardware == HardwareMode.Cgb
         ? BootMode.GBC | BootMode.Skip
-        : BootMode.DMG | BootMode.Force | BootMode.Skip;
+        : Hardware == HardwareMode.Sgb2
+            ? BootMode.SGB2 | BootMode.Skip
+        : Hardware == HardwareMode.Sgb
+            ? BootMode.SGB | BootMode.Skip
+            : BootMode.DMG | BootMode.Force | BootMode.Skip;
 
     private static string FixturePath(string relativePath)
     {
@@ -191,5 +254,41 @@ internal enum RomProtocol
 internal enum HardwareMode
 {
     Dmg,
-    Cgb
+    Cgb,
+    Sgb,
+    Sgb2
+}
+
+internal enum HardwareRevisionRequirement
+{
+    Any,
+    Cgb0,
+    CgbB,
+    Cgb0ThroughB,
+    Cgb0ThroughC,
+    CgbDThroughE,
+    AgbA
+}
+
+internal static class HardwareRevisionRequirementExtensions
+{
+    public static bool SupportsCgbE(this HardwareRevisionRequirement requirement)
+    {
+        return requirement == HardwareRevisionRequirement.Any ||
+               requirement == HardwareRevisionRequirement.CgbDThroughE;
+    }
+
+    public static string DisplayName(this HardwareRevisionRequirement requirement)
+    {
+        return requirement switch
+        {
+            HardwareRevisionRequirement.Cgb0 => "CPU CGB-0",
+            HardwareRevisionRequirement.CgbB => "CPU CGB-B",
+            HardwareRevisionRequirement.Cgb0ThroughB => "CPU CGB-0/B",
+            HardwareRevisionRequirement.Cgb0ThroughC => "CPU CGB-0/A/B/C",
+            HardwareRevisionRequirement.CgbDThroughE => "CPU CGB-D/E",
+            HardwareRevisionRequirement.AgbA => "CPU AGB-A",
+            _ => "any supported revision"
+        };
+    }
 }

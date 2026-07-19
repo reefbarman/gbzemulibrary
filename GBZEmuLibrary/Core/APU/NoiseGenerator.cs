@@ -1,29 +1,37 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace GBZEmuLibrary
 {
+    /// <summary>
+    /// Emulates channel 4's period divider, selectable-width LFSR, and volume envelope.
+    /// </summary>
     internal class NoiseGenerator : EnvelopeGenerator
     {
-        private const int MAX_SAMPLES_PER_CHANNEL = (GameBoySchema.MAX_DMG_CLOCK_CYCLES / (Sound.SAMPLE_RATE / 2)) / 2; //TODO determine what this is
-
         private int _divRatio;
         private int _widthMode;
         private int _clockShift;
 
         private int _linearFeedbackShiftRegister = 1;
-
-        private Queue<int> _samplesLeft = new Queue<int>(MAX_SAMPLES_PER_CHANNEL + 1);
-        private Queue<int> _samplesRight = new Queue<int>(MAX_SAMPLES_PER_CHANNEL + 1);
+        private int _noiseCounter;
+        private int _counterCountdown;
+        private int _alignmentClocks;
+        private bool _backgroundCounterActive;
+        private ApuHardwareRevision _hardwareRevision;
 
         public NoiseGenerator() : base(MathSchema.MAX_6_BIT_VALUE)
         {
-            for (var i = 0; i < MAX_SAMPLES_PER_CHANNEL; i++)
-            {
-                _samplesLeft.Enqueue(0);
-                _samplesRight.Enqueue(0);
-            }
+        }
+
+        /// <summary>
+        /// Initializes the free-running noise divider to the reset NR43 period.
+        /// </summary>
+        public override void Init()
+        {
+            base.Init();
+            _noiseCounter = 0;
+            _counterCountdown = 0;
+            _alignmentClocks = 0;
+            _backgroundCounterActive = false;
         }
 
         public override byte ReadByte(int address)
@@ -64,6 +72,10 @@ namespace GBZEmuLibrary
             _divRatio = 0;
             _widthMode = 0;
             _clockShift = 0;
+            _noiseCounter = 0;
+            _counterCountdown = 0;
+            _alignmentClocks = 0;
+            _backgroundCounterActive = false;
         }
 
         public override void HandleTrigger()
@@ -79,31 +91,47 @@ namespace GBZEmuLibrary
             }
 
             _linearFeedbackShiftRegister = 0x7FFF;
-
-            SetFrequency();
+            StartCounter();
 
             RestartEnvelope();
         }
 
-        public void SetDivRatio(byte data)
+        public void SetHardwareRevision(ApuHardwareRevision hardwareRevision)
         {
+            _hardwareRevision = hardwareRevision;
+        }
+
+        /// <summary>
+        /// Applies NR43's divisor, width, and clock-shift fields without restarting the free-running period phase.
+        /// </summary>
+        public void SetFrequencyParameters(byte data)
+        {
+            var oldDivRatio = _divRatio;
+            var oldClockShift = _clockShift;
             _divRatio = Helpers.GetBits(data, 3);
-        }
-
-        public void SetWidthMode(byte data)
-        {
             _widthMode = Helpers.GetBitsIsolated(data, 3, 1);
-        }
-
-        public void SetClockShift(byte data)
-        {
             _clockShift = Helpers.GetBitsIsolated(data, 4, 4);
-        }
 
-        public override void GetCurrentSample(ref int leftChannel, ref int rightChannel)
-        {
-            leftChannel += FilterSamples(_samplesLeft);
-            rightChannel += FilterSamples(_samplesRight);
+            // On CGB-E, changing the selected counter tap clocks the LFSR when the write itself creates a rising edge.
+            // Divisor and width writes otherwise retain both the counter and its current countdown.
+            var oldBit = (_noiseCounter & (1 << oldClockShift)) != 0;
+            var newBit = (_noiseCounter & (1 << _clockShift)) != 0;
+            if (_hardwareRevision == ApuHardwareRevision.CgbE && _backgroundCounterActive && !oldBit && newBit)
+            {
+                StepLfsr();
+            }
+
+            if (_hardwareRevision == ApuHardwareRevision.CgbE && _backgroundCounterActive && oldDivRatio != _divRatio)
+            {
+                if ((_alignmentClocks & 4) != 0)
+                {
+                    _counterCountdown = GetDivisorPeriod();
+                }
+                else if (oldDivRatio == 0)
+                {
+                    _counterCountdown = GetDivisorPeriod() + 4;
+                }
+            }
         }
 
         protected override int GetSample()
@@ -113,84 +141,90 @@ namespace GBZEmuLibrary
 
         protected override void UpdateFrequency(int cycles)
         {
-            _frequencyCount += cycles;
+            _alignmentClocks = (_alignmentClocks + cycles) & 7;
 
-            if (_frequencyCount >= _frequency)
+            if (!_backgroundCounterActive)
             {
-                _frequencyCount -= _frequency;
+                return;
+            }
 
-                if (_clockShift < 14)
+            var cyclesLeft = cycles;
+            var divisorPeriod = GetDivisorPeriod();
+
+            while (cyclesLeft >= _counterCountdown)
+            {
+                cyclesLeft -= _counterCountdown;
+                _counterCountdown = divisorPeriod;
+
+                var selectedBit = 1 << _clockShift;
+                var oldBit = (_noiseCounter & selectedBit) != 0;
+                _noiseCounter = (_noiseCounter + 1) & 0x3FFF;
+                var newBit = (_noiseCounter & selectedBit) != 0;
+
+                if (!oldBit && newBit && _enabled)
                 {
-                    var xor = Helpers.GetBits(_linearFeedbackShiftRegister, 1) ^ Helpers.GetBitsIsolated(_linearFeedbackShiftRegister, 1, 1);
-                    _linearFeedbackShiftRegister >>= 1;
-                    Helpers.SetBit(ref _linearFeedbackShiftRegister, 14, xor != 0);
-
-                    if (_widthMode == 1)
-                    {
-                        Helpers.SetBit(ref _linearFeedbackShiftRegister, 6, xor != 0);
-                    }
+                    StepLfsr();
                 }
             }
 
-            var leftSample = 0;
-            var rightSample = 0;
-
-            base.GetCurrentSample(ref leftSample, ref rightSample);
-
-            _samplesLeft.Enqueue(leftSample);
-
-            if (_samplesLeft.Count > MAX_SAMPLES_PER_CHANNEL)
-            {
-                _samplesLeft.Dequeue();
-            }
-
-            _samplesRight.Enqueue(rightSample);
-
-            if (_samplesRight.Count > MAX_SAMPLES_PER_CHANNEL)
-            {
-                _samplesRight.Dequeue();
-            }
+            _counterCountdown -= cyclesLeft;
         }
 
-        private void SetFrequency()
+        /// <summary>
+        /// Starts channel 4's divider at the CGB-E alignment measured by SameSuite. The divider then free-runs
+        /// across retriggers and NR43 writes until the APU is powered off.
+        /// </summary>
+        private void StartCounter()
         {
-            var freq = 8;
+            var alignment = (_alignmentClocks >> 1) & 3;
+            var countdown = _divRatio == 0 ? 6 : _divRatio * 4 + 6;
 
-            switch (_divRatio)
+            if ((alignment & 1) != 0)
             {
-                case 0:
-                    freq = 8 << _clockShift;
-                    break;
-                case 1:
-                    freq = 16 << _clockShift;
-                    break;
-                case 2:
-                    freq = 32 << _clockShift;
-                    break;
-                case 3:
-                    freq = 48 << _clockShift;
-                    break;
-                case 4:
-                    freq = 64 << _clockShift;
-                    break;
-                case 5:
-                    freq = 80 << _clockShift;
-                    break;
-                case 6:
-                    freq = 96 << _clockShift;
-                    break;
-                case 7:
-                    freq = 112 << _clockShift;
-                    break;
+                if (_divRatio == 0)
+                {
+                    countdown += _backgroundCounterActive ? -1 : 1;
+                }
+                else if ((alignment & 2) != 0)
+                {
+                    countdown -= 3;
+                }
+                else
+                {
+                    countdown--;
+                }
+            }
+            else if (_divRatio != 0)
+            {
+                if ((alignment & 2) != 0)
+                {
+                    countdown -= 2;
+                }
+                else if (_divRatio > 1)
+                {
+                    countdown -= 4;
+                }
             }
 
-            _frequency = freq;
-            _frequencyCount = 0;
+            _counterCountdown = countdown * 2;
+            _backgroundCounterActive = true;
         }
 
-        private int FilterSamples(Queue<int> samplesRight)
+        private int GetDivisorPeriod()
         {
-            return (int)samplesRight.Average();
+            return _divRatio == 0 ? 4 : _divRatio * 8;
+        }
+
+        private void StepLfsr()
+        {
+            var xor = Helpers.GetBits(_linearFeedbackShiftRegister, 1) ^ Helpers.GetBitsIsolated(_linearFeedbackShiftRegister, 1, 1);
+            _linearFeedbackShiftRegister >>= 1;
+            Helpers.SetBit(ref _linearFeedbackShiftRegister, 14, xor != 0);
+
+            if (_widthMode == 1)
+            {
+                Helpers.SetBit(ref _linearFeedbackShiftRegister, 6, xor != 0);
+            }
         }
     }
 }

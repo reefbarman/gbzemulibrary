@@ -106,6 +106,14 @@ namespace GBZEmuLibrary
             _sequenceTimer = (_sequenceTimer + 1) % 8;
         }
 
+        /// <summary>
+        /// Selects the shared DIV-APU divider phase used by length, sweep, and envelope edge quirks.
+        /// </summary>
+        public void SetFrameSequencerPhase(int phase)
+        {
+            _sequenceTimer = phase & 7;
+        }
+
         public void ToggleDAC(bool enabled)
         {
             _dacEnabled = enabled;

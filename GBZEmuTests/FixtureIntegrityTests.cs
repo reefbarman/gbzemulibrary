@@ -65,6 +65,39 @@ public sealed class FixtureIntegrityTests
 
         Assert.Equal(HardwareMode.Cgb, tests["samesuite/apu/channel_2/channel_2_nrx2_glitch"].Hardware);
         Assert.Equal(HardwareMode.Cgb, tests["samesuite/apu/channel_2/channel_2_nrx2_speed_change"].Hardware);
+        Assert.Equal(HardwareMode.Sgb, tests["samesuite/sgb/command_mlt_req"].Hardware);
+        Assert.Equal(HardwareMode.Sgb, tests["mooneye/acceptance/boot_regs-sgb"].Hardware);
+        Assert.Equal(HardwareMode.Sgb2, tests["mooneye/acceptance/boot_regs-sgb2"].Hardware);
+    }
+
+    /// <summary>
+    /// Keeps revision-specific SameSuite exclusions explicit while retaining CGB-D/E coverage for the selected CGB-E target.
+    /// </summary>
+    [Fact]
+    public void SameSuiteApuRevisionSkipsMatchDmgBAndCgbETargets()
+    {
+        var tests = RomManifest.Load().Tests
+            .Where(test => test.Id.StartsWith("samesuite/apu/", StringComparison.Ordinal))
+            .ToDictionary(test => test.Id, StringComparer.Ordinal);
+        var skipped = tests.Values
+            .Where(test => test.SkipReason != null)
+            .Select(test => test.Id)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        var expected = new[]
+        {
+            "samesuite/apu/channel_1/channel_1_extra_length_clocking-cgb0B",
+            "samesuite/apu/channel_1/channel_1_freq_change_timing-A",
+            "samesuite/apu/channel_1/channel_1_freq_change_timing-cgb0BC",
+            "samesuite/apu/channel_2/channel_2_extra_length_clocking-cgb0B",
+            "samesuite/apu/channel_3/channel_3_extra_length_clocking-cgb0",
+            "samesuite/apu/channel_3/channel_3_extra_length_clocking-cgbB",
+            "samesuite/apu/channel_4/channel_4_extra_length_clocking-cgb0B"
+        };
+
+        Assert.Equal(expected, skipped);
+        Assert.Null(tests["samesuite/apu/channel_1/channel_1_freq_change_timing-cgbDE"].SkipReason);
+        Assert.All(skipped, id => Assert.Contains("GBZEmu targets CPU CGB-E", tests[id].SkipReason, StringComparison.Ordinal));
     }
 
     /// <summary>

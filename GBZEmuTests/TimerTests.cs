@@ -57,13 +57,29 @@ public sealed class TimerTests
     {
         var timer = CreateTimer(GBCMode.GBCSupport);
         var apuClocks = 0;
-        timer.OnApuClock = () => apuClocks++;
+        timer.OnApuClock = _ => apuClocks++;
 
         timer.Update(8191);
         Assert.Equal(0, apuClocks);
 
         timer.Update(1);
         Assert.Equal(1, apuClocks);
+    }
+
+    /// <summary>
+    /// Reports the falling edge's position inside the current CPU update so the APU can split channel advancement around it.
+    /// </summary>
+    [Fact]
+    public void DividerReportsApuEdgeOffsetWithinUpdate()
+    {
+        var timer = CreateTimer(GBCMode.GBCSupport);
+        var edgeOffset = -1;
+        timer.OnApuClock = offset => edgeOffset = offset;
+
+        timer.Update(8190);
+        timer.Update(4);
+
+        Assert.Equal(2, edgeOffset);
     }
 
     /// <summary>
@@ -74,7 +90,7 @@ public sealed class TimerTests
     {
         var timer = CreateTimer(GBCMode.GBCSupport);
         var apuClocks = 0;
-        timer.OnApuClock = () => apuClocks++;
+        timer.OnApuClock = _ => apuClocks++;
 
         timer.Update(4095);
         timer.WriteDivider();
@@ -93,7 +109,7 @@ public sealed class TimerTests
     {
         var timer = CreateTimer(GBCMode.GBCSupport);
         var apuClocks = 0;
-        timer.OnApuClock = () => apuClocks++;
+        timer.OnApuClock = _ => apuClocks++;
         timer.SetDoubleSpeed(true);
 
         timer.Update(4096);

@@ -13,22 +13,14 @@ namespace GBZEmuLibrary
         private readonly SquareWaveGenerator _channel2;
         private readonly WaveGenerator _channel3;
         private readonly NoiseGenerator _channel4;
+        private readonly BandLimitedAudioRenderer _bandLimitedRenderer;
 
         private bool _powered;
         private bool _gbcMode;
+        private ApuHardwareRevision _hardwareRevision;
+        private bool _skipNextFrameSequencerClock;
 
-        private readonly float _maxCyclesPerSample;
-        private float _cycleCounter;
-
-        //Using double buffering
-        private readonly byte[][] _buffer =
-        {
-            new byte[GameBoySchema.MAX_AUDIO_FRAMES_PER_VIDEO_FRAME * 2],
-            new byte[GameBoySchema.MAX_AUDIO_FRAMES_PER_VIDEO_FRAME * 2],
-        };
-
-        private int _currentBuffer;
-        private int _currentByte;
+        public Func<bool> IsApuDividerHigh;
 
         private byte _leftChannelVolume;
         private byte _rightChannelVolume;
@@ -40,21 +32,28 @@ namespace GBZEmuLibrary
 
         public APU()
         {
-            _maxCyclesPerSample = GameBoySchema.MAX_DMG_CLOCK_CYCLES / (float)Sound.SAMPLE_RATE;
-
             _channel1 = new SquareWaveGenerator();
             _channel2 = new SquareWaveGenerator();
             _channel3 = new WaveGenerator();
             _channel4 = new NoiseGenerator();
+            _bandLimitedRenderer = new BandLimitedAudioRenderer();
         }
 
         /// <summary>
         /// Selects revision-specific APU behavior for the active hardware mode.
         /// </summary>
-        public void Init(GBCMode mode)
+        public void Init(GBCMode mode, SgbModel sgbModel = SgbModel.None)
         {
             // Both GBCSupport and GBCOnly represent execution on CGB hardware; cartridge compatibility is separate.
             _gbcMode = mode != GBCMode.NoGBC;
+            _hardwareRevision = _gbcMode ? ApuHardwareRevision.CgbE : ApuHardwareRevision.DmgB;
+            _channel1.SetHardwareRevision(_hardwareRevision);
+            _channel2.SetHardwareRevision(_hardwareRevision);
+            _channel4.SetHardwareRevision(_hardwareRevision);
+            var clockRate = sgbModel == SgbModel.Sgb
+                ? GameBoySchema.SGB_NTSC_CLOCK_CYCLES
+                : GameBoySchema.MAX_DMG_CLOCK_CYCLES;
+            _bandLimitedRenderer.SetClockRate(clockRate);
         }
 
         public void ToggleChannel(Sound.Channel channel, bool enabled)
@@ -76,17 +75,9 @@ namespace GBZEmuLibrary
             }
         }
 
-        public byte[] GetSoundSamples(out int sampleFrameCount)
+        public float[] GetSoundSamples(out int sampleFrameCount)
         {
-            sampleFrameCount = _currentByte;
-            _currentByte = 0;
-
-            var outSamples = _buffer[_currentBuffer];
-            _currentBuffer = (_currentBuffer + 1) % _buffer.Length;
-
-            Array.Clear(_buffer[_currentBuffer], 0, _buffer[_currentBuffer].Length);
-
-            return outSamples;
+            return _bandLimitedRenderer.GetSamples(out sampleFrameCount);
         }
 
         /// <summary>
@@ -95,6 +86,8 @@ namespace GBZEmuLibrary
         public void Reset()
         {
             _powered = true;
+            _skipNextFrameSequencerClock = false;
+            _bandLimitedRenderer.Reset();
 
             WriteByte(0x80, 0xFF10);
             WriteByte(0xBF, 0xFF11);
@@ -154,7 +147,9 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            _memory[address - MemorySchema.APU_REGISTERS_START] = data;
+            var registerIndex = address - MemorySchema.APU_REGISTERS_START;
+            var previousData = _memory[registerIndex];
+            _memory[registerIndex] = data;
 
             int freqLowerBits, freqHighBits;
 
@@ -177,7 +172,7 @@ namespace GBZEmuLibrary
 
                 case APUSchema.SQUARE_1_VOLUME_ENVELOPE:
                     // Register Format VVVV APPP Starting volume, Envelope add mode, period
-                    _channel1.SetEnvelope(data, _gbcMode);
+                    _channel1.SetEnvelope(data, _hardwareRevision);
                     _channel1.ToggleDAC(Helpers.GetBitsIsolated(data, 3, 5) != 0);
                     break;
 
@@ -185,7 +180,9 @@ namespace GBZEmuLibrary
                     // Register Format FFFF FFFF Frequency LSB
 
                     freqLowerBits = data;
-                    freqHighBits = Helpers.GetBits(ReadByte(APUSchema.SQUARE_1_FREQUENCY_MSB), 3) << 8;
+                    freqHighBits = Helpers.GetBits(
+                        _memory[APUSchema.SQUARE_1_FREQUENCY_MSB - MemorySchema.APU_REGISTERS_START],
+                        3) << 8;
 
                     _channel1.SetFrequency(freqHighBits + freqLowerBits);
                     break;
@@ -196,7 +193,7 @@ namespace GBZEmuLibrary
                     freqLowerBits = _memory[APUSchema.SQUARE_1_FREQUENCY_LSB - MemorySchema.APU_REGISTERS_START];
                     freqHighBits = Helpers.GetBits(data, 3) << 8;
 
-                    _channel1.SetFrequency(freqHighBits + freqLowerBits);
+                    _channel1.SetFrequencyHigh(freqHighBits + freqLowerBits, previousData, data, _hardwareRevision);
 
                     _channel1.ToggleLength(Helpers.TestBit(data, 6));
 
@@ -219,7 +216,7 @@ namespace GBZEmuLibrary
 
                 case APUSchema.SQUARE_2_VOLUME_ENVELOPE:
                     // Register Format VVVV APPP Starting volume, Envelope add mode, period
-                    _channel2.SetEnvelope(data, _gbcMode);
+                    _channel2.SetEnvelope(data, _hardwareRevision);
                     _channel2.ToggleDAC(Helpers.GetBitsIsolated(data, 3, 5) != 0);
                     break;
 
@@ -227,7 +224,9 @@ namespace GBZEmuLibrary
                     // Register Format FFFF FFFF Frequency LSB
 
                     freqLowerBits = data;
-                    freqHighBits = Helpers.GetBits(ReadByte(APUSchema.SQUARE_2_FREQUENCY_MSB), 3) << 8;
+                    freqHighBits = Helpers.GetBits(
+                        _memory[APUSchema.SQUARE_2_FREQUENCY_MSB - MemorySchema.APU_REGISTERS_START],
+                        3) << 8;
 
                     _channel2.SetFrequency(freqHighBits + freqLowerBits);
                     break;
@@ -238,7 +237,7 @@ namespace GBZEmuLibrary
                     freqLowerBits = _memory[APUSchema.SQUARE_2_FREQUENCY_LSB - MemorySchema.APU_REGISTERS_START];
                     freqHighBits = Helpers.GetBits(data, 3) << 8;
 
-                    _channel2.SetFrequency(freqHighBits + freqLowerBits);
+                    _channel2.SetFrequencyHigh(freqHighBits + freqLowerBits, previousData, data, _hardwareRevision);
 
                     _channel2.ToggleLength(Helpers.TestBit(data, 6));
 
@@ -268,7 +267,9 @@ namespace GBZEmuLibrary
                     // Register Format FFFF FFFF Frequency LSB
 
                     freqLowerBits = data;
-                    freqHighBits = Helpers.GetBits(ReadByte(APUSchema.WAVE_3_FREQUENCY_MSB), 3) << 8;
+                    freqHighBits = Helpers.GetBits(
+                        _memory[APUSchema.WAVE_3_FREQUENCY_MSB - MemorySchema.APU_REGISTERS_START],
+                        3) << 8;
 
                     _channel3.SetFrequency(freqHighBits + freqLowerBits);
                     break;
@@ -298,15 +299,13 @@ namespace GBZEmuLibrary
 
                 case APUSchema.NOISE_4_VOLUME_ENVELOPE:
                     // Register Format VVVV APPP Starting volume, Envelope add mode, period
-                    _channel4.SetEnvelope(data, _gbcMode);
+                    _channel4.SetEnvelope(data, _hardwareRevision);
                     _channel4.ToggleDAC(Helpers.GetBitsIsolated(data, 3, 5) != 0);
                     break;
 
                 case APUSchema.NOISE_4_CLOCK_WIDTH_DIVISOR:
                     // Register Format SSSS WDDD Clock shift, Width mode of LFSR, Divisor code
-                    _channel4.SetDivRatio(data);
-                    _channel4.SetWidthMode(data);
-                    _channel4.SetClockShift(data);
+                    _channel4.SetFrequencyParameters(data);
                     break;
 
                 case APUSchema.NOISE_4_TRIGGER:
@@ -656,11 +655,29 @@ namespace GBZEmuLibrary
                 return;
             }
 
+            if (_skipNextFrameSequencerClock)
+            {
+                _skipNextFrameSequencerClock = false;
+                // Power-on during DIV-high starts from divider phase 1. The skipped falling edge then
+                // leaves the first real clock repeating phase 1's length-clock behavior.
+                SetFrameSequencerPhase(0);
+                return;
+            }
+
             _channel1.ClockFrameSequencer();
             SynchronizeSweepFrequencyRegisters();
             _channel2.ClockFrameSequencer();
             _channel3.ClockFrameSequencer();
             _channel4.ClockFrameSequencer();
+        }
+
+        /// <summary>
+        /// Applies the pulse-clock phase observed when the CPU resets DIV.
+        /// </summary>
+        public void HandleDividerWrite()
+        {
+            _channel1.HandleDividerWrite();
+            _channel2.HandleDividerWrite();
         }
 
         /// <summary>
@@ -674,16 +691,6 @@ namespace GBZEmuLibrary
             _channel3.Update(_powered, cycles);
             _channel4.Update(_powered, cycles);
 
-            _cycleCounter += cycles;
-
-            //Check if ready to get sample
-            if (_cycleCounter < _maxCyclesPerSample)
-            {
-                return;
-            }
-
-            _cycleCounter -= _maxCyclesPerSample;
-
             var leftChannel = 0;
             var rightChannel = 0;
 
@@ -695,13 +702,9 @@ namespace GBZEmuLibrary
                 _channel4.GetCurrentSample(ref leftChannel, ref rightChannel);
             }
 
-            if (_currentByte * 2 < _buffer[_currentBuffer].Length - 1)
-            {
-                _buffer[_currentBuffer][_currentByte * 2] = (byte)((leftChannel * (1 + _leftChannelVolume)) / 8);
-                _buffer[_currentBuffer][_currentByte * 2 + 1] = (byte)((rightChannel * (1 + _rightChannelVolume)) / 8);
-
-                _currentByte++;
-            }
+            leftChannel = (leftChannel * (1 + _leftChannelVolume)) / 8;
+            rightChannel = (rightChannel * (1 + _rightChannelVolume)) / 8;
+            _bandLimitedRenderer.Update(leftChannel, rightChannel, cycles);
         }
 
         /// <summary>
@@ -752,6 +755,7 @@ namespace GBZEmuLibrary
         {
             if (!newState && _powered)
             {
+                _skipNextFrameSequencerClock = false;
                 _channel1.Reset();
                 _channel2.Reset();
                 _channel3.Reset();
@@ -774,9 +778,22 @@ namespace GBZEmuLibrary
                 _channel2.Init();
                 _channel3.Init();
                 _channel4.Init();
+                _skipNextFrameSequencerClock = IsApuDividerHigh?.Invoke() == true;
+                if (_skipNextFrameSequencerClock)
+                {
+                    SetFrameSequencerPhase(1);
+                }
             }
 
             _powered = newState;
+        }
+
+        private void SetFrameSequencerPhase(int phase)
+        {
+            _channel1.SetFrameSequencerPhase(phase);
+            _channel2.SetFrameSequencerPhase(phase);
+            _channel3.SetFrameSequencerPhase(phase);
+            _channel4.SetFrameSequencerPhase(phase);
         }
     }
 }

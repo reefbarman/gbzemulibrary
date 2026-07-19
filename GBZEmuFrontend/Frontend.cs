@@ -10,18 +10,31 @@ internal sealed class Frontend : IDisposable
 {
     private const int PresentationFramesPerSecond = 60;
     private const int AudioFramesPerBuffer = EmulatorSound.SAMPLE_RATE / PresentationFramesPerSecond;
-    private const int AudioQueueCapacityFrames = AudioFramesPerBuffer * 2;
+    private const int AudioQueueCapacityFrames = AudioFramesPerBuffer * 6;
+    private const int AudioStartupFrames = AudioFramesPerBuffer * 2;
     private const int MaxCatchUpFrames = 5;
-    private const float DcBlockerFeedback = 0.999f;
-    private const double FrameDuration = 1.0 / Display.FRAME_RATE;
+    private const int FastForwardMultiplier = 4;
+    private const int MaxGamepads = 4;
+    private const float GamepadAxisThreshold = 0.5f;
+    private const float RumbleLowMotorStrength = 0.75f;
+    private const float RumbleHighMotorStrength = 0.25f;
+    private const float RumbleRefreshDuration = 0.25f;
     private const double FrameStepRepeatDelay = 0.4;
     private const double FrameStepRepeatInterval = 1.0 / 15.0;
+    private const double RewindRepeatInterval = 1.0 / 15.0;
 
     private readonly Emulator _emulator = new();
     private readonly FrameBlender _frameBlender = new();
+    private readonly FrontendRewindController _rewind = new();
     private readonly RaylibColor[] _pixels = new RaylibColor[Display.HORIZONTAL_RESOLUTION * Display.VERTICAL_RESOLUTION];
+    private readonly RaylibColor[] _sgbPixels = new RaylibColor[
+        SuperGameBoyDisplay.HORIZONTAL_RESOLUTION * SuperGameBoyDisplay.VERTICAL_RESOLUTION];
     private readonly short[] _audioSamples = new short[AudioFramesPerBuffer * 2];
-    private readonly short[] _audioQueue = new short[AudioQueueCapacityFrames * 2];
+    private readonly FrontendAudioQueue _audioQueue = new(AudioQueueCapacityFrames, AudioStartupFrames);
+    private readonly bool[] _logicalButtonStates = new bool[(int)JoypadButtons.Count];
+    private readonly bool[] _desiredButtonStates = new bool[(int)JoypadButtons.Count];
+    private readonly bool[,] _sgbLogicalButtonStates = new bool[4, (int)JoypadButtons.Count];
+    private readonly bool[,] _sgbDesiredButtonStates = new bool[4, (int)JoypadButtons.Count];
     private readonly Dictionary<KeyboardKey, JoypadButtons> _keyMap = new()
     {
         [KeyboardKey.Right] = JoypadButtons.Right,
@@ -33,31 +46,49 @@ internal sealed class Frontend : IDisposable
         [KeyboardKey.RightShift] = JoypadButtons.Select,
         [KeyboardKey.Enter] = JoypadButtons.Start
     };
+    private readonly Dictionary<GamepadButton, JoypadButtons> _gamepadMap = new()
+    {
+        [GamepadButton.LeftFaceRight] = JoypadButtons.Right,
+        [GamepadButton.LeftFaceLeft] = JoypadButtons.Left,
+        [GamepadButton.LeftFaceUp] = JoypadButtons.Up,
+        [GamepadButton.LeftFaceDown] = JoypadButtons.Down,
+        [GamepadButton.RightFaceRight] = JoypadButtons.A,
+        [GamepadButton.RightFaceDown] = JoypadButtons.B,
+        [GamepadButton.MiddleLeft] = JoypadButtons.Select,
+        [GamepadButton.MiddleRight] = JoypadButtons.Start
+    };
 
     private Texture2D _texture;
     private AudioStream _audioStream;
     private string _windowTitle = string.Empty;
+    private string _statusText = string.Empty;
     private bool _started;
     private bool _windowReady;
     private bool _textureReady;
     private bool _audioReady;
+    private bool _audioPlaybackStarted;
     private bool _paused;
     private bool _waitingForInputRelease;
     private bool _frameStepRepeatArmed;
-    private bool _audioNeedsReset;
+    private bool _audioSuspended;
     private bool _rawFrames;
     private bool _correctCgbColors;
     private bool _videoFrameReady;
-    private int _audioQueueReadFrame;
-    private int _audioQueueWriteFrame;
-    private int _audioQueuedFrames;
+    private bool _fastForwarding;
+    private bool _rewinding;
+    private float _pendingRumbleStrength;
+    private bool _rumbleDirty;
+    private int _activeGamepad = -1;
+    private int _rumbleGamepad = -1;
+    private int _videoWidth = Display.HORIZONTAL_RESOLUTION;
+    private int _videoHeight = Display.VERTICAL_RESOLUTION;
     private double _nextFrameStepTime;
+    private double _nextRewindTime;
     private double _lastUpdateTime;
+    private double _frameDuration = 1.0 / Display.FRAME_RATE;
     private double _frameAccumulator;
-    private float _leftDcInput;
-    private float _leftDcOutput;
-    private float _rightDcInput;
-    private float _rightDcOutput;
+    private double _statusUntil;
+    private QuickSaveStateStore? _quickState;
 
     public void Run(FrontendOptions options)
     {
@@ -82,9 +113,12 @@ internal sealed class Frontend : IDisposable
         // Boot each cartridge on its native hardware: GBC-flagged carts get the GBC
         // boot ROM, everything else boots as an original DMG.
         var cgbCartridge = CartridgeMetadata.Read(romPath).Compatibility != CartridgeCompatibility.DmgOnly;
-        var cgbHardware = !options.ForceDMG && cgbCartridge;
-        _correctCgbColors = ShouldCorrectCgbColors(options.ForceDMG, cgbCartridge, options.RawColors);
-        var bootMode = options.ForceDMG ? BootMode.DMG | BootMode.Force
+        var sgbHardware = options.ForceSGB || options.ForceSGB2;
+        var cgbHardware = !options.ForceDMG && !sgbHardware && cgbCartridge;
+        _correctCgbColors = !sgbHardware && ShouldCorrectCgbColors(options.ForceDMG, cgbCartridge, options.RawColors);
+        var bootMode = options.ForceSGB2 ? BootMode.SGB2
+            : options.ForceSGB ? BootMode.SGB
+            : options.ForceDMG ? BootMode.DMG | BootMode.Force
             : cgbHardware ? BootMode.GBC
             : BootMode.DMG;
         if (options.SkipBootROM)
@@ -97,6 +131,8 @@ internal sealed class Frontend : IDisposable
             ROMPath = romPath,
             SaveLocation = options.SaveDirectory,
             BootROMPaths = options.BootROMPaths.ToArray(),
+            SGBBootROMPath = options.SGBBootROMPath,
+            SGB2BootROMPath = options.SGB2BootROMPath,
             BootMode = bootMode
         });
 
@@ -105,10 +141,25 @@ internal sealed class Frontend : IDisposable
             throw new InvalidOperationException($"Failed to load ROM: {romPath}");
         }
 
+        _frameDuration = 1.0 / _emulator.FrameRate;
+
+        _quickState = new QuickSaveStateStore(options.SaveDirectory, romPath);
+        _rewind.Reset(_emulator);
+        _pendingRumbleStrength = _emulator.RumbleStrength;
+        _rumbleDirty = true;
+        _emulator.RumbleStrengthUpdated += HandleRumbleStrengthUpdated;
+
         _windowTitle = $"GBZEmuFrontend - {Path.GetFileName(romPath)}";
         Raylib.SetWindowTitle(_windowTitle);
 
-        var image = Raylib.GenImageColor(Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION, RaylibColor.Black);
+        if (_emulator.IsSuperGameBoy)
+        {
+            _videoWidth = SuperGameBoyDisplay.HORIZONTAL_RESOLUTION;
+            _videoHeight = SuperGameBoyDisplay.VERTICAL_RESOLUTION;
+            Raylib.SetWindowSize(_videoWidth * options.Scale, _videoHeight * options.Scale);
+        }
+
+        var image = Raylib.GenImageColor(_videoWidth, _videoHeight, RaylibColor.Black);
         _texture = Raylib.LoadTextureFromImage(image);
         Raylib.UnloadImage(image);
         Raylib.SetTextureFilter(_texture, TextureFilter.Point);
@@ -118,9 +169,9 @@ internal sealed class Frontend : IDisposable
         _audioReady = Raylib.IsAudioDeviceReady();
         if (_audioReady)
         {
+            _audioQueue.SetHardwareModel(cgbHardware);
             Raylib.SetAudioStreamBufferSizeDefault(AudioFramesPerBuffer);
             _audioStream = Raylib.LoadAudioStream(EmulatorSound.SAMPLE_RATE, 16, 2);
-            Raylib.PlayAudioStream(_audioStream);
         }
         else
         {
@@ -138,19 +189,33 @@ internal sealed class Frontend : IDisposable
         {
             UpdateInput();
 
+            var stateRestored = HandleQuickStateControls();
+            var rewindHeld = HandleRewind(out var rewindRestored);
             var stepFrame = ShouldStepFrame();
-            if (AdvanceEmulation(stepFrame))
+            SetFastForwarding(!stateRestored && !rewindHeld && !_paused && IsFastForwardRequested());
+
+            var frameChanged = stateRestored || rewindRestored;
+            if (!stateRestored && !rewindHeld && AdvanceEmulation(stepFrame))
+            {
+                frameChanged = true;
+            }
+
+            if (frameChanged)
             {
                 UpdateVideo();
             }
 
             UpdateAudio();
+            UpdateRumble();
+            UpdateWindowTitle();
             Draw(options.Scale);
         }
     }
 
     public void Dispose()
     {
+        StopRumble();
+
         if (_audioReady)
         {
             Raylib.StopAudioStream(_audioStream);
@@ -173,6 +238,8 @@ internal sealed class Frontend : IDisposable
 
         if (_started)
         {
+            ReleaseLogicalButtons();
+            _emulator.RumbleStrengthUpdated -= HandleRumbleStrengthUpdated;
             _emulator.Terminate();
             _started = false;
         }
@@ -198,19 +265,23 @@ internal sealed class Frontend : IDisposable
 
         while (!Raylib.WindowShouldClose())
         {
+            var gamepad = FindAvailableGamepad();
             if (romPaths.Length > 0)
             {
-                if (Raylib.IsKeyPressed(KeyboardKey.Up))
+                if (Raylib.IsKeyPressed(KeyboardKey.Up) ||
+                    IsGamepadButtonPressed(gamepad, GamepadButton.LeftFaceUp))
                 {
                     selectedIndex = (selectedIndex + romPaths.Length - 1) % romPaths.Length;
                 }
 
-                if (Raylib.IsKeyPressed(KeyboardKey.Down))
+                if (Raylib.IsKeyPressed(KeyboardKey.Down) ||
+                    IsGamepadButtonPressed(gamepad, GamepadButton.LeftFaceDown))
                 {
                     selectedIndex = (selectedIndex + 1) % romPaths.Length;
                 }
 
-                if (Raylib.IsKeyPressed(KeyboardKey.Enter))
+                if (Raylib.IsKeyPressed(KeyboardKey.Enter) ||
+                    IsGamepadButtonPressed(gamepad, GamepadButton.RightFaceDown))
                 {
                     return romPaths[selectedIndex];
                 }
@@ -238,6 +309,7 @@ internal sealed class Frontend : IDisposable
         Raylib.ClearBackground(RaylibColor.Black);
         Raylib.DrawText("Select a ROM", padding, 20, titleFontSize, RaylibColor.RayWhite);
         Raylib.DrawText(romDirectory, padding, 52, 14, RaylibColor.Gray);
+        Raylib.DrawText("Keyboard: Up/Down + Enter    Controller: D-pad + south face button", padding, Raylib.GetScreenHeight() - 20, 12, RaylibColor.Gray);
 
         if (romPaths.Length == 0)
         {
@@ -258,29 +330,327 @@ internal sealed class Frontend : IDisposable
 
     private void UpdateInput()
     {
+        _activeGamepad = FindAvailableGamepad();
+
         if (_waitingForInputRelease)
         {
-            _waitingForInputRelease = _keyMap.Keys.Any(key => Raylib.IsKeyDown(key));
+            _waitingForInputRelease = IsAnyGameplayInputDown();
             return;
         }
 
+        Array.Clear(_desiredButtonStates, 0, _desiredButtonStates.Length);
         foreach (var binding in _keyMap)
         {
-            if (Raylib.IsKeyPressed(binding.Key))
+            if (Raylib.IsKeyDown(binding.Key))
             {
-                _emulator.ButtonDown(binding.Value);
+                _desiredButtonStates[(int)binding.Value] = true;
+            }
+        }
+
+        if (_activeGamepad >= 0)
+        {
+            foreach (var binding in _gamepadMap)
+            {
+                if (Raylib.IsGamepadButtonDown(_activeGamepad, binding.Key))
+                {
+                    _desiredButtonStates[(int)binding.Value] = true;
+                }
             }
 
-            if (Raylib.IsKeyReleased(binding.Key))
+            var horizontal = Raylib.GetGamepadAxisMovement(_activeGamepad, GamepadAxis.LeftX);
+            var vertical = Raylib.GetGamepadAxisMovement(_activeGamepad, GamepadAxis.LeftY);
+            _desiredButtonStates[(int)JoypadButtons.Left] |= horizontal < -GamepadAxisThreshold;
+            _desiredButtonStates[(int)JoypadButtons.Right] |= horizontal > GamepadAxisThreshold;
+            _desiredButtonStates[(int)JoypadButtons.Up] |= vertical < -GamepadAxisThreshold;
+            _desiredButtonStates[(int)JoypadButtons.Down] |= vertical > GamepadAxisThreshold;
+        }
+
+        for (var i = 0; i < _logicalButtonStates.Length; i++)
+        {
+            if (_logicalButtonStates[i] == _desiredButtonStates[i])
             {
-                _emulator.ButtonUp(binding.Value);
+                continue;
+            }
+
+            _logicalButtonStates[i] = _desiredButtonStates[i];
+            if (_logicalButtonStates[i])
+            {
+                _emulator.ButtonDown((JoypadButtons)i);
+            }
+            else
+            {
+                _emulator.ButtonUp((JoypadButtons)i);
+            }
+        }
+
+        UpdateSgbMultiplayerInput();
+    }
+
+    private void UpdateSgbMultiplayerInput()
+    {
+        if (!_emulator.IsSuperGameBoy)
+        {
+            return;
+        }
+
+        for (var player = 1; player < 4; player++)
+        {
+            for (var button = 0; button < (int)JoypadButtons.Count; button++)
+            {
+                _sgbDesiredButtonStates[player, button] = false;
+            }
+
+            var gamepad = player < _emulator.SuperGameBoyPlayerCount ? FindAvailableGamepad(player) : -1;
+            if (gamepad >= 0)
+            {
+                foreach (var binding in _gamepadMap)
+                {
+                    _sgbDesiredButtonStates[player, (int)binding.Value] |= Raylib.IsGamepadButtonDown(gamepad, binding.Key);
+                }
+
+                var horizontal = Raylib.GetGamepadAxisMovement(gamepad, GamepadAxis.LeftX);
+                var vertical = Raylib.GetGamepadAxisMovement(gamepad, GamepadAxis.LeftY);
+                _sgbDesiredButtonStates[player, (int)JoypadButtons.Left] |= horizontal < -GamepadAxisThreshold;
+                _sgbDesiredButtonStates[player, (int)JoypadButtons.Right] |= horizontal > GamepadAxisThreshold;
+                _sgbDesiredButtonStates[player, (int)JoypadButtons.Up] |= vertical < -GamepadAxisThreshold;
+                _sgbDesiredButtonStates[player, (int)JoypadButtons.Down] |= vertical > GamepadAxisThreshold;
+            }
+
+            for (var button = 0; button < (int)JoypadButtons.Count; button++)
+            {
+                if (_sgbLogicalButtonStates[player, button] == _sgbDesiredButtonStates[player, button])
+                {
+                    continue;
+                }
+
+                _sgbLogicalButtonStates[player, button] = _sgbDesiredButtonStates[player, button];
+                if (_sgbLogicalButtonStates[player, button])
+                {
+                    _emulator.ButtonDown((JoypadButtons)button, player);
+                }
+                else
+                {
+                    _emulator.ButtonUp((JoypadButtons)button, player);
+                }
+            }
+        }
+    }
+
+    private bool IsAnyGameplayInputDown()
+    {
+        foreach (var binding in _keyMap)
+        {
+            if (Raylib.IsKeyDown(binding.Key))
+            {
+                return true;
+            }
+        }
+
+        if (_activeGamepad < 0)
+        {
+            return false;
+        }
+
+        foreach (var binding in _gamepadMap)
+        {
+            if (Raylib.IsGamepadButtonDown(_activeGamepad, binding.Key))
+            {
+                return true;
+            }
+        }
+
+        return Math.Abs(Raylib.GetGamepadAxisMovement(_activeGamepad, GamepadAxis.LeftX)) > GamepadAxisThreshold ||
+               Math.Abs(Raylib.GetGamepadAxisMovement(_activeGamepad, GamepadAxis.LeftY)) > GamepadAxisThreshold;
+    }
+
+    private void ReleaseLogicalButtons()
+    {
+        for (var i = 0; i < _logicalButtonStates.Length; i++)
+        {
+            if (!_logicalButtonStates[i])
+            {
+                continue;
+            }
+
+            _logicalButtonStates[i] = false;
+            _emulator.ButtonUp((JoypadButtons)i);
+        }
+
+        for (var player = 1; player < 4; player++)
+        {
+            for (var button = 0; button < (int)JoypadButtons.Count; button++)
+            {
+                if (!_sgbLogicalButtonStates[player, button])
+                {
+                    continue;
+                }
+
+                _sgbLogicalButtonStates[player, button] = false;
+                _emulator.ButtonUp((JoypadButtons)button, player);
+            }
+        }
+    }
+
+    private bool HandleQuickStateControls()
+    {
+        if (_quickState == null)
+        {
+            return false;
+        }
+
+        if (Raylib.IsKeyPressed(KeyboardKey.F5) ||
+            IsGamepadButtonPressed(_activeGamepad, GamepadButton.RightFaceUp))
+        {
+            try
+            {
+                _quickState.Save(_emulator);
+                ShowStatus("STATE SAVED");
+            }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine($"Failed to save state: {exception.Message}");
+                ShowStatus("SAVE FAILED");
+            }
+
+            return false;
+        }
+
+        if (!Raylib.IsKeyPressed(KeyboardKey.F8) &&
+            !IsGamepadButtonPressed(_activeGamepad, GamepadButton.RightFaceLeft))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!_quickState.TryLoad(_emulator))
+            {
+                ShowStatus("NO SAVE STATE");
+                return false;
+            }
+
+            ReapplyLogicalButtons();
+            _rewind.Reset(_emulator);
+            _frameAccumulator = 0;
+            PresentRestoredFrame();
+            ShowStatus("STATE LOADED");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"Failed to load state: {exception.Message}");
+            ShowStatus("LOAD FAILED");
+            return false;
+        }
+    }
+
+    private bool HandleRewind(out bool frameRestored)
+    {
+        frameRestored = false;
+        var requested = Raylib.IsKeyDown(KeyboardKey.R) ||
+                        IsGamepadButtonDown(_activeGamepad, GamepadButton.LeftTrigger1);
+
+        if (!requested)
+        {
+            if (_rewinding)
+            {
+                _rewinding = false;
+                UpdateAudioSuspension();
+                RefreshWindowTitle();
+            }
+
+            return false;
+        }
+
+        var now = Raylib.GetTime();
+        if (!_rewinding)
+        {
+            _rewinding = true;
+            _nextRewindTime = now;
+            SetFastForwarding(false);
+            ResetAudioQueue();
+            UpdateAudioSuspension();
+            RefreshWindowTitle();
+        }
+
+        _frameAccumulator = 0;
+        if (now < _nextRewindTime)
+        {
+            return true;
+        }
+
+        _nextRewindTime = now + RewindRepeatInterval;
+        if (!_rewind.TryRewind(_emulator))
+        {
+            ShowStatus("REWIND LIMIT");
+            return true;
+        }
+
+        ReapplyLogicalButtons();
+        PresentRestoredFrame();
+        frameRestored = true;
+        return true;
+    }
+
+    private bool IsFastForwardRequested()
+    {
+        return Raylib.IsKeyDown(KeyboardKey.Tab) ||
+               IsGamepadButtonDown(_activeGamepad, GamepadButton.RightTrigger1);
+    }
+
+    private void SetFastForwarding(bool fastForwarding)
+    {
+        if (_fastForwarding == fastForwarding)
+        {
+            return;
+        }
+
+        _fastForwarding = fastForwarding;
+        ResetAudioQueue();
+        UpdateAudioSuspension();
+        RefreshWindowTitle();
+    }
+
+    private void PresentRestoredFrame()
+    {
+        _emulator.GetSoundSamples(out _);
+        _frameBlender.Reset();
+        ProcessVideoFrame();
+        _videoFrameReady = true;
+        ResetAudioQueue(restartDevice: true);
+    }
+
+    /// <summary>
+    /// Replaces the historical joypad latch restored from a state with the host's current merged input state.
+    /// </summary>
+    private void ReapplyLogicalButtons()
+    {
+        for (var i = 0; i < _logicalButtonStates.Length; i++)
+        {
+            _emulator.ButtonUp((JoypadButtons)i);
+            if (_logicalButtonStates[i])
+            {
+                _emulator.ButtonDown((JoypadButtons)i);
+            }
+        }
+
+        for (var player = 1; player < 4; player++)
+        {
+            for (var button = 0; button < (int)JoypadButtons.Count; button++)
+            {
+                _emulator.ButtonUp((JoypadButtons)button, player);
+                if (_sgbLogicalButtonStates[player, button])
+                {
+                    _emulator.ButtonDown((JoypadButtons)button, player);
+                }
             }
         }
     }
 
     private bool ShouldStepFrame()
     {
-        if (Raylib.IsKeyPressed(KeyboardKey.P))
+        if (Raylib.IsKeyPressed(KeyboardKey.P) ||
+            IsGamepadButtonPressed(_activeGamepad, GamepadButton.LeftThumb))
         {
             SetPaused(!_paused);
         }
@@ -291,14 +661,16 @@ internal sealed class Frontend : IDisposable
             return false;
         }
 
-        if (Raylib.IsKeyPressed(KeyboardKey.N))
+        if (Raylib.IsKeyPressed(KeyboardKey.N) ||
+            IsGamepadButtonPressed(_activeGamepad, GamepadButton.RightThumb))
         {
             _frameStepRepeatArmed = true;
             _nextFrameStepTime = Raylib.GetTime() + FrameStepRepeatDelay;
             return true;
         }
 
-        if (!Raylib.IsKeyDown(KeyboardKey.N))
+        if (!Raylib.IsKeyDown(KeyboardKey.N) &&
+            !IsGamepadButtonDown(_activeGamepad, GamepadButton.RightThumb))
         {
             ResetFrameStepRepeat();
             return false;
@@ -333,13 +705,29 @@ internal sealed class Frontend : IDisposable
             return true;
         }
 
-        _frameAccumulator += Math.Min(elapsed, FrameDuration * MaxCatchUpFrames);
+        _frameAccumulator += Math.Min(elapsed, _frameDuration * MaxCatchUpFrames);
 
         var framesAdvanced = 0;
-        while (_frameAccumulator >= FrameDuration && framesAdvanced < MaxCatchUpFrames)
+        while (_frameAccumulator >= _frameDuration && framesAdvanced < MaxCatchUpFrames)
         {
-            AdvanceFrame(true);
-            _frameAccumulator -= FrameDuration;
+            if (_fastForwarding)
+            {
+                var completed = _emulator.FastForward(FastForwardMultiplier);
+                if (completed == 0)
+                {
+                    break;
+                }
+
+                _rewind.FramesAdvanced(_emulator, completed);
+                ProcessVideoFrame();
+                _videoFrameReady = true;
+            }
+            else
+            {
+                AdvanceFrame(true);
+            }
+
+            _frameAccumulator -= _frameDuration;
             framesAdvanced++;
         }
 
@@ -349,7 +737,8 @@ internal sealed class Frontend : IDisposable
     private void AdvanceFrame(bool queueAudio)
     {
         _emulator.Update();
-        _frameBlender.Process(_emulator.GetScreenData(), _pixels, !_rawFrames, _correctCgbColors);
+        _rewind.FramesAdvanced(_emulator, 1);
+        ProcessVideoFrame();
         _videoFrameReady = true;
         var source = _emulator.GetSoundSamples(out var sampleFrameCount);
 
@@ -369,27 +758,14 @@ internal sealed class Frontend : IDisposable
     {
         _paused = paused;
         ResetFrameStepRepeat();
-        Raylib.SetWindowTitle(paused ? $"{_windowTitle} [PAUSED]" : _windowTitle);
-
-        if (!_audioReady)
-        {
-            return;
-        }
-
+        ResetAudioQueue();
         if (paused)
         {
-            Raylib.PauseAudioStream(_audioStream);
+            StopRumble();
         }
-        else if (_audioNeedsReset)
-        {
-            Raylib.StopAudioStream(_audioStream);
-            Raylib.PlayAudioStream(_audioStream);
-            _audioNeedsReset = false;
-        }
-        else
-        {
-            Raylib.ResumeAudioStream(_audioStream);
-        }
+
+        UpdateAudioSuspension();
+        RefreshWindowTitle();
     }
 
     private void UpdateVideo()
@@ -399,73 +775,237 @@ internal sealed class Frontend : IDisposable
             return;
         }
 
-        Raylib.UpdateTexture(_texture, _pixels);
+        Raylib.UpdateTexture(_texture, _emulator.IsSuperGameBoy ? _sgbPixels : _pixels);
         _videoFrameReady = false;
     }
 
-    private void QueueAudio(byte[] source, int frameCount)
+    private void ProcessVideoFrame()
     {
-        if (frameCount <= 0)
+        if (!_emulator.IsSuperGameBoy)
         {
+            _frameBlender.Process(_emulator.GetScreenData(), _pixels, !_rawFrames, _correctCgbColors);
             return;
         }
 
-        if (frameCount > AudioQueueCapacityFrames - _audioQueuedFrames)
+        var source = _emulator.GetSuperGameBoyScreenData();
+        var destination = 0;
+        for (var y = 0; y < SuperGameBoyDisplay.VERTICAL_RESOLUTION; y++)
         {
-            var framesToDiscard = frameCount - (AudioQueueCapacityFrames - _audioQueuedFrames);
-            _audioQueueReadFrame = (_audioQueueReadFrame + framesToDiscard) % AudioQueueCapacityFrames;
-            _audioQueuedFrames -= framesToDiscard;
+            for (var x = 0; x < SuperGameBoyDisplay.HORIZONTAL_RESOLUTION; x++)
+            {
+                var color = source[x, y];
+                _sgbPixels[destination++] = new RaylibColor(color.R, color.G, color.B, byte.MaxValue);
+            }
         }
+    }
 
-        for (var i = 0; i < frameCount; i++)
-        {
-            _audioQueue[_audioQueueWriteFrame * 2] = FilterSample(source[i * 2], ref _leftDcInput, ref _leftDcOutput);
-            _audioQueue[(_audioQueueWriteFrame * 2) + 1] = FilterSample(source[(i * 2) + 1], ref _rightDcInput, ref _rightDcOutput);
-            _audioQueueWriteFrame = (_audioQueueWriteFrame + 1) % AudioQueueCapacityFrames;
-        }
-
-        _audioQueuedFrames += frameCount;
+    private void QueueAudio(float[] source, int frameCount)
+    {
+        _audioQueue.Enqueue(source, frameCount);
     }
 
     private void UpdateAudio()
     {
-        if (_paused || !_audioReady)
+        if (_audioSuspended || !_audioReady)
         {
             return;
         }
 
-        while (_audioQueuedFrames >= AudioFramesPerBuffer && Raylib.IsAudioStreamProcessed(_audioStream))
+        if (_audioPlaybackStarted &&
+            Raylib.IsAudioStreamProcessed(_audioStream) &&
+            _audioQueue.QueuedFrames < AudioFramesPerBuffer)
         {
-            for (var i = 0; i < AudioFramesPerBuffer; i++)
-            {
-                _audioSamples[i * 2] = _audioQueue[_audioQueueReadFrame * 2];
-                _audioSamples[(i * 2) + 1] = _audioQueue[(_audioQueueReadFrame * 2) + 1];
-                _audioQueueReadFrame = (_audioQueueReadFrame + 1) % AudioQueueCapacityFrames;
-            }
+            Raylib.StopAudioStream(_audioStream);
+            _audioPlaybackStarted = false;
+            _audioQueue.RequirePreroll();
+            return;
+        }
 
-            _audioQueuedFrames -= AudioFramesPerBuffer;
+        if (!_audioQueue.IsPrimed)
+        {
+            return;
+        }
+
+        var submittedBuffer = false;
+        while (Raylib.IsAudioStreamProcessed(_audioStream) &&
+               _audioQueue.TryDequeue(_audioSamples, AudioFramesPerBuffer))
+        {
             Raylib.UpdateAudioStream(_audioStream, _audioSamples, AudioFramesPerBuffer);
+            submittedBuffer = true;
+        }
+
+        if (!_audioPlaybackStarted && submittedBuffer)
+        {
+            Raylib.PlayAudioStream(_audioStream);
+            _audioPlaybackStarted = true;
         }
     }
 
-    private void ResetAudioQueue()
+    private void ResetAudioQueue(bool restartDevice = false)
     {
-        _audioQueueReadFrame = 0;
-        _audioQueueWriteFrame = 0;
-        _audioQueuedFrames = 0;
-        _leftDcInput = 0;
-        _leftDcOutput = 0;
-        _rightDcInput = 0;
-        _rightDcOutput = 0;
-        _audioNeedsReset = _audioReady;
+        _audioQueue.Reset();
+
+        if (!_audioReady || (!_audioPlaybackStarted && !restartDevice))
+        {
+            return;
+        }
+
+        Raylib.StopAudioStream(_audioStream);
+        _audioPlaybackStarted = false;
     }
 
-    private static short FilterSample(int sample, ref float previousInput, ref float previousOutput)
+    private void UpdateAudioSuspension()
     {
-        var output = sample - previousInput + (DcBlockerFeedback * previousOutput);
-        previousInput = sample;
-        previousOutput = output;
-        return (short)Math.Clamp(output * 512, short.MinValue, short.MaxValue);
+        if (!_audioReady)
+        {
+            return;
+        }
+
+        var shouldSuspend = _paused || _fastForwarding || _rewinding;
+        if (_audioSuspended == shouldSuspend)
+        {
+            return;
+        }
+
+        _audioSuspended = shouldSuspend;
+        if (shouldSuspend)
+        {
+            if (_audioPlaybackStarted)
+            {
+                Raylib.PauseAudioStream(_audioStream);
+            }
+            return;
+        }
+
+        if (_audioPlaybackStarted)
+        {
+            Raylib.StopAudioStream(_audioStream);
+            _audioPlaybackStarted = false;
+        }
+    }
+
+    private void HandleRumbleStrengthUpdated(float strength)
+    {
+        _pendingRumbleStrength = Math.Max(_pendingRumbleStrength, Math.Clamp(strength, 0f, 1f));
+        _rumbleDirty = true;
+    }
+
+    private void UpdateRumble()
+    {
+        if (_rumbleGamepad != _activeGamepad)
+        {
+            StopRumble();
+            _pendingRumbleStrength = 0f;
+            _rumbleGamepad = _activeGamepad;
+            _rumbleDirty = true;
+        }
+
+        if (_rumbleGamepad < 0)
+        {
+            return;
+        }
+
+        if (!_rumbleDirty)
+        {
+            return;
+        }
+
+        var strength = _pendingRumbleStrength;
+        _pendingRumbleStrength = 0f;
+        _rumbleDirty = false;
+        if (strength <= 0f)
+        {
+            Raylib.SetGamepadVibration(_rumbleGamepad, 0, 0, 0);
+            return;
+        }
+
+        Raylib.SetGamepadVibration(
+            _rumbleGamepad,
+            RumbleLowMotorStrength * strength,
+            RumbleHighMotorStrength * strength,
+            RumbleRefreshDuration);
+    }
+
+    private void StopRumble()
+    {
+        if (_rumbleGamepad >= 0 && Raylib.IsGamepadAvailable(_rumbleGamepad))
+        {
+            Raylib.SetGamepadVibration(_rumbleGamepad, 0, 0, 0);
+        }
+
+        _rumbleGamepad = -1;
+    }
+
+    private void ShowStatus(string status)
+    {
+        _statusText = status;
+        _statusUntil = Raylib.GetTime() + 2;
+        RefreshWindowTitle();
+    }
+
+    private void UpdateWindowTitle()
+    {
+        if (_statusText.Length == 0 || Raylib.GetTime() < _statusUntil)
+        {
+            return;
+        }
+
+        _statusText = string.Empty;
+        RefreshWindowTitle();
+    }
+
+    private void RefreshWindowTitle()
+    {
+        var title = _windowTitle;
+        if (_paused)
+        {
+            title += " [PAUSED]";
+        }
+
+        if (_rewinding)
+        {
+            title += " [REWIND]";
+        }
+        else if (_fastForwarding)
+        {
+            title += $" [FAST FORWARD {FastForwardMultiplier}x]";
+        }
+
+        if (_statusText.Length > 0)
+        {
+            title += $" [{_statusText}]";
+        }
+
+        Raylib.SetWindowTitle(title);
+    }
+
+    private static int FindAvailableGamepad(int ordinal = 0)
+    {
+        var available = 0;
+        for (var gamepad = 0; gamepad < MaxGamepads; gamepad++)
+        {
+            if (Raylib.IsGamepadAvailable(gamepad))
+            {
+                if (available == ordinal)
+                {
+                    return gamepad;
+                }
+
+                available++;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool IsGamepadButtonPressed(int gamepad, GamepadButton button)
+    {
+        return gamepad >= 0 && Raylib.IsGamepadButtonPressed(gamepad, button);
+    }
+
+    private static bool IsGamepadButtonDown(int gamepad, GamepadButton button)
+    {
+        return gamepad >= 0 && Raylib.IsGamepadButtonDown(gamepad, button);
     }
 
     private void Draw(int scale)
@@ -474,8 +1014,8 @@ internal sealed class Frontend : IDisposable
         Raylib.ClearBackground(RaylibColor.Black);
         Raylib.DrawTexturePro(
             _texture,
-            new Rectangle(0, 0, Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION),
-            new Rectangle(0, 0, Display.HORIZONTAL_RESOLUTION * scale, Display.VERTICAL_RESOLUTION * scale),
+            new Rectangle(0, 0, _videoWidth, _videoHeight),
+            new Rectangle(0, 0, _videoWidth * scale, _videoHeight * scale),
             Vector2.Zero,
             0,
             RaylibColor.White);

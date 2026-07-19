@@ -36,14 +36,14 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Applies an NRx2 write, including deterministic CGB active-channel volume transitions.
         /// </summary>
-        public void SetEnvelope(byte data, bool gbcMode)
+        public void SetEnvelope(byte data, ApuHardwareRevision hardwareRevision)
         {
             // Val Format VVVV APPP
             var newPeriod = Helpers.GetBits(data, 3);
             var newDirection = Helpers.TestBit(data, 3);
             var newInitialVolume = Helpers.GetBitsIsolated(data, 4, 4);
 
-            if (!gbcMode)
+            if (hardwareRevision == ApuHardwareRevision.DmgB)
             {
                 // Preserve the existing DMG write model; pre-CGB zombie behavior varies by revision and instance.
                 _envelopePeriod = newPeriod;

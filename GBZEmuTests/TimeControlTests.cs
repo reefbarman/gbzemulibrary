@@ -266,14 +266,18 @@ public sealed class TimeControlTests
         return hash;
     }
 
-    private static ulong HashBytes(byte[] data, int length)
+    private static ulong HashBytes(float[] data, int length)
     {
         const ulong offsetBasis = 14695981039346656037;
         const ulong prime = 1099511628211;
         var hash = offsetBasis;
         for (var index = 0; index < length; index++)
         {
-            hash = (hash ^ data[index]) * prime;
+            var bits = unchecked((uint)BitConverter.SingleToInt32Bits(data[index]));
+            hash = (hash ^ (byte)bits) * prime;
+            hash = (hash ^ (byte)(bits >> 8)) * prime;
+            hash = (hash ^ (byte)(bits >> 16)) * prime;
+            hash = (hash ^ (byte)(bits >> 24)) * prime;
         }
 
         return hash;

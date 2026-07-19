@@ -9,7 +9,9 @@ namespace GBZEmuLibrary
         GBC = 2,
         Skip = 4,
         Force = 8,
-        Short = 16
+        Short = 16,
+        SGB = 32,
+        SGB2 = 64
     }
 
     internal static class BootModeHelper

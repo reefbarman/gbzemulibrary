@@ -18,6 +18,10 @@ namespace GBZEmuLibrary
             public string SaveLocation;
             public string BootROMPath;
             public byte[] BootROM;
+            public string SGBBootROMPath;
+            public byte[] SGBBootROM;
+            public string SGB2BootROMPath;
+            public byte[] SGB2BootROM;
             /// <summary>
             /// Optional additional boot-ROM images; each file fills the DMG or CGB slot
             /// selected by its size. <see cref="BootROM"/>/<see cref="BootROMPath"/> load
@@ -33,6 +37,7 @@ namespace GBZEmuLibrary
         private readonly BootROM _bootROM;
         private readonly MessageBus _messageBus;
         private readonly GPU _gpu;
+        private readonly SgbSystem _sgb;
         private readonly TimerState _timerState;
         private readonly Timer _timer;
         private readonly DivideRegister _divideRegister;
@@ -55,6 +60,12 @@ namespace GBZEmuLibrary
         public bool RumbleActive => _cartridge.RumbleActive;
 
         /// <summary>
+        /// Gets the fraction of normalized hardware cycles for which the rumble motor was enabled during the most
+        /// recently completed frame.
+        /// </summary>
+        public float RumbleStrength => _cartridge.RumbleStrength;
+
+        /// <summary>
         /// Raised synchronously when a rumble cartridge changes its motor-enable state.
         /// </summary>
         public event Action<bool> RumbleChanged
@@ -69,11 +80,31 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Raised after each completed rumble-capable hardware frame with its cycle-integrated motor duty in the
+        /// inclusive range zero through one.
+        /// </summary>
+        public event Action<float> RumbleStrengthUpdated;
+
         private int _clocksThisUpdate;
         private int _clocksThisFrame;
         private bool _hasStarted;
         private bool _running;
         private byte[] _stateIdentity;
+        private int _clockRate = GameBoySchema.MAX_DMG_CLOCK_CYCLES;
+        private bool _apuSystemUpdateActive;
+        private int _apuSystemUpdateSpeedFactor = 1;
+        private int _apuClocksAdvancedThisSystemUpdate;
+
+        /// <summary>
+        /// Gets the active hardware clock rate used for host scheduling and fixed-rate audio conversion.
+        /// </summary>
+        public int ClockRate => _clockRate;
+
+        /// <summary>
+        /// Gets the active hardware-frame rate. SGB1 runs approximately 2.4 percent faster than a handheld DMG.
+        /// </summary>
+        public double FrameRate => (double)_clockRate / Display.CLOCK_CYCLES_PER_FRAME;
 
         /// <summary>
         /// Creates an emulator instance with isolated hardware, boot-ROM, and internal-bus state.
@@ -84,17 +115,21 @@ namespace GBZEmuLibrary
             _messageBus = new MessageBus();
             _cartridge = new Cartridge(_bootROM);
             _gpu = new GPU(_messageBus);
+            _sgb = new SgbSystem(_gpu);
             _timerState = new TimerState(_messageBus);
             _timer = new Timer(_timerState);
             _divideRegister = new DivideRegister(_timerState);
-            _joypad = new Joypad(_messageBus);
+            _joypad = new Joypad(_messageBus, _sgb);
             _apu = new APU();
-            _timerState.OnApuClock = _apu.ClockFrameSequencer;
+            _apu.IsApuDividerHigh = () => _timerState.ApuDividerHigh;
+            _timerState.OnApuClock = HandleApuClock;
+            _timerState.OnDividerWrite = _apu.HandleDividerWrite;
             _serialRegisters = new SerialRegisters(_messageBus);
             _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu, _serialRegisters, _bootROM, _messageBus);
             _cpu = new CPU(_mmu, _messageBus);
             _cpu.OnClockTick += UpdateSystems;
             _cpu.OnSpeedSwitch += HandleSpeedSwitch;
+            _cartridge.RumbleStrengthUpdated += strength => RumbleStrengthUpdated?.Invoke(strength);
             Debug = new EmulatorDebugger(_cpu, _mmu, _gpu, _serialRegisters, () => _running, Update);
         }
 
@@ -132,6 +167,24 @@ namespace GBZEmuLibrary
                 _bootROM.Load(File.ReadAllBytes(config.BootROMPath));
             }
 
+            if (config.SGBBootROM != null)
+            {
+                _bootROM.LoadSgb(config.SGBBootROM, false);
+            }
+            else if (!string.IsNullOrEmpty(config.SGBBootROMPath))
+            {
+                _bootROM.LoadSgb(File.ReadAllBytes(config.SGBBootROMPath), false);
+            }
+
+            if (config.SGB2BootROM != null)
+            {
+                _bootROM.LoadSgb(config.SGB2BootROM, true);
+            }
+            else if (!string.IsNullOrEmpty(config.SGB2BootROMPath))
+            {
+                _bootROM.LoadSgb(File.ReadAllBytes(config.SGB2BootROMPath), true);
+            }
+
             // Slots without a host-supplied image fall back to the embedded GBZEmu boot ROMs.
             // This must happen before the cartridge loads because the header's custom-palette
             // lookup reads the GBC boot ROM.
@@ -152,8 +205,22 @@ namespace GBZEmuLibrary
                 var mode = _cartridge.GBCMode;
                 var useBootRom = !config.BootMode.IsSet(BootMode.Skip);
                 var gbcBootRom = _cartridge.GBCMode != GBCMode.NoGBC;
+                var sgbModel = config.BootMode.IsSet(BootMode.SGB2) ? SgbModel.Sgb2
+                    : config.BootMode.IsSet(BootMode.SGB) ? SgbModel.Sgb
+                    : SgbModel.None;
 
-                if (config.BootMode.IsSet(BootMode.DMG))
+                if (sgbModel != SgbModel.None)
+                {
+                    if (_cartridge.GBCMode == GBCMode.GBCOnly)
+                    {
+                        throw new ArgumentException("Trying to start a GBC-only ROM on Super Game Boy hardware");
+                    }
+
+                    mode = GBCMode.NoGBC;
+                    gbcBootRom = false;
+                }
+
+                if (sgbModel == SgbModel.None && config.BootMode.IsSet(BootMode.DMG))
                 {
                     if (config.BootMode.IsSet(BootMode.Force))
                     {
@@ -170,7 +237,7 @@ namespace GBZEmuLibrary
                         gbcBootRom = mode == GBCMode.GBCOnly;
                     }
                 }
-                else if (config.BootMode.IsSet(BootMode.GBC))
+                else if (sgbModel == SgbModel.None && config.BootMode.IsSet(BootMode.GBC))
                 {
                     gbcBootRom = true;
 
@@ -188,17 +255,23 @@ namespace GBZEmuLibrary
                     }
                 }
 
-                useBootRom = useBootRom && _bootROM.TrySetBootMode(gbcBootRom, config.BootMode.IsSet(BootMode.Short));
+                useBootRom = useBootRom && (sgbModel == SgbModel.None
+                    ? _bootROM.TrySetBootMode(gbcBootRom, config.BootMode.IsSet(BootMode.Short))
+                    : _bootROM.TrySetSgbBootMode(sgbModel));
 
-                _mmu.Init(mode);
+                _clockRate = sgbModel == SgbModel.Sgb
+                    ? GameBoySchema.SGB_NTSC_CLOCK_CYCLES
+                    : GameBoySchema.MAX_DMG_CLOCK_CYCLES;
+                _mmu.Init(mode, sgbModel);
                 _apu.Reset();
                 _timerState.Reset(useBootRom, mode);
-                _cpu.Reset(useBootRom, mode);
+                _cpu.Reset(useBootRom, mode, sgbModel);
                 _gpu.Reset(mode, useBootRom);
+                _sgb.Reset(sgbModel, _cartridge.ROMBytes, useBootRom);
 
                 _hasStarted = true;
                 _running = true;
-                _stateIdentity = ComputeStateIdentity(mode);
+                _stateIdentity = ComputeStateIdentity(mode, sgbModel);
                 return true;
             }
             catch
@@ -285,6 +358,7 @@ namespace GBZEmuLibrary
                 _cartridge,
                 _bootROM,
                 _gpu,
+                _sgb,
                 _timerState,
                 _joypad,
                 _apu,
@@ -315,6 +389,7 @@ namespace GBZEmuLibrary
                 _cartridge,
                 _bootROM,
                 _gpu,
+                _sgb,
                 _timerState,
                 _joypad,
                 _apu,
@@ -347,6 +422,7 @@ namespace GBZEmuLibrary
             if (_clocksThisFrame >= Display.CLOCK_CYCLES_PER_FRAME)
             {
                 _clocksThisFrame -= Display.CLOCK_CYCLES_PER_FRAME;
+                _sgb.FrameCompleted();
                 return true;
             }
 
@@ -358,9 +434,35 @@ namespace GBZEmuLibrary
             return _gpu.GetScreenData();
         }
 
+        /// <summary>
+        /// Gets whether this emulator is running an SGB or SGB2 hardware profile.
+        /// </summary>
+        public bool IsSuperGameBoy => _sgb.Enabled;
+
+        /// <summary>
+        /// Returns the reusable 256x224 SGB composite framebuffer, including colorization and border.
+        /// </summary>
+        public Color[,] GetSuperGameBoyScreenData()
+        {
+            return _sgb.GetScreenData();
+        }
+
+        /// <summary>
+        /// Gets the number of controller slots requested by the running SGB title.
+        /// </summary>
+        public int SuperGameBoyPlayerCount => _sgb.Enabled ? _sgb.PlayerCount : 1;
+
         public void ButtonDown(JoypadButtons button)
         {
             _joypad.ButtonDown(button);
+        }
+
+        /// <summary>
+        /// Presses a logical Game Boy button for an SGB controller slot from zero through three.
+        /// </summary>
+        public void ButtonDown(JoypadButtons button, int player)
+        {
+            _joypad.ButtonDown(button, player);
         }
 
         public void ButtonUp(JoypadButtons button)
@@ -368,7 +470,15 @@ namespace GBZEmuLibrary
             _joypad.ButtonUp(button);
         }
 
-        public byte[] GetSoundSamples(out int sampleFrameCount)
+        /// <summary>
+        /// Releases a logical Game Boy button for an SGB controller slot from zero through three.
+        /// </summary>
+        public void ButtonUp(JoypadButtons button, int player)
+        {
+            _joypad.ButtonUp(button, player);
+        }
+
+        public float[] GetSoundSamples(out int sampleFrameCount)
         {
             return _apu.GetSoundSamples(out sampleFrameCount);
         }
@@ -394,15 +504,47 @@ namespace GBZEmuLibrary
         {
             // DIV, TIMA, and the serial clock are driven by the CPU clock and therefore run twice as fast in CGB
             // double-speed mode. Their independent dividers advance across the same raw CPU-clock interval.
-            _timerState.Update(cycles);
+            _apuSystemUpdateSpeedFactor = _cpu.SpeedFactor;
+            _apuClocksAdvancedThisSystemUpdate = 0;
+            _apuSystemUpdateActive = true;
+            try
+            {
+                _timerState.Update(cycles);
+            }
+            finally
+            {
+                _apuSystemUpdateActive = false;
+            }
             _serialRegisters.Update(cycles);
 
-            cycles /= _cpu.SpeedFactor;
+            cycles /= _apuSystemUpdateSpeedFactor;
             _clocksThisUpdate += cycles;
 
             _cartridge.Update(cycles);
             _gpu.Update(cycles);
-            _apu.Update(cycles);
+            _apu.Update(cycles - _apuClocksAdvancedThisSystemUpdate);
+        }
+
+        /// <summary>
+        /// Advances the APU to an exact DIV edge before clocking its frame sequencer.
+        /// </summary>
+        private void HandleApuClock(int rawClockOffset)
+        {
+            if (!_apuSystemUpdateActive)
+            {
+                _apu.ClockFrameSequencer();
+                return;
+            }
+
+            var apuClockOffset = rawClockOffset / _apuSystemUpdateSpeedFactor;
+            var clocksToEdge = apuClockOffset - _apuClocksAdvancedThisSystemUpdate;
+            if (clocksToEdge > 0)
+            {
+                _apu.Update(clocksToEdge);
+                _apuClocksAdvancedThisSystemUpdate = apuClockOffset;
+            }
+
+            _apu.ClockFrameSequencer();
         }
 
         /// <summary>
@@ -419,16 +561,17 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Hashes ROM and selected firmware identities without embedding copyrighted firmware bytes in state files.
         /// </summary>
-        private byte[] ComputeStateIdentity(GBCMode mode)
+        private byte[] ComputeStateIdentity(GBCMode mode, SgbModel sgbModel)
         {
             using (var sha256 = SHA256.Create())
             {
                 var romHash = sha256.ComputeHash(_cartridge.ROMBytes);
                 var bootHash = sha256.ComputeHash(_bootROM.Bytes ?? new byte[0]);
-                var combined = new byte[romHash.Length + bootHash.Length + 1];
+                var combined = new byte[romHash.Length + bootHash.Length + 2];
                 Buffer.BlockCopy(romHash, 0, combined, 0, romHash.Length);
                 Buffer.BlockCopy(bootHash, 0, combined, romHash.Length, bootHash.Length);
-                combined[combined.Length - 1] = (byte)mode;
+                combined[combined.Length - 2] = (byte)mode;
+                combined[combined.Length - 1] = (byte)sgbModel;
                 return sha256.ComputeHash(combined);
             }
         }

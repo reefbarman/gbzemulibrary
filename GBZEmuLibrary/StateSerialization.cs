@@ -284,6 +284,7 @@ namespace GBZEmuLibrary
                         _writer.Write(color.G);
                         _writer.Write(color.B);
                         _writer.Write(color.Index);
+                        _writer.Write(color.SgbIndex);
                         _writer.Write(color.BGPriority);
                     }
                     else
@@ -448,6 +449,7 @@ namespace GBZEmuLibrary
                         var color = new Color(_reader.ReadByte(), _reader.ReadByte(), _reader.ReadByte())
                         {
                             Index = _reader.ReadInt32(),
+                            SgbIndex = _reader.ReadByte(),
                             BGPriority = _reader.ReadBoolean()
                         };
                         array.SetValue(color, indices);

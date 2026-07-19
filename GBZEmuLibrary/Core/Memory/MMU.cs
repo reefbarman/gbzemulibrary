@@ -65,12 +65,12 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Initializes mode-dependent memory and I/O register behavior.
         /// </summary>
-        public void Init(GBCMode mode)
+        public void Init(GBCMode mode, SgbModel sgbModel = SgbModel.None)
         {
             _mode = mode;
             _workRAM.Init(mode);
             // APU mode must be selected before Emulator.Start applies its post-boot reset profile.
-            _apu.Init(mode);
+            _apu.Init(mode, sgbModel);
             _serialRegisters.Init(mode);
         }
 

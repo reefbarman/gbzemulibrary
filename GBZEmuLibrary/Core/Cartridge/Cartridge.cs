@@ -28,6 +28,17 @@ namespace GBZEmuLibrary
         public bool RumbleActive { get; private set; }
 
         /// <summary>
+        /// Gets the fraction of normalized hardware cycles for which the motor was enabled during the most recently
+        /// completed frame.
+        /// </summary>
+        public float RumbleStrength { get; private set; }
+
+        /// <summary>
+        /// Raised after each completed rumble-capable hardware frame with its cycle-integrated motor duty.
+        /// </summary>
+        internal event Action<float> RumbleStrengthUpdated;
+
+        /// <summary>
         /// Raised synchronously when an MBC5 rumble cartridge changes its motor-enable bit.
         /// </summary>
         public event Action<bool> RumbleChanged;
@@ -61,6 +72,8 @@ namespace GBZEmuLibrary
         private byte _mbc1Bank1;
         private byte _mbc1Bank2;
         private bool _mbc1Multicart;
+        private int _rumbleOnCycles;
+        private int _rumbleOffCycles;
 
         private BankingMode _bankMode;
 
@@ -78,7 +91,7 @@ namespace GBZEmuLibrary
         /// </summary>
         public bool LoadFile(string file, string saveLocation)
         {
-            SetRumble(false);
+            ResetRumbleOutput();
 
             if (File.Exists(file))
             {
@@ -138,6 +151,9 @@ namespace GBZEmuLibrary
             {
                 // Publish the off transition after storage cleanup so a host callback cannot prevent save flushing.
                 SetRumble(false);
+                RumbleStrength = 0f;
+                _rumbleOnCycles = 0;
+                _rumbleOffCycles = 0;
             }
         }
 
@@ -336,11 +352,43 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Advances a timer-capable MBC3 cartridge from base-speed Game Boy clocks.
+        /// Advances cartridge timers and accumulates rumble duty from normalized hardware clocks.
         /// </summary>
         public void Update(int clocks)
         {
             _mbc3RTC?.Update(clocks);
+            if (!HasRumble)
+            {
+                return;
+            }
+
+            if (RumbleActive)
+            {
+                _rumbleOnCycles += clocks;
+            }
+            else
+            {
+                _rumbleOffCycles += clocks;
+            }
+
+            if (_rumbleOnCycles + _rumbleOffCycles >= Display.CLOCK_CYCLES_PER_FRAME)
+            {
+                CompleteRumbleFrame();
+            }
+        }
+
+        /// <summary>
+        /// Publishes the completed frame's motor duty and begins a new integration window.
+        /// </summary>
+        private void CompleteRumbleFrame()
+        {
+            var totalCycles = _rumbleOnCycles + _rumbleOffCycles;
+            RumbleStrength = totalCycles > 0
+                ? (float)_rumbleOnCycles / totalCycles
+                : 0f;
+            _rumbleOnCycles = 0;
+            _rumbleOffCycles = 0;
+            RumbleStrengthUpdated?.Invoke(RumbleStrength);
         }
 
         private int GetMBC1LowerROMBank()
@@ -484,6 +532,17 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Clears both raw and frame-integrated motor output before loading a new cartridge.
+        /// </summary>
+        private void ResetRumbleOutput()
+        {
+            SetRumble(false);
+            RumbleStrength = 0f;
+            _rumbleOnCycles = 0;
+            _rumbleOffCycles = 0;
+        }
+
+        /// <summary>
         /// Synchronizes a host motor after a state restore changed the cartridge's serialized output latch.
         /// </summary>
         internal void PublishRestoredRumbleState(bool previousState)
@@ -491,6 +550,11 @@ namespace GBZEmuLibrary
             if (previousState != RumbleActive)
             {
                 RumbleChanged?.Invoke(RumbleActive);
+            }
+
+            if (HasRumble)
+            {
+                RumbleStrengthUpdated?.Invoke(RumbleStrength);
             }
         }
     }

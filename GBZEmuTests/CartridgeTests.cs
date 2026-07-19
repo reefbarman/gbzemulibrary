@@ -312,21 +312,100 @@ public sealed class CartridgeTests
 
         var emulator = EmulatorFactory.Start(rom);
         var transitions = new List<bool>();
+        var strengths = new List<float>();
         emulator.RumbleChanged += transitions.Add;
+        emulator.RumbleStrengthUpdated += strengths.Add;
 
         Assert.True(emulator.SupportsRumble);
         Assert.False(emulator.RumbleActive);
+        Assert.Equal(0f, emulator.RumbleStrength);
 
+        emulator.Update();
         emulator.Update();
 
         Assert.True(emulator.RumbleActive);
         Assert.Equal(new[] { true }, transitions);
+        Assert.Equal(2, strengths.Count);
+        Assert.All(strengths, strength => Assert.InRange(strength, 0.99f, 1f));
+        Assert.Equal(strengths[1], emulator.RumbleStrength);
 
         emulator.Terminate();
         emulator.Terminate();
 
         Assert.False(emulator.RumbleActive);
+        Assert.Equal(0f, emulator.RumbleStrength);
         Assert.Equal(new[] { true, false }, transitions);
+    }
+
+    /// <summary>
+    /// Verifies that short motor pulses within one hardware frame survive as cycle-integrated strength even when the
+    /// raw latch returns to off before the host regains control.
+    /// </summary>
+    [Fact]
+    public void Mbc5RumbleIntegratesSubFrameMotorDuty()
+    {
+        using var rom = CreateCartridge(0x1C, 0x00, 0x00);
+        var bytes = File.ReadAllBytes(rom.Path);
+        var program = new byte[]
+        {
+            0x3E, 0x08,       // LD A, $08
+            0xEA, 0x00, 0x40, // LD ($4000), A
+            0x3E, 0x00,       // LD A, $00
+            0xEA, 0x00, 0x40, // LD ($4000), A
+            0x18, 0xF4        // JR back to the first LD A
+        };
+        Array.Copy(program, 0, bytes, 0x100, program.Length);
+        File.WriteAllBytes(rom.Path, bytes);
+
+        var emulator = EmulatorFactory.Start(rom);
+        var transitions = new List<bool>();
+        var strengths = new List<float>();
+        emulator.RumbleChanged += transitions.Add;
+        emulator.RumbleStrengthUpdated += strengths.Add;
+
+        emulator.Update();
+
+        Assert.Contains(true, transitions);
+        Assert.Contains(false, transitions);
+        Assert.Single(strengths);
+        Assert.InRange(strengths[0], 0.1f, 0.9f);
+        Assert.Equal(strengths[0], emulator.RumbleStrength);
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Verifies that restoring a save state republishes the captured frame strength so physical host output can
+    /// resynchronize immediately.
+    /// </summary>
+    [Fact]
+    public void Mbc5RumbleRestoreRepublishesFrameStrength()
+    {
+        using var rom = CreateCartridge(0x1C, 0x00, 0x00);
+        var bytes = File.ReadAllBytes(rom.Path);
+        var program = new byte[]
+        {
+            0x3E, 0x08,       // LD A, $08
+            0xEA, 0x00, 0x40, // LD ($4000), A
+            0x18, 0xFE        // JR -2
+        };
+        Array.Copy(program, 0, bytes, 0x100, program.Length);
+        File.WriteAllBytes(rom.Path, bytes);
+
+        var emulator = EmulatorFactory.Start(rom);
+        emulator.Update();
+        var state = emulator.CaptureState();
+        emulator.Debug.PokeByte(0x00, 0x4000);
+        emulator.Update();
+        Assert.Equal(0f, emulator.RumbleStrength);
+
+        var strengths = new List<float>();
+        emulator.RumbleStrengthUpdated += strengths.Add;
+        emulator.RestoreState(state);
+
+        Assert.Single(strengths);
+        Assert.InRange(strengths[0], 0.99f, 1f);
+        Assert.Equal(strengths[0], emulator.RumbleStrength);
+        emulator.Terminate();
     }
 
     /// <summary>
@@ -349,6 +428,8 @@ public sealed class CartridgeTests
 
         using var ordinaryRom = CreateCartridge(0x1B, 0x00, 0x04);
         var ordinary = EmulatorFactory.Start(ordinaryRom);
+        var ordinaryStrengthUpdates = 0;
+        ordinary.RumbleStrengthUpdated += _ => ordinaryStrengthUpdates++;
         ordinary.Debug.PokeByte(0x0A, 0x0000);
         ordinary.Debug.PokeByte(0x08, 0x4000);
         ordinary.Debug.PokeByte(0x88, 0xA000);
@@ -358,6 +439,9 @@ public sealed class CartridgeTests
         Assert.NotEqual(0x88, ordinary.Debug.PeekByte(0xA000));
         ordinary.Debug.PokeByte(0x08, 0x4000);
         Assert.Equal(0x88, ordinary.Debug.PeekByte(0xA000));
+        ordinary.Update();
+        Assert.Equal(0, ordinaryStrengthUpdates);
+        Assert.Equal(0f, ordinary.RumbleStrength);
         ordinary.Terminate();
     }
 

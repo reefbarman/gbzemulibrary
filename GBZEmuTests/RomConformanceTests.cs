@@ -13,10 +13,10 @@ internal static class RomConformanceTestCases
     private static readonly Lazy<IReadOnlyDictionary<string, RomTestCase>> CasesById =
         new(() => Cases.Value.ToDictionary(test => test.Id, StringComparer.Ordinal));
 
-    public static IEnumerable<object[]> Shard0() => GetShard(0);
-    public static IEnumerable<object[]> Shard1() => GetShard(1);
-    public static IEnumerable<object[]> Shard2() => GetShard(2);
-    public static IEnumerable<object[]> Shard3() => GetShard(3);
+    public static IEnumerable<TheoryDataRow<string>> Shard0() => GetShard(0);
+    public static IEnumerable<TheoryDataRow<string>> Shard1() => GetShard(1);
+    public static IEnumerable<TheoryDataRow<string>> Shard2() => GetShard(2);
+    public static IEnumerable<TheoryDataRow<string>> Shard3() => GetShard(3);
 
     /// <summary>
     /// Runs one discovered test ROM through its configured oracle.
@@ -61,11 +61,11 @@ internal static class RomConformanceTestCases
         }
     }
 
-    private static IEnumerable<object[]> GetShard(int shard)
+    private static IEnumerable<TheoryDataRow<string>> GetShard(int shard)
     {
         return Cases.Value
             .Where((_, index) => index % ShardCount == shard)
-            .Select(test => new object[] { test.Id });
+            .Select(test => new TheoryDataRow<string>(test.Id).WithSkip(test.SkipReason));
     }
 }
 

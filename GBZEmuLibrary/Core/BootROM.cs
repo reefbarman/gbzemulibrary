@@ -15,11 +15,17 @@ namespace GBZEmuLibrary
 
         private static byte[] _defaultDMGBootROM;
         private static byte[] _defaultGBCBootROM;
+        private static byte[] _defaultSGBBootROM;
+        private static byte[] _defaultSGB2BootROM;
 
         [SaveStateIgnore]
         private byte[] _dmgBootROM;
         [SaveStateIgnore]
         private byte[] _gbcBootROM;
+        [SaveStateIgnore]
+        private byte[] _sgbBootROM;
+        [SaveStateIgnore]
+        private byte[] _sgb2BootROM;
 
         [field: SaveStateIgnore]
         public byte[] Bytes { get; private set; } = Empty;
@@ -37,6 +43,8 @@ namespace GBZEmuLibrary
         {
             _dmgBootROM = null;
             _gbcBootROM = null;
+            _sgbBootROM = null;
+            _sgb2BootROM = null;
             Bytes = Empty;
             IsGBCSelected = false;
         }
@@ -67,6 +75,32 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Validates and stores a private SGB or SGB2 boot-ROM image. These images share the
+        /// DMG image size, so hosts must identify their slot explicitly rather than by length.
+        /// </summary>
+        public void LoadSgb(byte[] data, bool sgb2)
+        {
+            if (data == null)
+            {
+                return;
+            }
+
+            if (data.Length != BootRomMetadata.SgbImageSize)
+            {
+                throw new ArgumentException("SGB boot ROM must be a 256-byte image.", nameof(data));
+            }
+
+            if (sgb2)
+            {
+                _sgb2BootROM = (byte[])data.Clone();
+            }
+            else
+            {
+                _sgbBootROM = (byte[])data.Clone();
+            }
+        }
+
+        /// <summary>
         /// Fills any slot without a host-supplied image with the embedded GBZEmu boot ROM.
         /// </summary>
         public void EnsureDefaults()
@@ -89,6 +123,26 @@ namespace GBZEmuLibrary
                 }
 
                 _gbcBootROM = _defaultGBCBootROM;
+            }
+
+            if (_sgbBootROM == null)
+            {
+                if (_defaultSGBBootROM == null)
+                {
+                    _defaultSGBBootROM = LoadEmbedded("sgb_boot.bin", BootRomMetadata.SgbImageSize);
+                }
+
+                _sgbBootROM = _defaultSGBBootROM;
+            }
+
+            if (_sgb2BootROM == null)
+            {
+                if (_defaultSGB2BootROM == null)
+                {
+                    _defaultSGB2BootROM = LoadEmbedded("sgb2_boot.bin", BootRomMetadata.SgbImageSize);
+                }
+
+                _sgb2BootROM = _defaultSGB2BootROM;
             }
         }
 
@@ -145,6 +199,24 @@ namespace GBZEmuLibrary
                 Bytes = source;
             }
 
+            return true;
+        }
+
+        /// <summary>
+        /// Selects the SGB-family firmware overlay for the requested model.
+        /// </summary>
+        public bool TrySetSgbBootMode(SgbModel model)
+        {
+            var source = model == SgbModel.Sgb2 ? _sgb2BootROM : _sgbBootROM;
+            if (source == null)
+            {
+                Bytes = Empty;
+                IsGBCSelected = false;
+                return false;
+            }
+
+            Bytes = source;
+            IsGBCSelected = false;
             return true;
         }
     }
