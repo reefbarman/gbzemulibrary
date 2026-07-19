@@ -152,8 +152,25 @@ namespace GBZEmuLibrary
         {
             if (!IsCpuAccessBlockedByOamDma(address))
             {
-                WriteByte(data, address);
+                if ((address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END) ||
+                    (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
+                     address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END))
+                {
+                    _gpu.WriteByteForCpu(data, address);
+                }
+                else
+                {
+                    WriteByte(data, address);
+                }
             }
+        }
+
+        /// <summary>
+        /// Writes CPU-visible PPU memory after the caller has sampled OAM-DMA bus ownership for the cycle.
+        /// </summary>
+        internal void WritePpuByteForCpu(byte data, int address)
+        {
+            _gpu.WriteByteForCpu(data, address);
         }
 
         /// <summary>

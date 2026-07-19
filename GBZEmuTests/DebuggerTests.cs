@@ -98,18 +98,27 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
-    /// Verifies that only STAT and OAM reads use end-of-M-cycle PPU sampling at mode/access boundaries.
+    /// Verifies that STAT/OAM reads and PPU-memory writes use end-of-M-cycle sampling at access boundaries.
     /// </summary>
     [Fact]
     public void PpuBoundaryReadsUseEndOfCycleSampling()
     {
         Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(0xFF41));
+        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.VIDEO_RAM_START));
+        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.VIDEO_RAM_END - 1));
         Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START));
         Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - 1));
 
         Assert.False(CPU.SamplesPpuStateAtEndOfReadCycle(0xFF44));
-        Assert.False(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.VIDEO_RAM_START));
+        Assert.False(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.VIDEO_RAM_START - 1));
         Assert.False(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_END));
+
+        Assert.True(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.VIDEO_RAM_START));
+        Assert.True(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.VIDEO_RAM_END - 1));
+        Assert.True(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START));
+        Assert.True(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - 1));
+        Assert.False(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.VIDEO_RAM_START - 1));
+        Assert.False(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_END));
     }
 
     /// <summary>

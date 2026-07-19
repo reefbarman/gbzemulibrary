@@ -99,6 +99,7 @@ namespace GBZEmuLibrary
         private const int VBLANK_ENTRY_HBLANK_CLOCKS = 200;
         private const int MODE2_START_DELAY_CLOCKS = 8;
         private const int FRAME_START_MODE2_DELAY_CLOCKS = 4;
+        private const int LYC_UPDATE_DELAY_CLOCKS = 4;
         private const int LCD_ENABLE_MODE_0_CLOCKS = 81;
         private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS = 80;
         private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
@@ -141,6 +142,8 @@ namespace GBZEmuLibrary
         private bool _statInterruptLineHigh;
         private bool _dmgVBlankMode2InterruptSource;
         private bool _dmgFrameStartMode2InterruptSource;
+        private bool _coincidenceClearPending;
+        private bool _coincidenceUpdatePending;
         private bool _lcdEnableStartup;
         private bool _mode2StartPending;
 
@@ -179,6 +182,8 @@ namespace GBZEmuLibrary
             _statInterruptLineHigh = false;
             _dmgVBlankMode2InterruptSource = false;
             _dmgFrameStartMode2InterruptSource = false;
+            _coincidenceClearPending = false;
+            _coincidenceUpdatePending = false;
             _lcdEnableStartup = false;
             _mode2StartPending = false;
             _cycleCounter = 0;
@@ -259,12 +264,15 @@ namespace GBZEmuLibrary
         /// </summary>
         public byte ReadByte(int address)
         {
+            if (address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END &&
+                !IsCpuVramReadable())
+            {
+                return 0xFF;
+            }
+
             if (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START && address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END)
             {
-                // CPU reads are blocked while the PPU scans OAM or transfers pixel data.
-                var mode = GetStatusMode();
-                if (IsLCDEnabled() &&
-                    (mode == LCDStatus.SearchingSpritesAttributes || mode == LCDStatus.TransferringDataToLCDDriver))
+                if (!IsCpuOamAccessible())
                 {
                     return 0xFF;
                 }
@@ -394,6 +402,83 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Writes CPU-visible VRAM or OAM only while the PPU has released the selected memory bus.
+        /// </summary>
+        internal void WriteByteForCpu(byte data, int address)
+        {
+            var mode = GetStatusMode();
+            if (IsLCDEnabled() &&
+                (mode == LCDStatus.TransferringDataToLCDDriver ||
+                 address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
+                 address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END &&
+                 !IsCpuOamWritable()))
+            {
+                return;
+            }
+
+            WriteByte(data, address);
+        }
+
+        /// <summary>
+        /// Returns whether the CPU owns OAM at the current PPU phase, including the pre-mode-2 acquisition window.
+        /// </summary>
+        private bool IsCpuOamAccessible()
+        {
+            if (!IsLCDEnabled())
+            {
+                return true;
+            }
+
+            var mode = GetStatusMode();
+            if (mode == LCDStatus.SearchingSpritesAttributes || mode == LCDStatus.TransferringDataToLCDDriver)
+            {
+                return false;
+            }
+
+            return !_mode2StartPending || _cycleCounter < LYC_UPDATE_DELAY_CLOCKS;
+        }
+
+        /// <summary>
+        /// Returns whether a CPU OAM write reaches memory, including the short write window before mode 3.
+        /// </summary>
+        private bool IsCpuOamWritable()
+        {
+            if (!IsLCDEnabled())
+            {
+                return true;
+            }
+
+            var mode = GetStatusMode();
+            if (mode == LCDStatus.TransferringDataToLCDDriver)
+            {
+                return false;
+            }
+
+            return mode != LCDStatus.SearchingSpritesAttributes ||
+                   _cycleCounter >= SEARCHING_SPRITES_ATTRIBUTES_CLOCKS - InstructionSchema.FOUR_CYCLES;
+        }
+
+        /// <summary>
+        /// Returns whether a CPU VRAM read completes before the PPU acquires the fetch bus ahead of mode 3.
+        /// </summary>
+        private bool IsCpuVramReadable()
+        {
+            if (!IsLCDEnabled())
+            {
+                return true;
+            }
+
+            var mode = GetStatusMode();
+            if (mode == LCDStatus.TransferringDataToLCDDriver)
+            {
+                return false;
+            }
+
+            return mode != LCDStatus.SearchingSpritesAttributes ||
+                   _cycleCounter < SEARCHING_SPRITES_ATTRIBUTES_CLOCKS - InstructionSchema.FOUR_CYCLES;
+        }
+
+        /// <summary>
         /// Writes OAM through the DMA-owned port, which remains available while CPU and PPU OAM access is blocked.
         /// </summary>
         private void WriteOamDmaByte(byte data, int address)
@@ -443,6 +528,8 @@ namespace GBZEmuLibrary
                 _cycleCounter = 0;
                 _gpuRegisters[(int)Registers.Scanline] = 0;
                 _line153EarlyReset = false;
+                _coincidenceClearPending = false;
+                _coincidenceUpdatePending = false;
                 _lcdEnableStartup = false;
                 _mode2StartPending = false;
                 _dmgFrameStartMode2InterruptSource = false;
@@ -459,6 +546,8 @@ namespace GBZEmuLibrary
             // its dedicated startup phase. Mooneye lcdon_timing-GS measures this transition.
             _cycleCounter = 0;
             _gpuRegisters[(int)Registers.Scanline] = 0;
+            _coincidenceClearPending = false;
+            _coincidenceUpdatePending = false;
             _lcdEnableStartup = true;
             _mode2StartPending = false;
             _dmgFrameStartMode2InterruptSource = false;
@@ -546,6 +635,14 @@ namespace GBZEmuLibrary
 
             if (_mode2StartPending)
             {
+                if (_coincidenceClearPending && _cycleCounter >= LYC_UPDATE_DELAY_CLOCKS)
+                {
+                    _coincidenceClearPending = false;
+                    Helpers.SetBit(ref _gpuRegisters[(int)Registers.LCDStatus], (int)LCDStatusBits.Coincidence, false);
+                    UpdateStatInterruptLine();
+                    return true;
+                }
+
                 if (_cycleCounter < _mode2StartDelayClockTarget)
                 {
                     return false;
@@ -555,6 +652,12 @@ namespace GBZEmuLibrary
                 _mode2StartPending = false;
                 _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
                 _dmgFrameStartMode2InterruptSource = false;
+                if (_coincidenceUpdatePending)
+                {
+                    _coincidenceUpdatePending = false;
+                    UpdateCoincidenceFlag();
+                }
+
                 SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
                 return true;
             }
@@ -565,16 +668,19 @@ namespace GBZEmuLibrary
             }
 
             _cycleCounter -= _hBlankClockTarget;
-            ScanLine++;
-
-            if (ScanLine == Display.VERTICAL_RESOLUTION)
+            var nextScanLine = ScanLine + 1;
+            if (nextScanLine == Display.VERTICAL_RESOLUTION)
             {
+                ScanLine = nextScanLine;
                 PublishFrame();
                 _pendingVBlankInterrupt = true;
                 SetStatusRegister(LCDStatus.VBlank);
             }
             else
             {
+                _gpuRegisters[(int)Registers.Scanline] = (byte)nextScanLine;
+                _coincidenceClearPending = true;
+                _coincidenceUpdatePending = true;
                 // LY advances after 196 HBlank dots, then mode 0 remains visible for eight more dots so
                 // consecutive mode-2 starts stay 456 dots apart.
                 _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;

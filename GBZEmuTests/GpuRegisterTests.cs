@@ -254,6 +254,82 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies that LY changes before its comparison result is cleared and then recomputed at the following
+    /// mode-2 boundary.
+    /// </summary>
+    [Fact]
+    public void LycCoincidenceUpdatesInTwoPhasesBeforeMode2()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(false);
+        gpu.Update(4);
+        gpu.WriteByte(0x80, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
+        gpu.WriteByte(0x01, 0xFF45);
+
+        Assert.NotEqual(0, gpu.ReadByte(0xFF41) & 0x04);
+
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + HBLANK_CLOCKS);
+
+        Assert.Equal(2, gpu.ReadByte(0xFF44));
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+        Assert.NotEqual(0, gpu.ReadByte(0xFF41) & 0x04);
+
+        gpu.Update(3);
+        Assert.NotEqual(0, gpu.ReadByte(0xFF41) & 0x04);
+        gpu.Update(1);
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x04);
+
+        gpu.Update(4);
+        Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x04);
+    }
+
+    /// <summary>
+    /// Verifies the distinct OAM read/write and VRAM read acquisition windows surrounding mode 2 and mode 3.
+    /// </summary>
+    [Fact]
+    public void CpuPpuMemoryAccessTracksBusAcquisitionWindows()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(false);
+        gpu.WriteByte(0x12, MemorySchema.VIDEO_RAM_START);
+        gpu.WriteByte(0x34, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+        gpu.Update(4);
+        gpu.WriteByte(0x80, 0xFF40);
+        gpu.Update(LCD_ENABLE_MODE_0_CLOCKS + TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + HBLANK_CLOCKS);
+
+        Assert.Equal(0x34, gpu.ReadByte(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START));
+        gpu.WriteByteForCpu(0x40, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+
+        gpu.Update(4);
+        Assert.Equal(0xFF, gpu.ReadByte(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START));
+        gpu.WriteByteForCpu(0x41, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+
+        gpu.Update(4);
+        Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
+        Assert.Equal(0x12, gpu.ReadByte(MemorySchema.VIDEO_RAM_START));
+        gpu.WriteByteForCpu(0x42, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+        gpu.WriteByteForCpu(0x20, MemorySchema.VIDEO_RAM_START);
+
+        gpu.Update(75);
+        Assert.Equal(0x20, gpu.ReadByte(MemorySchema.VIDEO_RAM_START));
+        gpu.Update(1);
+        Assert.Equal(0xFF, gpu.ReadByte(MemorySchema.VIDEO_RAM_START));
+        gpu.WriteByteForCpu(0x43, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+        gpu.WriteByteForCpu(0x21, MemorySchema.VIDEO_RAM_START);
+
+        gpu.Update(4);
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+        gpu.WriteByteForCpu(0x99, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+        gpu.WriteByteForCpu(0x99, MemorySchema.VIDEO_RAM_START);
+
+        gpu.WriteByte(0x00, 0xFF40);
+        Assert.Equal(0x43, gpu.ReadByte(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START));
+        Assert.Equal(0x21, gpu.ReadByte(MemorySchema.VIDEO_RAM_START));
+    }
+
+    /// <summary>
     /// Verifies that mode 3 blocks CGB palette RAM reads and writes while write auto-increment still advances.
     /// </summary>
     [Theory]

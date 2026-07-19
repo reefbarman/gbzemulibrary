@@ -45,6 +45,20 @@
         {
             FlushPendingMemoryCycle();
 
+            // PPU memory ownership is sampled at the end of the write M-cycle, while OAM-DMA bus ownership
+            // is fixed when the cycle begins. Mooneye lcdon_write_timing-GS covers both OAM and VRAM edges.
+            if (WritesPpuMemoryAtEndOfCycle(address))
+            {
+                var blockedByOamDma = _mmu.IsCpuAccessBlockedByOamDma(address);
+                AdvanceMachineCycle();
+                if (!blockedByOamDma)
+                {
+                    _mmu.WritePpuByteForCpu(data, address);
+                }
+
+                return;
+            }
+
             // Scroll writes become visible at the end of their bus cycle. This matters when a raster effect updates
             // SCX or SCY while the PPU fetcher advances during the same machine cycle.
             if (WritesPpuScrollAtEndOfCycle(address))
@@ -104,6 +118,7 @@
         internal static bool SamplesPpuStateAtEndOfReadCycle(int address)
         {
             return address == MemorySchema.GPU_REGISTERS_START + 1 ||
+                   (address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END) ||
                    (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
                     address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END);
         }
@@ -115,6 +130,16 @@
         {
             return address == MemorySchema.GPU_REGISTERS_START + 2 ||
                    address == MemorySchema.GPU_REGISTERS_START + 3;
+        }
+
+        /// <summary>
+        /// Returns whether a CPU write observes PPU ownership after the write M-cycle advances the pixel clock.
+        /// </summary>
+        internal static bool WritesPpuMemoryAtEndOfCycle(int address)
+        {
+            return (address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END) ||
+                   (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
+                    address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END);
         }
 
         private bool PendingInterrupt()
