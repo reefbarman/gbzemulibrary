@@ -90,9 +90,10 @@ namespace GBZEmuLibrary
 
         private void Push(ushort data)
         {
+            // PUSH, RST, and CALL spend their internal M-cycle before driving the stack bus.
+            IncrementClock();
             WriteByte((byte)(data >> 8), --_sp.SP);
             WriteByte((byte)(data & 0xFF), --_sp.SP);
-            IncrementClock();
         }
 
         private void Pop(out ushort reg)

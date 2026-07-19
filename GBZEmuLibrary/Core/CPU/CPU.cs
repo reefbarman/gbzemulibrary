@@ -33,6 +33,7 @@ namespace GBZEmuLibrary
         private Dictionary<byte, Action> _instructionsCB;
 
         private bool _haltSkip;
+        private bool _haltWakeFetchElapsed;
         private bool _memoryCyclePending;
         private bool _pendingSpeedSwitch;
         private bool _doubleSpeed;
@@ -64,7 +65,18 @@ namespace GBZEmuLibrary
                 if (_interruptHandler.Halted)
                 {
                     IncrementClock();
-                    ServicePendingInterrupt(true);
+                    if (ServicePendingInterrupt(true))
+                    {
+                        return true;
+                    }
+
+                    // A newly requested interrupt with IME clear wakes HALT during this M-cycle. That cycle
+                    // doubles as the next opcode fetch instead of inserting an additional idle M-cycle.
+                    if (!_interruptHandler.Halted)
+                    {
+                        _haltWakeFetchElapsed = true;
+                    }
+
                     return true;
                 }
 
@@ -79,7 +91,16 @@ namespace GBZEmuLibrary
                 }
 
                 var instructionAddress = _pc;
-                var instruction = ReadByte(_pc++);
+                byte instruction;
+                if (_haltWakeFetchElapsed)
+                {
+                    instruction = _mmu.ReadByteForCpu(_pc++);
+                    _haltWakeFetchElapsed = false;
+                }
+                else
+                {
+                    instruction = ReadByte(_pc++);
+                }
 
                 // An interrupt asserted during opcode fetch suppresses that instruction and uses the fetch as M1.
                 FlushPendingMemoryCycle();
@@ -127,6 +148,7 @@ namespace GBZEmuLibrary
         {
             _gbcMode = gbcMode;
             _pendingInterruptEnabled = -1;
+            _haltWakeFetchElapsed = false;
             _memoryCyclePending = false;
             _instructionCount = 0;
 
@@ -164,6 +186,14 @@ namespace GBZEmuLibrary
             if (!_interruptHandler.InterruptsEnabled || !_interruptHandler.HasPendingInterrupt())
             {
                 return false;
+            }
+
+            if (_haltSkip)
+            {
+                // EI followed by a bugged HALT services the buffered interrupt before another opcode fetch,
+                // but the suppressed PC increment still makes the handler return to the HALT instruction.
+                _pc = (ushort)(_pc - 1);
+                _haltSkip = false;
             }
 
             _interruptHandler.InterruptsEnabled = false;

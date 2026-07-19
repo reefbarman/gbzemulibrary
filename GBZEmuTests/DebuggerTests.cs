@@ -274,6 +274,25 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
+    /// Verifies that an interrupt enabled by EI immediately after a bugged HALT returns to the HALT opcode.
+    /// </summary>
+    [Fact]
+    public void EnableInterruptsThenHaltPushesSuppressedProgramCounter()
+    {
+        using var rom = TestRom.Create(0xFB, 0x76, 0x00); // EI; HALT; NOP
+        var emulator = EmulatorFactory.Start(rom);
+        emulator.Debug.PokeByte(1 << (int)Interrupts.Timer, 0xFFFF);
+        emulator.Debug.PokeByte(1 << (int)Interrupts.Timer, 0xFF0F);
+
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0x0050, 1));
+
+        Assert.Equal(0x01, emulator.Debug.PeekByte(0xFFFC));
+        Assert.Equal(0x01, emulator.Debug.PeekByte(0xFFFD));
+        Assert.Equal((ulong)2, emulator.Debug.GetCpuState().ExecutedInstructionCount);
+        emulator.Terminate();
+    }
+
+    /// <summary>
     /// Verifies that DI disables IME immediately and cancels an EI that is still waiting for its delayed enable.
     /// The pending interrupt must remain requested rather than preempting the following instruction.
     /// </summary>

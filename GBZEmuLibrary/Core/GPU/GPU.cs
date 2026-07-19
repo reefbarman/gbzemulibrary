@@ -104,6 +104,7 @@ namespace GBZEmuLibrary
         private const int WINDOW_X_OFFSET = 7;
 
         private const int TILE_SIZE = 16;
+        private const byte PALETTE_INDEX_UNUSED_READ_MASK = 0x40;
 
         private readonly Color[,] _screenData = new Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
         private readonly Color[,] _renderData = new Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
@@ -146,6 +147,8 @@ namespace GBZEmuLibrary
         public GPU(MessageBus messageBus)
         {
             _messageBus = messageBus;
+            _messageBus.OnCanStartHBlankDmaImmediately = CanStartHBlankDmaImmediately;
+            _messageBus.OnWriteOamDmaByte = WriteOamDmaByte;
             _bgPaletteData = Enumerable.Repeat<byte>(0xFF, MathSchema.MAX_6_BIT_VALUE).ToArray();
             _spritePaletteData = Enumerable.Repeat<byte>(0xFF, MathSchema.MAX_6_BIT_VALUE).ToArray();
         }
@@ -238,6 +241,9 @@ namespace GBZEmuLibrary
             return false;
         }
 
+        /// <summary>
+        /// Reads CPU-visible VRAM, OAM, or LCD register state with active PPU access restrictions applied.
+        /// </summary>
         public byte ReadByte(int address)
         {
             if (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START && address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END)
@@ -272,7 +278,7 @@ namespace GBZEmuLibrary
             switch (address)
             {
                 case MemorySchema.GPU_GBC_BG_PALETTE_INDEX_REGISTER:
-                    return _bgPaletteIndex;
+                    return (byte)(_bgPaletteIndex | PALETTE_INDEX_UNUSED_READ_MASK);
 
                 case MemorySchema.GPU_GBC_BG_PALETTE_DATA_REGISTER:
                     return IsColorPaletteAccessible()
@@ -280,7 +286,7 @@ namespace GBZEmuLibrary
                         : (byte)0xFF;
 
                 case MemorySchema.GPU_GBC_SPRITE_PALETTE_INDEX_REGISTER:
-                    return _spritePaletteIndex;
+                    return (byte)(_spritePaletteIndex | PALETTE_INDEX_UNUSED_READ_MASK);
 
                 case MemorySchema.GPU_GBC_SPRITE_PALETTE_DATA_REGISTER:
                     return IsColorPaletteAccessible()
@@ -372,6 +378,22 @@ namespace GBZEmuLibrary
 
                     break;
             }
+        }
+
+        /// <summary>
+        /// Writes OAM through the DMA-owned port, which remains available while CPU and PPU OAM access is blocked.
+        /// </summary>
+        private void WriteOamDmaByte(byte data, int address)
+        {
+            _spriteAttributeTable[address - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START] = data;
+        }
+
+        /// <summary>
+        /// Reads VRAM through the DMA-owned source port without applying CPU mode-3 restrictions.
+        /// </summary>
+        internal byte ReadOamDmaSourceByte(int address)
+        {
+            return ReadFromVRAMWithBank(address, _vRAMBank);
         }
 
         internal PpuDebugState GetDebugState()
@@ -663,6 +685,14 @@ namespace GBZEmuLibrary
         private bool IsLCDEnabled()
         {
             return Helpers.TestBit(_gpuRegisters[(int)Registers.LCDControl], (int)LCDControlBits.LCDDisplayEnabled);
+        }
+
+        /// <summary>
+        /// Reports whether a newly requested HBlank DMA block can begin without waiting for another mode transition.
+        /// </summary>
+        private bool CanStartHBlankDmaImmediately()
+        {
+            return !IsLCDEnabled() || GetStatusMode() == LCDStatus.HBlank;
         }
 
         /// <summary>

@@ -257,10 +257,28 @@ public sealed class GpuRegisterTests
 
         gpu.WriteByte(0x34, dataAddress);
 
-        Assert.Equal(0x81, gpu.ReadByte(indexAddress));
+        Assert.Equal(0xC1, gpu.ReadByte(indexAddress));
         gpu.WriteByte(0x00, 0xFF40);
         gpu.WriteByte(0x00, indexAddress);
         Assert.Equal(0x12, gpu.ReadByte(dataAddress));
+    }
+
+    /// <summary>
+    /// Verifies that the unused palette-index bit is pulled high while writable bits retain their values.
+    /// </summary>
+    [Theory]
+    [InlineData(0xFF68)]
+    [InlineData(0xFF6A)]
+    public void CgbPaletteIndexReadsForceUnusedBitHigh(int indexAddress)
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(true);
+
+        gpu.WriteByte(0x00, indexAddress);
+        Assert.Equal(0x40, gpu.ReadByte(indexAddress));
+
+        gpu.WriteByte(0xBF, indexAddress);
+        Assert.Equal(0xFF, gpu.ReadByte(indexAddress));
     }
 
     /// <summary>

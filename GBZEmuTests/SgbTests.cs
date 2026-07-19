@@ -41,6 +41,17 @@ public sealed class SgbTests
     }
 
     [Fact]
+    public void SgbSkipBootLeavesBothJoypadSelectionLinesInactive()
+    {
+        using var rom = CreateSgbRom();
+        var emulator = Start(rom, BootMode.SGB | BootMode.Skip);
+
+        Assert.Equal(0xFF, emulator.Debug.PeekByte(MemorySchema.JOYPAD_REGISTER));
+        Assert.Equal(0xF0, emulator.Debug.PeekByte(APUSchema.SOUND_ENABLED));
+        emulator.Terminate();
+    }
+
+    [Fact]
     public void JoypadPacketChangesSharedSgbColorZero()
     {
         var bus = new MessageBus();

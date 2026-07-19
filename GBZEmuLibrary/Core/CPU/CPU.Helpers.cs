@@ -24,13 +24,16 @@
 
             // STAT and OAM availability are sampled at the end of the CPU read M-cycle. The complete
             // four-clock cycle is consumed before sampling, so there is no trailing memory cycle to defer.
+            // OAM DMA ownership is sampled when the bus cycle begins, independently of PPU OAM ownership.
             if (SamplesPpuStateAtEndOfReadCycle(address))
             {
+                var blockedByOamDma = _mmu.IsCpuAccessBlockedByOamDma(address);
+                var dmaBusValue = blockedByOamDma ? _mmu.ReadByteForCpu(address) : (byte)0;
                 AdvanceMachineCycle();
-                return _mmu.ReadByte(address);
+                return blockedByOamDma ? dmaBusValue : _mmu.ReadByte(address);
             }
 
-            var data = _mmu.ReadByte(address);
+            var data = _mmu.ReadByteForCpu(address);
             _memoryCyclePending = true;
             return data;
         }
@@ -47,11 +50,11 @@
             if (WritesPpuScrollAtEndOfCycle(address))
             {
                 AdvanceMachineCycle();
-                _mmu.WriteByte(data, address);
+                _mmu.WriteByteForCpu(data, address);
                 return;
             }
 
-            _mmu.WriteByte(data, address);
+            _mmu.WriteByteForCpu(data, address);
             _memoryCyclePending = true;
         }
 

@@ -17,6 +17,7 @@ namespace GBZEmuLibrary
 
         private bool _powered;
         private bool _gbcMode;
+        private bool _sgbMode;
         private ApuHardwareRevision _hardwareRevision;
         private bool _skipNextFrameSequencerClock;
 
@@ -46,6 +47,7 @@ namespace GBZEmuLibrary
         {
             // Both GBCSupport and GBCOnly represent execution on CGB hardware; cartridge compatibility is separate.
             _gbcMode = mode != GBCMode.NoGBC;
+            _sgbMode = sgbModel != SgbModel.None;
             _hardwareRevision = _gbcMode ? ApuHardwareRevision.CgbE : ApuHardwareRevision.DmgB;
             _channel1.SetHardwareRevision(_hardwareRevision);
             _channel2.SetHardwareRevision(_hardwareRevision);
@@ -92,7 +94,7 @@ namespace GBZEmuLibrary
             WriteByte(0x80, 0xFF10);
             WriteByte(0xBF, 0xFF11);
             WriteByte(0xF3, 0xFF12);
-            WriteByte(0xBF, 0xFF14);
+            WriteByte(_sgbMode ? (byte)0x3F : (byte)0xBF, 0xFF14);
             WriteByte(0x3F, 0xFF16);
             WriteByte(0x00, 0xFF17);
             WriteByte(0xBF, 0xFF19);
@@ -106,8 +108,8 @@ namespace GBZEmuLibrary
             WriteByte(0xBF, 0xFF23);
             WriteByte(0x77, 0xFF24);
             WriteByte(0xF3, 0xFF25);
-            // The firmware leaves NR52 powered with channel 1 active; do not power off after this sequence.
-            WriteByte(0xF1, 0xFF26);
+            // DMG firmware leaves channel 1 active; SGB firmware leaves all channels inactive.
+            WriteByte(_sgbMode ? (byte)0xF0 : (byte)0xF1, 0xFF26);
         }
 
         /// <summary>

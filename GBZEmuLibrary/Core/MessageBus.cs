@@ -11,9 +11,12 @@ namespace GBZEmuLibrary
 
         public Func<int, byte> OnReadByte;
         public Action<byte, int> OnWriteByte;
+        public Func<int, byte> OnReadOamDmaSourceByte;
+        public Action<byte, int> OnWriteOamDmaByte;
 
         public Action OnHBlank;
         public Action OnVBlank;
+        public Func<bool> OnCanStartHBlankDmaImmediately;
 
         /// <summary>
         /// Routes an interrupt request to this emulator's CPU interrupt handler.
@@ -40,11 +43,35 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Reads an OAM DMA source without applying CPU or PPU bus restrictions.
+        /// </summary>
+        public byte ReadOamDmaSourceByte(int address)
+        {
+            return (byte)OnReadOamDmaSourceByte?.Invoke(address);
+        }
+
+        /// <summary>
+        /// Writes one OAM DMA byte through the PPU's DMA-owned OAM port.
+        /// </summary>
+        public void WriteOamDmaByte(byte data, int address)
+        {
+            OnWriteOamDmaByte?.Invoke(data, address);
+        }
+
+        /// <summary>
         /// Notifies this emulator's DMA controller that its PPU entered HBlank.
         /// </summary>
         public void HBlankStarted()
         {
             OnHBlank?.Invoke();
+        }
+
+        /// <summary>
+        /// Reports whether an HBlank DMA start occurs with the LCD disabled or during an active HBlank.
+        /// </summary>
+        public bool CanStartHBlankDmaImmediately()
+        {
+            return OnCanStartHBlankDmaImmediately?.Invoke() == true;
         }
 
         /// <summary>

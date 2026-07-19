@@ -8,6 +8,8 @@ namespace GBZEmuLibrary
     internal class DMAController : IMemoryUnit
     {
         private const int CGB_DMA_BLOCK_SIZE = 0x10;
+        private const int OAM_DMA_LENGTH = 0xA0;
+        private const int OAM_DMA_START_DELAY_M_CYCLES = 2;
 
         private byte _sourceHigh;
         private byte _sourceLow;
@@ -16,6 +18,14 @@ namespace GBZEmuLibrary
         private byte _destinationLow;
 
         private byte _dmaLengthMode;
+
+        private byte _oamDmaSourceHigh;
+        private byte _activeOamDmaSourceHigh;
+        private int _oamDmaIndex;
+        private int _oamDmaStartDelay;
+        private bool _oamDmaActive;
+        private byte _oamDmaBusValue;
+        private GBCMode _mode;
 
         private bool _transferring;
 
@@ -31,6 +41,14 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Selects the OAM DMA address decoder and bus layout for the active hardware mode.
+        /// </summary>
+        public void Init(GBCMode mode)
+        {
+            _mode = mode;
+        }
+
+        /// <summary>
         /// Updates an OAM or CGB VRAM DMA register and starts or stops a transfer when its control register is written.
         /// </summary>
         public void WriteByte(byte data, int address)
@@ -38,7 +56,7 @@ namespace GBZEmuLibrary
             switch (address)
             {
                 case MemorySchema.DMA_REGISTER:
-                    ProcessDMATranser(data);
+                    StartOamDma(data);
                     break;
 
                 case MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER:
@@ -61,7 +79,7 @@ namespace GBZEmuLibrary
 
                     if (_transferring && !Helpers.TestBit(data, 7))
                     {
-                        StopTransfer();
+                        StopTransfer(data);
                     }
                     else
                     {
@@ -94,7 +112,7 @@ namespace GBZEmuLibrary
             switch (address)
             {
                 case MemorySchema.DMA_REGISTER:
-                    return 0;
+                    return _oamDmaSourceHigh;
 
                 case MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER:
                 case MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER:
@@ -109,23 +127,106 @@ namespace GBZEmuLibrary
             throw new IndexOutOfRangeException();
         }
 
-        private void ProcessDMATranser(byte data)
-        {
-            var address = data << 8;
+        /// <summary>
+        /// Gets whether OAM DMA currently owns its source bus and OAM destination port.
+        /// </summary>
+        public bool IsOamDmaActive => _oamDmaActive;
 
-            for (var i = 0; i < (MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START); i++)
+        /// <summary>
+        /// Gets the source high byte owned by the transfer currently driving the bus.
+        /// </summary>
+        public byte ActiveOamDmaSourceHigh => _activeOamDmaSourceHigh;
+
+        /// <summary>
+        /// Gets the source byte currently driven on the bus by active OAM DMA.
+        /// </summary>
+        public byte OamDmaBusValue => _oamDmaBusValue;
+
+        /// <summary>
+        /// Advances the OAM DMA startup pipeline and copies one byte per CPU machine cycle.
+        /// </summary>
+        public void Update(int cycles)
+        {
+            for (var elapsed = 0; elapsed < cycles; elapsed += InstructionSchema.FOUR_CYCLES)
             {
-                _messageBus.WriteByte(_messageBus.ReadByte(address + i), MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + i);
+                if (_oamDmaStartDelay > 0)
+                {
+                    if (_oamDmaActive)
+                    {
+                        CopyOamDmaByte();
+                    }
+
+                    _oamDmaStartDelay--;
+                    if (_oamDmaStartDelay == 0)
+                    {
+                        _activeOamDmaSourceHigh = _oamDmaSourceHigh;
+                        _oamDmaIndex = 0;
+                        _oamDmaActive = true;
+                        LatchOamDmaBusValue();
+                    }
+
+                    continue;
+                }
+
+                if (_oamDmaActive)
+                {
+                    CopyOamDmaByte();
+                }
             }
         }
 
         /// <summary>
-        /// Cancels an active HBlank transfer while preserving its remaining-block readback in HDMA5.
+        /// Latches a new source and schedules it to take ownership after the two-cycle startup pipeline.
+        /// An older transfer continues during that delay.
         /// </summary>
-        private void StopTransfer()
+        private void StartOamDma(byte data)
         {
-            // Preserve the remaining-block value for inactive HDMA5 readback; a later transfer resets its own index.
-            _dmaLengthMode |= 0x80;
+            _oamDmaSourceHigh = data;
+            _oamDmaStartDelay = OAM_DMA_START_DELAY_M_CYCLES;
+        }
+
+        /// <summary>
+        /// Copies the current OAM DMA byte and releases the bus after all 160 bytes complete.
+        /// </summary>
+        private void CopyOamDmaByte()
+        {
+            _messageBus.WriteOamDmaByte(
+                _oamDmaBusValue,
+                MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + _oamDmaIndex);
+
+            _oamDmaIndex++;
+            if (_oamDmaIndex == OAM_DMA_LENGTH)
+            {
+                _oamDmaActive = false;
+                return;
+            }
+
+            LatchOamDmaBusValue();
+        }
+
+        /// <summary>
+        /// Reads the next source byte before its machine cycle so contending CPU accesses observe the DMA bus.
+        /// </summary>
+        private void LatchOamDmaBusValue()
+        {
+            var sourceAddress = (_activeOamDmaSourceHigh << 8) | _oamDmaIndex;
+            if (sourceAddress >= MemorySchema.ECHO_RAM_START)
+            {
+                sourceAddress = _mode == GBCMode.NoGBC
+                    ? sourceAddress - MemorySchema.WORK_RAM_ECHO_OFFSET
+                    : MemorySchema.EXTERNAL_RAM_START | (sourceAddress & 0x1FFF);
+            }
+
+            _oamDmaBusValue = _messageBus.ReadOamDmaSourceByte(sourceAddress);
+        }
+
+        /// <summary>
+        /// Cancels an active HBlank transfer and exposes the cancellation write through inactive HDMA5 readback.
+        /// </summary>
+        private void StopTransfer(byte data)
+        {
+            // A cancellation write reloads the visible remaining-length bits before marking HDMA5 inactive.
+            _dmaLengthMode = (byte)(0x80 | (data & 0x7F));
             _transferring = false;
         }
 
@@ -140,6 +241,11 @@ namespace GBZEmuLibrary
             if (hBlankMode)
             {
                 _transferring = true;
+                if (_messageBus.CanStartHBlankDmaImmediately())
+                {
+                    CopyActiveHBlankBlock();
+                }
+
                 return;
             }
 
@@ -216,6 +322,14 @@ namespace GBZEmuLibrary
                 return;
             }
 
+            CopyActiveHBlankBlock();
+        }
+
+        /// <summary>
+        /// Copies and accounts for one block of an active HBlank DMA transfer.
+        /// </summary>
+        private void CopyActiveHBlankBlock()
+        {
             CopyBlock();
 
             if (_dmaLengthMode == 0)

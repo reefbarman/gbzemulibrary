@@ -208,9 +208,8 @@ namespace GBZEmuLibrary
 
         private void AddImmediateToSP()
         {
-            IncrementClock(2);
-
             var val = ReadByte(_pc++);
+            IncrementClock(2);
 
             _registers.F = 0;
 

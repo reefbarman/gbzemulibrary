@@ -8,6 +8,89 @@ namespace GBZEmuTests;
 public sealed class DmaTests
 {
     /// <summary>
+    /// Verifies fresh OAM DMA waits two machine cycles, copies one byte per following cycle, and releases OAM after
+    /// exactly 160 copied bytes.
+    /// </summary>
+    [Fact]
+    public void OamDmaUsesClockedStartupAndTransfer()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var fixture = new DmaFixture(memory);
+        for (var index = 0; index < 0xA0; index++)
+        {
+            memory[0xC000 + index] = (byte)(0x20 + index);
+        }
+
+        fixture.Controller.WriteByte(0xC0, MemorySchema.DMA_REGISTER);
+        Assert.Equal(0xC0, fixture.Controller.ReadByte(MemorySchema.DMA_REGISTER));
+        Assert.False(fixture.Controller.IsOamDmaActive);
+
+        fixture.UpdateMachineCycle();
+        Assert.False(fixture.Controller.IsOamDmaActive);
+        fixture.UpdateMachineCycle();
+        Assert.True(fixture.Controller.IsOamDmaActive);
+        Assert.Equal(0x00, memory[MemorySchema.SPRITE_ATTRIBUTE_TABLE_START]);
+        Assert.Equal(0x20, fixture.Controller.OamDmaBusValue);
+
+        fixture.UpdateMachineCycle();
+        Assert.Equal(0x20, memory[MemorySchema.SPRITE_ATTRIBUTE_TABLE_START]);
+        Assert.Equal(0x21, fixture.Controller.OamDmaBusValue);
+        for (var index = 1; index < 0xA0; index++)
+        {
+            fixture.UpdateMachineCycle();
+        }
+
+        Assert.False(fixture.Controller.IsOamDmaActive);
+        Assert.Equal(memory[0xC000..0xC0A0], memory[0xFE00..0xFEA0]);
+    }
+
+    /// <summary>
+    /// Verifies restarting OAM DMA leaves the previous transfer active for both startup cycles before the new source
+    /// begins again at OAM byte zero.
+    /// </summary>
+    [Fact]
+    public void OamDmaRestartKeepsPreviousTransferActiveDuringDelay()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var fixture = new DmaFixture(memory);
+        memory[0xC000] = 0x11;
+        memory[0xC001] = 0x12;
+        memory[0xC002] = 0x13;
+        memory[0xD000] = 0x44;
+
+        fixture.Controller.WriteByte(0xC0, MemorySchema.DMA_REGISTER);
+        fixture.UpdateMachineCycle(3);
+        Assert.Equal(0x11, memory[0xFE00]);
+
+        fixture.Controller.WriteByte(0xD0, MemorySchema.DMA_REGISTER);
+        fixture.UpdateMachineCycle();
+        Assert.Equal(0x12, memory[0xFE01]);
+        fixture.UpdateMachineCycle();
+        Assert.Equal(0x13, memory[0xFE02]);
+        Assert.True(fixture.Controller.IsOamDmaActive);
+
+        fixture.UpdateMachineCycle();
+        Assert.Equal(0x44, memory[0xFE00]);
+        Assert.Equal(0xD0, fixture.Controller.ReadByte(MemorySchema.DMA_REGISTER));
+    }
+
+    /// <summary>
+    /// Verifies CGB invalid high-memory source values select the external-RAM bus instead of CPU-visible I/O or OAM.
+    /// </summary>
+    [Fact]
+    public void CgbOamDmaHighSourceUsesExternalRamDecoder()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var fixture = new DmaFixture(memory, mode: GBCMode.GBCOnly);
+        memory[0xBE00] = 0x5A;
+
+        fixture.Controller.WriteByte(0xFE, MemorySchema.DMA_REGISTER);
+        fixture.UpdateMachineCycle(3);
+
+        Assert.Equal(0x5A, memory[0xFE00]);
+    }
+
+    /// <summary>
     /// Verifies that GDMA copies the encoded number of 16-byte blocks, ignores the low address nibbles,
     /// and reports completion through HDMA5.
     /// </summary>
@@ -175,17 +258,69 @@ public sealed class DmaTests
     }
 
     /// <summary>
+    /// Verifies that starting HBlank DMA with the LCD off or already in HBlank copies one block immediately.
+    /// </summary>
+    [Fact]
+    public void HBlankDmaStartCanCopyFirstBlockImmediately()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var fixture = new DmaFixture(memory, startHBlankDmaImmediately: true);
+        var dma = fixture.Controller;
+        for (var index = 0; index < 0x20; index++)
+        {
+            memory[0xC000 + index] = (byte)(0x60 + index);
+        }
+
+        dma.WriteByte(0xC0, MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
+        dma.WriteByte(0x83, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+
+        Assert.Equal(memory[0xC000..0xC010], memory[0x8000..0x8010]);
+        Assert.All(memory[0x8010..0x8020], value => Assert.Equal(0x00, value));
+        Assert.Equal(0x02, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
+    }
+
+    /// <summary>
+    /// Verifies that cancelling HBlank DMA exposes the cancel write's length bits with the inactive flag set.
+    /// </summary>
+    [Fact]
+    public void HBlankDmaCancellationReloadsVisibleLengthBits()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var fixture = new DmaFixture(memory, startHBlankDmaImmediately: true);
+        var dma = fixture.Controller;
+
+        dma.WriteByte(0xC0, MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
+        dma.WriteByte(0x83, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+
+        Assert.Equal(0x80, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
+    }
+
+    /// <summary>
     /// Connects a DMA controller to deterministic memory through its own instance-scoped bus.
     /// </summary>
     private sealed class DmaFixture
     {
         private readonly MessageBus _messageBus = new MessageBus();
 
-        public DmaFixture(byte[] memory)
+        public DmaFixture(
+            byte[] memory,
+            bool startHBlankDmaImmediately = false,
+            GBCMode mode = GBCMode.NoGBC)
         {
             _messageBus.OnReadByte = address => memory[address];
             _messageBus.OnWriteByte = (data, address) => memory[address] = data;
+            _messageBus.OnReadOamDmaSourceByte = address => memory[address];
+            _messageBus.OnWriteOamDmaByte = (data, address) => memory[address] = data;
+            _messageBus.OnCanStartHBlankDmaImmediately = () => startHBlankDmaImmediately;
             Controller = new DMAController(_messageBus);
+            Controller.Init(mode);
         }
 
         public DMAController Controller { get; }
@@ -193,6 +328,11 @@ public sealed class DmaTests
         public void HBlankStarted()
         {
             _messageBus.HBlankStarted();
+        }
+
+        public void UpdateMachineCycle(int count = 1)
+        {
+            Controller.Update(InstructionSchema.FOUR_CYCLES * count);
         }
     }
 }

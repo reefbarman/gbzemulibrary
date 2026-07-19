@@ -146,6 +146,11 @@ internal sealed class RomManifest
         {
             test.Hardware = HardwareMode.Sgb;
         }
+        else if (id.StartsWith("mooneye/acceptance/boot_", StringComparison.Ordinal) &&
+                 id.EndsWith("-S", StringComparison.Ordinal))
+        {
+            test.Hardware = HardwareMode.Sgb;
+        }
         else if (relativePath == "mooneye/acceptance/boot_regs-sgb.gb")
         {
             test.Hardware = HardwareMode.Sgb;
@@ -225,9 +230,34 @@ internal sealed class RomTestCase
     public string RomPath => FixturePath(Rom);
     public string? ReferenceImagePath => ReferenceImage == null ? null : FixturePath(ReferenceImage);
 
-    public string? SkipReason => Hardware == HardwareMode.Cgb && !RevisionRequirement.SupportsCgbE()
-        ? $"Requires {RevisionRequirement.DisplayName()}; GBZEmu targets CPU CGB-E."
-        : null;
+    /// <summary>
+    /// Returns a visible reason only for fixtures requiring a deliberately unsupported hardware revision or boot path.
+    /// </summary>
+    public string? SkipReason
+    {
+        get
+        {
+            if (Id.EndsWith("-dmg0", StringComparison.Ordinal))
+            {
+                return "Requires DMG-CPU-0 startup state; GBZEmu targets DMG-B.";
+            }
+
+            if (Id == "mooneye/acceptance/boot_regs-mgb")
+            {
+                return "Requires MGB startup state; GBZEmu does not model MGB hardware.";
+            }
+
+            if (Id == "mooneye/acceptance/boot_div-S" ||
+                Id == "mooneye/acceptance/boot_div2-S")
+            {
+                return "Requires cartridge-dependent original SGB/SGB2 boot-ROM DIV phase; GBZEmu's redistributable replacement firmware and skip-boot profile do not reproduce proprietary firmware duration.";
+            }
+
+            return Hardware == HardwareMode.Cgb && !RevisionRequirement.SupportsCgbE()
+                ? $"Requires {RevisionRequirement.DisplayName()}; GBZEmu targets CPU CGB-E."
+                : null;
+        }
+    }
 
     public BootMode BootMode => Hardware == HardwareMode.Cgb
         ? BootMode.GBC | BootMode.Skip

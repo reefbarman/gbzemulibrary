@@ -523,6 +523,7 @@ namespace GBZEmuLibrary
                 _apuSystemUpdateActive = false;
             }
             _serialRegisters.Update(cycles);
+            _mmu.UpdateDma(cycles);
 
             cycles /= _apuSystemUpdateSpeedFactor;
             _clocksThisUpdate += cycles;

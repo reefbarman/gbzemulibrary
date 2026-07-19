@@ -26,6 +26,7 @@ namespace GBZEmuLibrary
 
         private readonly MainMemory _mainMemory = new MainMemory();
         private GBCMode _mode;
+        private SgbModel _sgbModel;
 
         /// <summary>
         /// Builds the fixed address-to-device lookup used by CPU, DMA, and debugger memory accesses.
@@ -46,6 +47,7 @@ namespace GBZEmuLibrary
 
             messageBus.OnReadByte = ReadByte;
             messageBus.OnWriteByte = WriteByte;
+            messageBus.OnReadOamDmaSourceByte = ReadOamDmaSourceByte;
             messageBus.OnVBlank = ApplyGameSharkWrites;
 
             for (var address = 0; address < MemorySchema.MAX_RAM_SIZE; address++)
@@ -72,6 +74,8 @@ namespace GBZEmuLibrary
         public void Init(GBCMode mode, SgbModel sgbModel = SgbModel.None)
         {
             _mode = mode;
+            _sgbModel = sgbModel;
+            _dmaController.Init(mode);
             _workRAM.Init(mode);
             // APU mode must be selected before Emulator.Start applies its post-boot reset profile.
             _apu.Init(mode, sgbModel);
@@ -123,6 +127,102 @@ namespace GBZEmuLibrary
             }
 
             throw new IndexOutOfRangeException();
+        }
+
+        /// <summary>
+        /// Reads a CPU bus cycle, returning the DMA-driven value when OAM DMA owns the addressed bus.
+        /// </summary>
+        internal byte ReadByteForCpu(int address)
+        {
+            if (!IsCpuAccessBlockedByOamDma(address))
+            {
+                return ReadByte(address);
+            }
+
+            return address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
+                   address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END
+                ? (byte)0xFF
+                : _dmaController.OamDmaBusValue;
+        }
+
+        /// <summary>
+        /// Writes a CPU bus cycle unless DMG OAM DMA owns the target bus. HRAM and FF46 remain accessible.
+        /// </summary>
+        internal void WriteByteForCpu(byte data, int address)
+        {
+            if (!IsCpuAccessBlockedByOamDma(address))
+            {
+                WriteByte(data, address);
+            }
+        }
+
+        /// <summary>
+        /// Returns whether a CPU access is blocked by active OAM DMA on the selected hardware bus layout.
+        /// </summary>
+        internal bool IsCpuAccessBlockedByOamDma(int address)
+        {
+            if (!_dmaController.IsOamDmaActive || address == MemorySchema.DMA_REGISTER)
+            {
+                return false;
+            }
+
+            if (address >= MemorySchema.HIGH_RAM_START && address < MemorySchema.HIGH_RAM_END)
+            {
+                return false;
+            }
+
+            if (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
+                address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END)
+            {
+                return true;
+            }
+
+            var sourceHigh = _dmaController.ActiveOamDmaSourceHigh;
+            if (_mode == GBCMode.NoGBC)
+            {
+                // DMG has a dedicated VRAM bus. A VRAM-sourced transfer therefore leaves the shared
+                // cartridge/WRAM bus available; every other source occupies that shared bus instead.
+                var sourceUsesVramBus = sourceHigh >= 0x80 && sourceHigh < 0xA0;
+                var addressUsesVramBus = address >= MemorySchema.VIDEO_RAM_START &&
+                                         address < MemorySchema.VIDEO_RAM_END;
+                return sourceUsesVramBus == addressUsesVramBus;
+            }
+
+            if (sourceHigh < 0x80 || sourceHigh >= 0xA0 && sourceHigh < 0xC0 || sourceHigh >= 0xE0)
+            {
+                // ROM and cartridge RAM share the CGB external cartridge bus.
+                return address < MemorySchema.ROM_END ||
+                       address >= MemorySchema.EXTERNAL_RAM_START && address < MemorySchema.EXTERNAL_RAM_END;
+            }
+
+            if (sourceHigh < 0xA0)
+            {
+                return address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END;
+            }
+
+            // Work RAM and its echo share the other CGB CPU bus.
+            return address >= MemorySchema.WORK_RAM_START && address < MemorySchema.ECHO_RAM_SWITCHABLE_END;
+        }
+
+        /// <summary>
+        /// Advances DMA engines from the raw CPU clock domain, including CGB double speed.
+        /// </summary>
+        internal void UpdateDma(int cycles)
+        {
+            _dmaController.Update(cycles);
+        }
+
+        /// <summary>
+        /// Reads an OAM DMA source through the mapped memory device without CPU-side DMA blocking.
+        /// </summary>
+        private byte ReadOamDmaSourceByte(int address)
+        {
+            if (address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END)
+            {
+                return _gpu.ReadOamDmaSourceByte(address);
+            }
+
+            return ReadByte(address);
         }
 
         /// <summary>
@@ -233,7 +333,7 @@ namespace GBZEmuLibrary
             }
 
             // These deterministic values are shared by DMG ABC and the current CGB skip-boot profile.
-            WriteByte(0x00, MemorySchema.JOYPAD_REGISTER);
+            WriteByte(_sgbModel == SgbModel.None ? (byte)0x00 : (byte)0x30, MemorySchema.JOYPAD_REGISTER);
             WriteByte(0x00, 0xFF05);
             WriteByte(0x00, 0xFF06);
             WriteByte(0x00, 0xFF07);

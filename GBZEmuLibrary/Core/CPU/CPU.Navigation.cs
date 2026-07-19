@@ -26,9 +26,7 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            _pc++;
-
-            IncrementClock();
+            ReadByte(_pc++);
         }
 
         private void JumpTestImmediate16Bit(int flag, bool condition)
@@ -41,9 +39,8 @@ namespace GBZEmuLibrary
                 return;
             }
 
+            Read16Bit(_pc);
             _pc += 2;
-
-            IncrementClock(2);
         }
 
         private void JumpImmediate()
@@ -63,8 +60,10 @@ namespace GBZEmuLibrary
 
         private void Call()
         {
-            Push((ushort)(_pc + 2));
-            _pc = Read16Bit(_pc);
+            var returnAddress = (ushort)(_pc + 2);
+            var destination = Read16Bit(_pc);
+            Push(returnAddress);
+            _pc = destination;
         }
 
         private void CallTest(int flag, bool value)
@@ -75,9 +74,8 @@ namespace GBZEmuLibrary
                 return;
             }
 
+            Read16Bit(_pc);
             _pc += 2;
-
-            IncrementClock(2);
         }
 
         private void Return()
@@ -90,8 +88,9 @@ namespace GBZEmuLibrary
         {
             if (TestFlag(flag) == value)
             {
-                Return();
+                // A taken conditional return inserts its condition-check M-cycle before reading the stack.
                 IncrementClock();
+                Return();
                 return;
             }
 
