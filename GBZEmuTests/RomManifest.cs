@@ -247,6 +247,11 @@ internal sealed class RomTestCase
                 return "Requires MGB startup state; GBZEmu does not model MGB hardware.";
             }
 
+            if (Id == "mooneye/acceptance/boot_hwio-dmgABCmgb")
+            {
+                return "Requires the original DMG ABC/MGB boot-ROM I/O handoff phase; GBZEmu's redistributable replacement firmware and skip-boot profile do not reproduce proprietary firmware timing.";
+            }
+
             if (Id == "mooneye/acceptance/boot_div-S" ||
                 Id == "mooneye/acceptance/boot_div2-S")
             {

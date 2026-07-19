@@ -107,7 +107,7 @@ public sealed class GpuRegisterTests
 
         gpu.WriteByte(0x08, 0xFF41);
         gpu.WriteByte(0x48, 0xFF41);
-        Assert.Equal(2, getInterruptRequests());
+        Assert.Equal(1, getInterruptRequests());
     }
 
     /// <summary>
@@ -123,15 +123,26 @@ public sealed class GpuRegisterTests
         Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
         gpu.WriteByte(0x28, 0xFF41);
         gpu.WriteByte(0x80, 0xFF40);
-        gpu.Update(204);
-
         Assert.Equal(1, getInterruptRequests());
-        Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
 
-        gpu.Update(80);
-        gpu.Update(172);
+        gpu.Update(LCD_ENABLE_MODE_0_CLOCKS);
+
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS);
 
         Assert.Equal(2, getInterruptRequests());
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(HBLANK_CLOCKS);
+        gpu.Update(MODE2_START_DELAY_CLOCKS);
+
+        Assert.Equal(2, getInterruptRequests());
+        Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(SEARCHING_SPRITES_ATTRIBUTES_CLOCKS);
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS);
+
+        Assert.Equal(3, getInterruptRequests());
         Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
     }
 
@@ -145,11 +156,14 @@ public sealed class GpuRegisterTests
         var (gpu, getInterruptRequests) = CreateInterruptCountingGpu(gbcMode: true);
         gpu.Update(4);
         gpu.WriteByte(0x80, 0xFF40);
+        gpu.Update(
+            LCD_ENABLE_MODE_0_CLOCKS +
+            TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS +
+            HBLANK_CLOCKS +
+            VBLANK_ENTRY_HBLANK_CLOCKS - HBLANK_CLOCKS +
+            152 * SCANLINE_CLOCKS);
 
-        while (gpu.ReadByte(0xFF44) != 153)
-        {
-            gpu.Update(4);
-        }
+        Assert.Equal(153, gpu.ReadByte(0xFF44));
 
         gpu.WriteByte(0x00, 0xFF45);
         gpu.WriteByte(0x40, 0xFF41);
@@ -168,6 +182,8 @@ public sealed class GpuRegisterTests
         gpu.Update(451);
         Assert.Equal(1, gpu.ReadByte(0xFF41) & 0x03);
         gpu.Update(1);
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+        gpu.Update(4);
         Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
         Assert.Equal(0, gpu.ReadByte(0xFF44));
     }
@@ -184,15 +200,14 @@ public sealed class GpuRegisterTests
 
         gpu.Update(4);
         gpu.WriteByte(0x80, 0xFF40);
-        for (var line = 1; line <= 143; line++)
-        {
-            gpu.Update(204);
-            gpu.Update(80);
-            gpu.Update(172);
-        }
+        AdvanceToLineOneMode3(gpu);
+        gpu.Update(142 * SCANLINE_CLOCKS);
+        Assert.Equal(143, gpu.ReadByte(0xFF44));
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS);
 
         gpu.WriteByte(0x20, 0xFF41);
-        gpu.Update(204);
+        gpu.Update(VBLANK_ENTRY_HBLANK_CLOCKS);
 
         Assert.Equal(144, gpu.ReadByte(0xFF44));
         Assert.Equal(1, gpu.ReadByte(0xFF41) & 0x03);
@@ -217,12 +232,17 @@ public sealed class GpuRegisterTests
 
         gpu.Update(4);
         gpu.WriteByte(0x80, 0xFF40);
-        gpu.Update(204);
+        gpu.Update(LCD_ENABLE_MODE_0_CLOCKS + TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + HBLANK_CLOCKS);
+
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+        Assert.Equal(0x5A, gpu.ReadByte(0xFE00));
+
+        gpu.Update(MODE2_START_DELAY_CLOCKS);
 
         Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
         Assert.Equal(0xFF, gpu.ReadByte(0xFE00));
 
-        gpu.Update(80);
+        gpu.Update(SEARCHING_SPRITES_ATTRIBUTES_CLOCKS);
 
         Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
         Assert.Equal(0xFF, gpu.ReadByte(0xFE00));
@@ -249,8 +269,7 @@ public sealed class GpuRegisterTests
 
         gpu.Update(4);
         gpu.WriteByte(0x80, 0xFF40);
-        gpu.Update(HBLANK_CLOCKS);
-        gpu.Update(80);
+        AdvanceToLineOneMode3(gpu);
 
         Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
         Assert.Equal(0xFF, gpu.ReadByte(dataAddress));
@@ -306,8 +325,7 @@ public sealed class GpuRegisterTests
 
         gpu.Update(4);
         gpu.WriteByte(0x90, 0xFF40);
-        gpu.Update(HBLANK_CLOCKS);
-        gpu.Update(80);
+        AdvanceToLineOneMode3(gpu);
         gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS);
 
         Assert.Equal(byte.MaxValue, gpu.GetScreenData()[0, 1].R);
@@ -366,8 +384,7 @@ public sealed class GpuRegisterTests
         gpu.WriteByte(0x80, MemorySchema.GPU_GBC_BG_PALETTE_INDEX_REGISTER);
         gpu.WriteByte(0x1F, MemorySchema.GPU_GBC_BG_PALETTE_DATA_REGISTER);
         gpu.WriteByte(0x80, 0xFF40);
-        gpu.Update(HBLANK_CLOCKS);
-        gpu.Update(80);
+        AdvanceToLineOneMode3(gpu);
         gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS);
         AdvanceToVBlank(gpu);
 
@@ -396,8 +413,7 @@ public sealed class GpuRegisterTests
         gpu.WriteByte(0xE4, 0xFF47);
         gpu.Update(4);
         gpu.WriteByte(0x91, 0xFF40);
-        gpu.Update(HBLANK_CLOCKS);
-        gpu.Update(80);
+        AdvanceToLineOneMode3(gpu);
         gpu.Update(92);
 
         gpu.WriteByte(0x01, 0xFF43);
@@ -433,8 +449,7 @@ public sealed class GpuRegisterTests
         gpu.WriteByte(0xE4, 0xFF47);
         gpu.Update(4);
         gpu.WriteByte(0x91, 0xFF40);
-        gpu.Update(HBLANK_CLOCKS);
-        gpu.Update(80);
+        AdvanceToLineOneMode3(gpu);
         gpu.Update(92);
 
         gpu.WriteByte(0x08, 0xFF43);
@@ -471,8 +486,7 @@ public sealed class GpuRegisterTests
         gpu.WriteByte(0xE4, 0xFF47);
         gpu.Update(4);
         gpu.WriteByte(0x91, 0xFF40);
-        gpu.Update(HBLANK_CLOCKS);
-        gpu.Update(80);
+        AdvanceToLineOneMode3(gpu);
         gpu.Update(140);
 
         gpu.WriteByte(0x08, 0xFF43);
@@ -501,8 +515,7 @@ public sealed class GpuRegisterTests
         gpu.WriteByte(0xE4, 0xFF47);
         gpu.Update(4);
         gpu.WriteByte(0x91, 0xFF40);
-        gpu.Update(HBLANK_CLOCKS);
-        gpu.Update(80);
+        AdvanceToLineOneMode3(gpu);
         gpu.Update(92);
 
         gpu.WriteByte(0xFC, 0xFF47);
@@ -530,12 +543,10 @@ public sealed class GpuRegisterTests
         }
 
         gpu.WriteByte(0xE4, 0xFF47);
-        messageBus.OnHBlank = () => gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + 3);
-
         gpu.Update(4);
         gpu.WriteByte(0x91, 0xFF40);
-        gpu.Update(HBLANK_CLOCKS);
-        gpu.Update(80);
+        AdvanceToLineOneMode3(gpu);
+        messageBus.OnHBlank = () => gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + 3);
         gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS);
 
         Assert.Equal(Display.DefaultPalette[0].R, gpu.GetScreenData()[0, 1].R);
@@ -569,7 +580,7 @@ public sealed class GpuRegisterTests
         gpu.WriteByte(0xE4, 0xFF47);
         gpu.Update(4);
         gpu.WriteByte(0x91, 0xFF40);
-        gpu.Update(HBLANK_CLOCKS + 80 + TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS);
+        gpu.Update(LCD_ENABLE_MODE_0_CLOCKS + TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + HBLANK_CLOCKS);
 
         Assert.Equal(1, gpu.ReadByte(0xFF44));
         Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
@@ -607,6 +618,9 @@ public sealed class GpuRegisterTests
 
         gpu.Update(1);
         Assert.Equal(2, gpu.ReadByte(0xFF44));
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(MODE2_START_DELAY_CLOCKS);
         Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
     }
 
@@ -694,11 +708,32 @@ public sealed class GpuRegisterTests
         gpu.Update(1);
 
         Assert.Equal(2, gpu.ReadByte(0xFF44));
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(MODE2_START_DELAY_CLOCKS);
         Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
     }
 
-    private const int HBLANK_CLOCKS = 204;
+    private const int HBLANK_CLOCKS = 196;
+    private const int VBLANK_ENTRY_HBLANK_CLOCKS = 200;
+    private const int MODE2_START_DELAY_CLOCKS = 8;
+    private const int LCD_ENABLE_MODE_0_CLOCKS = 81;
+    private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS = 80;
     private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
+    private const int SCANLINE_CLOCKS = 456;
+
+    private static void AdvanceToLineOneMode3(GPU gpu)
+    {
+        gpu.Update(
+            LCD_ENABLE_MODE_0_CLOCKS +
+            TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS +
+            HBLANK_CLOCKS +
+            MODE2_START_DELAY_CLOCKS +
+            SEARCHING_SPRITES_ATTRIBUTES_CLOCKS);
+
+        Assert.Equal(1, gpu.ReadByte(0xFF44));
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+    }
 
     private static void AdvanceToVBlank(GPU gpu)
     {
@@ -727,10 +762,8 @@ public sealed class GpuRegisterTests
 
         gpu.Update(4);
         gpu.WriteByte((byte)(objectsEnabled ? 0x82 : 0x80), 0xFF40);
-        gpu.Update(HBLANK_CLOCKS);
-        gpu.Update(80);
+        AdvanceToLineOneMode3(gpu);
 
-        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
         return gpu;
     }
 

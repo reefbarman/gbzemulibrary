@@ -73,6 +73,7 @@ public sealed class FixtureIntegrityTests
         Assert.Equal(HardwareMode.Sgb2, tests["mooneye/acceptance/boot_regs-sgb2"].Hardware);
         Assert.Contains("DMG-CPU-0", tests["mooneye/acceptance/boot_regs-dmg0"].SkipReason);
         Assert.Contains("MGB startup", tests["mooneye/acceptance/boot_regs-mgb"].SkipReason);
+        Assert.Contains("original DMG ABC/MGB boot-ROM I/O handoff phase", tests["mooneye/acceptance/boot_hwio-dmgABCmgb"].SkipReason);
         Assert.Contains("original SGB/SGB2 boot-ROM DIV phase", tests["mooneye/acceptance/boot_div-S"].SkipReason);
     }
 

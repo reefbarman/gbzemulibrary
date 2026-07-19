@@ -95,7 +95,11 @@ namespace GBZEmuLibrary
         }
 
         private const int SCANLINE_DRAW_CLOCKS = 456; //TODO maybe use floats and get more accuracy as this should be more like 456.8 for 60FPS
-        private const int HBLANK_CLOCKS = 204;
+        private const int HBLANK_CLOCKS = 196;
+        private const int VBLANK_ENTRY_HBLANK_CLOCKS = 200;
+        private const int MODE2_START_DELAY_CLOCKS = 8;
+        private const int FRAME_START_MODE2_DELAY_CLOCKS = 4;
+        private const int LCD_ENABLE_MODE_0_CLOCKS = 81;
         private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS = 80;
         private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
 
@@ -126,6 +130,7 @@ namespace GBZEmuLibrary
 
         private int _cycleCounter;
         private int _hBlankClockTarget = HBLANK_CLOCKS;
+        private int _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
         private int _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
         private int _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION;
         private int _mode3RenderedPixels;
@@ -135,6 +140,9 @@ namespace GBZEmuLibrary
         private bool _pendingVBlankInterrupt;
         private bool _statInterruptLineHigh;
         private bool _dmgVBlankMode2InterruptSource;
+        private bool _dmgFrameStartMode2InterruptSource;
+        private bool _lcdEnableStartup;
+        private bool _mode2StartPending;
 
         private bool _gbcMode = false;
         private bool _dmgCompatibilityMode;
@@ -170,7 +178,12 @@ namespace GBZEmuLibrary
             _dmgCompatibilityMode = mode == GBCMode.GBCCompatibility && !usingBootROM;
             _statInterruptLineHigh = false;
             _dmgVBlankMode2InterruptSource = false;
+            _dmgFrameStartMode2InterruptSource = false;
+            _lcdEnableStartup = false;
+            _mode2StartPending = false;
+            _cycleCounter = 0;
             _hBlankClockTarget = HBLANK_CLOCKS;
+            _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
             _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
             _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION;
             _mode3RenderedPixels = 0;
@@ -427,9 +440,14 @@ namespace GBZEmuLibrary
             if (!isEnabled)
             {
                 // Reset LY and mode while retaining the frozen coincidence source as STAT edge history.
+                _cycleCounter = 0;
                 _gpuRegisters[(int)Registers.Scanline] = 0;
                 _line153EarlyReset = false;
+                _lcdEnableStartup = false;
+                _mode2StartPending = false;
+                _dmgFrameStartMode2InterruptSource = false;
                 _hBlankClockTarget = HBLANK_CLOCKS;
+                _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
                 _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
                 _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION;
                 BlankDisplay();
@@ -437,6 +455,16 @@ namespace GBZEmuLibrary
                 return;
             }
 
+            // DMG-family hardware begins line 0 in mode 0, skips mode 2, and exposes mode 3 after
+            // its dedicated startup phase. Mooneye lcdon_timing-GS measures this transition.
+            _cycleCounter = 0;
+            _gpuRegisters[(int)Registers.Scanline] = 0;
+            _lcdEnableStartup = true;
+            _mode2StartPending = false;
+            _dmgFrameStartMode2InterruptSource = false;
+            _hBlankClockTarget = HBLANK_CLOCKS;
+            _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
+            SetStatusRegister(LCDStatus.HBlank);
             UpdateCoincidenceFlag();
             UpdateStatInterruptLine();
         }
@@ -461,7 +489,8 @@ namespace GBZEmuLibrary
             var modeSourceActive = lcdEnabled &&
                 (mode == LCDStatus.HBlank && IsInterruptEnabled(LCDStatusBits.HBlankInterruptEnabled) ||
                  mode == LCDStatus.VBlank && IsInterruptEnabled(LCDStatusBits.VBlankInterruptEnabled) ||
-                 (mode == LCDStatus.SearchingSpritesAttributes || _dmgVBlankMode2InterruptSource) &&
+                 (mode == LCDStatus.SearchingSpritesAttributes || _dmgVBlankMode2InterruptSource ||
+                    _dmgFrameStartMode2InterruptSource) &&
                     IsInterruptEnabled(LCDStatusBits.SearchingSpriteAttributesInterruptEnabled));
             var coincidenceSourceActive =
                 Helpers.TestBit(status, (int)LCDStatusBits.Coincidence) &&
@@ -497,8 +526,39 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Advances the LCD-enable prelude, visible-line HBlank, and the LY-to-mode-2 transition.
+        /// </summary>
         private bool HandleHBlank()
         {
+            if (_lcdEnableStartup)
+            {
+                if (_cycleCounter < LCD_ENABLE_MODE_0_CLOCKS)
+                {
+                    return false;
+                }
+
+                _cycleCounter -= LCD_ENABLE_MODE_0_CLOCKS;
+                _lcdEnableStartup = false;
+                PrepareMode3();
+                return true;
+            }
+
+            if (_mode2StartPending)
+            {
+                if (_cycleCounter < _mode2StartDelayClockTarget)
+                {
+                    return false;
+                }
+
+                _cycleCounter -= _mode2StartDelayClockTarget;
+                _mode2StartPending = false;
+                _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
+                _dmgFrameStartMode2InterruptSource = false;
+                SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
+                return true;
+            }
+
             if (_cycleCounter < _hBlankClockTarget)
             {
                 return false;
@@ -515,7 +575,11 @@ namespace GBZEmuLibrary
             }
             else
             {
-                SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
+                // LY advances after 196 HBlank dots, then mode 0 remains visible for eight more dots so
+                // consecutive mode-2 starts stay 456 dots apart.
+                _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
+                _mode2StartPending = true;
+                SetStatusRegister(LCDStatus.HBlank);
             }
 
             return true;
@@ -557,7 +621,10 @@ namespace GBZEmuLibrary
             {
                 _line153EarlyReset = false;
                 ScanLine = 0;
-                SetStatusRegister(LCDStatus.SearchingSpritesAttributes);
+                _mode2StartDelayClockTarget = FRAME_START_MODE2_DELAY_CLOCKS;
+                _mode2StartPending = true;
+                _dmgFrameStartMode2InterruptSource = !_gbcMode;
+                SetStatusRegister(LCDStatus.HBlank);
             }
             else
             {
@@ -568,6 +635,9 @@ namespace GBZEmuLibrary
             return true;
         }
 
+        /// <summary>
+        /// Completes the 80-dot OAM search and prepares pixel-transfer timing for the selected scanline sprites.
+        /// </summary>
         private bool HandleSearchingSpritesAttributes()
         {
             if (_cycleCounter < SEARCHING_SPRITES_ATTRIBUTES_CLOCKS)
@@ -576,17 +646,30 @@ namespace GBZEmuLibrary
             }
 
             _cycleCounter -= SEARCHING_SPRITES_ATTRIBUTES_CLOCKS;
+            PrepareMode3();
+            return true;
+        }
+
+        /// <summary>
+        /// Captures mode-3 timing inputs and enters pixel transfer for the current visible scanline.
+        /// </summary>
+        private void PrepareMode3()
+        {
             _scanlineScrollXLow = (byte)(_gpuRegisters[(int)Registers.ScrollX] & 0x07);
 
             var fineScrollPenalty = _scanlineScrollXLow;
             var spriteFetchPenalty = CalculateSpriteFetchPenalty();
             _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION + fineScrollPenalty;
             _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + fineScrollPenalty + spriteFetchPenalty;
-            _hBlankClockTarget = HBLANK_CLOCKS - fineScrollPenalty - spriteFetchPenalty;
+            // Line 143 retains four additional dots before entering VBlank; the ordinary eight-dot
+            // LY-to-mode-2 prelude does not follow that transition.
+            var baseHBlankClocks = ScanLine == Display.VERTICAL_RESOLUTION - 1
+                ? VBLANK_ENTRY_HBLANK_CLOCKS
+                : HBLANK_CLOCKS;
+            _hBlankClockTarget = baseHBlankClocks - fineScrollPenalty - spriteFetchPenalty;
             _mode3RenderedPixels = 0;
             _mode3PreparedBackgroundPixels = 0;
             SetStatusRegister(LCDStatus.TransferringDataToLCDDriver);
-            return true;
         }
 
         /// <summary>
@@ -603,6 +686,8 @@ namespace GBZEmuLibrary
 
             _cycleCounter -= _mode3ClockTarget;
 
+            // The CPU-visible mode and its STAT source change together. Mooneye hblank_ly_scx_timing-GS
+            // measures the shortened HBlank interval before LY changes, not a delayed mode-0 interrupt.
             SetStatusRegister(LCDStatus.HBlank);
 
             if (ScanLine < Display.VERTICAL_RESOLUTION)
