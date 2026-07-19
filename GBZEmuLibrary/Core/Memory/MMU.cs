@@ -21,6 +21,8 @@ namespace GBZEmuLibrary
         private readonly GPU _gpu;
         private readonly SerialRegisters _serialRegisters;
         private readonly DMAController _dmaController;
+        [SaveStateIgnore]
+        private readonly CheatCollection _cheats;
 
         private readonly MainMemory _mainMemory = new MainMemory();
         private GBCMode _mode;
@@ -28,10 +30,11 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Builds the fixed address-to-device lookup used by CPU, DMA, and debugger memory accesses.
         /// </summary>
-        public MMU(Cartridge cart, GPU gpu, Timer timer, DivideRegister divideRegister, Joypad joypad, APU apu, SerialRegisters serialRegisters, BootROM bootROM, MessageBus messageBus)
+        public MMU(Cartridge cart, GPU gpu, Timer timer, DivideRegister divideRegister, Joypad joypad, APU apu, SerialRegisters serialRegisters, BootROM bootROM, CheatCollection cheats, MessageBus messageBus)
         {
             _apu = apu;
             _bootROM = bootROM;
+            _cheats = cheats;
             _gpu = gpu;
             _serialRegisters = serialRegisters;
             _dmaController = new DMAController(messageBus);
@@ -43,6 +46,7 @@ namespace GBZEmuLibrary
 
             messageBus.OnReadByte = ReadByte;
             messageBus.OnWriteByte = WriteByte;
+            messageBus.OnVBlank = ApplyGameSharkWrites;
 
             for (var address = 0; address < MemorySchema.MAX_RAM_SIZE; address++)
             {
@@ -107,6 +111,11 @@ namespace GBZEmuLibrary
             {
                 var value = _memoryUnitLookup[address].ReadByte(address);
 
+                if (address < MemorySchema.ROM_END)
+                {
+                    value = _cheats.ApplyGameGenie(address, value);
+                }
+
                 // IF only implements the five interrupt request bits; unused bits are pulled high on reads.
                 return address == MemorySchema.INTERRUPT_REQUEST_REGISTER
                     ? (byte)(value | 0xE0)
@@ -114,6 +123,59 @@ namespace GBZEmuLibrary
             }
 
             throw new IndexOutOfRangeException();
+        }
+
+        /// <summary>
+        /// Applies enabled GameShark/Action Replay RAM writes once at the VBlank request boundary.
+        /// Banked cartridge and CGB work RAM are addressed directly so guest-visible mapper state is not disturbed.
+        /// </summary>
+        private void ApplyGameSharkWrites()
+        {
+            var entries = _cheats.GameSharkEntries;
+            for (var index = 0; index < entries.Count; index++)
+            {
+                var entry = entries[index];
+                if (!entry.Enabled)
+                {
+                    continue;
+                }
+
+                if (entry.Bank.HasValue)
+                {
+                    if (entry.BankType == CheatBankType.CartridgeRam)
+                    {
+                        ((Cartridge)_memoryUnitLookup[entry.Address]).WriteExternalRamBanked(
+                            entry.Value,
+                            entry.Address,
+                            entry.Bank.Value);
+                        continue;
+                    }
+
+                    if (_workRAM.IsSwitchableAddress(entry.Address))
+                    {
+                        if (_mode == GBCMode.NoGBC)
+                        {
+                            if (entry.Bank.Value == 0)
+                            {
+                                WriteByte(entry.Value, entry.Address);
+                            }
+
+                            continue;
+                        }
+
+                        _workRAM.WriteBankedByte(entry.Value, entry.Address, entry.Bank.Value);
+                        continue;
+                    }
+
+                    // GameShark bank prefixes describe CGB work-RAM banks. Other memory regions are bank zero.
+                    if (entry.Bank.Value != 0)
+                    {
+                        continue;
+                    }
+                }
+
+                WriteByte(entry.Value, entry.Address);
+            }
         }
 
         /// <summary>

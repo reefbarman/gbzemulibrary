@@ -14,6 +14,7 @@ The library is intended to sit behind a host such as Unity or another C# engine:
 - Four Game Boy audio channels: two square channels, the programmable wave channel, and the noise channel.
 - ROM-only, MBC1, MBC2, MBC3, and MBC5 cartridge header/banking paths, including MBC5 rumble output.
 - File-backed external cartridge RAM.
+- Engine-neutral Game Genie and GameShark/Action Replay parsing, lifecycle, and deterministic application.
 - Public RGB framebuffer, stereo sample buffer, and joypad API designed for host-engine adapters.
 - Targets `netstandard2.0` for compatibility with current Unity versions and modern .NET hosts.
 - Includes a small cross-platform Raylib-cs frontend for interactive video, audio, and input testing.
@@ -36,6 +37,7 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | `RumbleChanged`                     | Notify compatibility consumers synchronously whenever the raw MBC5 motor-enable latch changes.                                            |
 | `RumbleStrength`                    | Report the most recently completed frame's cycle-integrated motor duty in the range `0..1`.                                               |
 | `RumbleStrengthUpdated`             | Notify hosts after every completed rumble-capable frame, including repeated strengths used to refresh timed haptics.                      |
+| `Cheats`                            | Parse, add, remove, enable, and disable engine-neutral Game Genie and GameShark/Action Replay entries.                                   |
 | `CaptureState()` / `RestoreState()` | Capture or restore a versioned snapshot bound to the running ROM, firmware, and hardware mode.                                            |
 | `AdvanceFrames(...)`                | Execute a bounded number of hardware frames without adding wall-clock pacing.                                                             |
 | `FastForward(...)`                  | Execute multiple hardware frames immediately while draining their core audio.                                                             |
@@ -99,6 +101,38 @@ Each applicable ROM is a normal test case: passing ROMs are green and failing RO
 - `RequestStop()` / `Resume()` cooperatively stop inside the current frame so breakpoint state can be inspected exactly.
 
 Debug state methods require a successfully started, non-terminated emulator. `Update()` returns immediately while stopped.
+
+## Cheat codes
+
+`Emulator.Cheats` accepts six- or nine-character Game Genie codes and eight-character GameShark/Action Replay codes.
+Hyphens, whitespace, and hexadecimal letter case are normalized by the parser. Entries can be prepared before `Start()`
+or changed while the instance is running:
+
+```csharp
+CheatEntry lives = emulator.Cheats.Add("05D-49C-E62");
+CheatEntry ram = emulator.Cheats.Add("01FF00C0", enabled: false);
+
+emulator.Cheats.SetEnabled(ram, true);
+emulator.Cheats.Remove(lives);
+```
+
+Game Genie substitutes the byte returned from cartridge ROM after the active mapper bank is resolved. Nine-character
+codes apply only when the mapped ROM byte matches their decoded compare value; six-character codes affect every mapped
+bank at that logical address. The first enabled matching entry in insertion order wins.
+
+GameShark/Action Replay entries write RAM once at the PPU's VBlank interrupt-request boundary. `01` codes use the
+currently visible mapping, `80` through `8F` select a physical cartridge-SRAM bank without changing mapper registers,
+and `90` through `97` select a physical CGB work-RAM bank without changing SVBK. Entries execute in insertion order, so
+the last enabled entry targeting the same byte wins. Disabling or removing an entry stops future writes but does not
+undo RAM already changed.
+
+Cheat configuration is host policy and is intentionally outside the save-state payload and state identity. Captured RAM
+contains any writes that have already occurred. Restoring a state restores that machine memory but retains the current
+cheat list and enabled flags; enabled RAM codes run again at the next VBlank. This keeps rewind deterministic without
+silently changing a host's active cheat selection. The decoding and application model follows the documented
+[Game Boy Game Genie format](https://www.devrs.com/gb/files/gg.html) and the independently maintained
+[SameBoy cheat implementation](https://github.com/LIJI32/SameBoy/blob/master/Core/cheats.c). The GameShark bank prefixes
+follow the [pokecrystal code-discovery reference](https://github.com/pret/pokecrystal/wiki/Discovering-GameShark-cheat-codes).
 
 ## Time and progression control
 
@@ -397,13 +431,14 @@ Emulator facade
 
 The CPU is the timing source. Instruction and memory operations emit clock ticks, and `Emulator.UpdateSystems()` advances the divider, timer, GPU, and APU by the corresponding cycle count. `Update()` continues processing instructions until it reaches the nominal per-frame clock budget.
 
-The MMU precomputes an address-to-device map for cartridge space, VRAM/OAM and graphics registers, work RAM, joypad, divider/timer, audio, DMA, and fallback main memory. Each emulator owns an internal `MessageBus` that connects its interrupt requests, DMA memory access, and HBlank notifications without process-global callbacks.
+The MMU precomputes an address-to-device map for cartridge space, VRAM/OAM and graphics registers, work RAM, joypad, divider/timer, audio, DMA, and fallback main memory. Each emulator owns an internal `MessageBus` that connects its interrupt requests, DMA memory access, HBlank, and VBlank notifications without process-global callbacks.
 
 ## Repository layout
 
 ```text
 GBZEmuLibrary/
 ├── Emulator.cs                 Public host facade
+├── Cheats.cs                   Cheat entries, parsers, and lifecycle collection
 ├── EmulatorDebugger.cs         Debug snapshots, memory access, serial events, and stop controls
 ├── DebugState.cs               Immutable CPU and PPU debug snapshots
 ├── TraceBuffer.cs              Bounded pre-fetch CPU trace and PC breakpoint settings

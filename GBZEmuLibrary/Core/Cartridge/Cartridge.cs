@@ -352,6 +352,36 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Writes a physical cartridge-RAM bank without changing the guest-visible mapper registers or RAM-enable
+        /// latch. GameShark/Action Replay bank codes use this path at VBlank.
+        /// </summary>
+        internal void WriteExternalRamBanked(byte data, int address, int bank)
+        {
+            if (_externalRAM == null || address < MemorySchema.EXTERNAL_RAM_START ||
+                address >= MemorySchema.EXTERNAL_RAM_END || bank < 0)
+            {
+                return;
+            }
+
+            if (_header.BankingMode == CartridgeSchema.MBCMode.MBC2)
+            {
+                if (bank == 0)
+                {
+                    _externalRAM.WriteByte((byte)(data & 0x0F), (address - MemorySchema.EXTERNAL_RAM_START) & 0x1FF);
+                }
+
+                return;
+            }
+
+            var physicalAddress = address - MemorySchema.EXTERNAL_RAM_START +
+                                  bank * CartridgeSchema.RAM_BANK_SIZE;
+            if (physicalAddress < _externalRAM.Length)
+            {
+                _externalRAM.WriteByte(data, physicalAddress);
+            }
+        }
+
+        /// <summary>
         /// Advances cartridge timers and accumulates rumble duty from normalized hardware clocks.
         /// </summary>
         public void Update(int clocks)

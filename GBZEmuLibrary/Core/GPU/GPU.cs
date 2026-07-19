@@ -504,6 +504,7 @@ namespace GBZEmuLibrary
             if (_pendingVBlankInterrupt && _cycleCounter >= 4)
             {
                 _pendingVBlankInterrupt = false;
+                _messageBus.VBlankStarted();
                 _messageBus.RequestInterrupt(Interrupts.VBlank);
 
                 // DMG hardware pulses the mode-2 STAT source with the VBlank request at line 144.

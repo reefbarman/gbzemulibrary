@@ -50,6 +50,12 @@ namespace GBZEmuLibrary
         public EmulatorDebugger Debug { get; }
 
         /// <summary>
+        /// Gets the host-owned cheat collection for this emulator instance. Entries can be prepared before startup
+        /// and changed while running, but hosts must not mutate the collection concurrently with emulation.
+        /// </summary>
+        public CheatCollection Cheats { get; }
+
+        /// <summary>
         /// Gets whether the loaded cartridge declares an MBC5 rumble motor.
         /// </summary>
         public bool SupportsRumble => _cartridge.HasRumble;
@@ -125,7 +131,8 @@ namespace GBZEmuLibrary
             _timerState.OnApuClock = HandleApuClock;
             _timerState.OnDividerWrite = _apu.HandleDividerWrite;
             _serialRegisters = new SerialRegisters(_messageBus);
-            _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu, _serialRegisters, _bootROM, _messageBus);
+            Cheats = new CheatCollection();
+            _mmu = new MMU(_cartridge, _gpu, _timer, _divideRegister, _joypad, _apu, _serialRegisters, _bootROM, Cheats, _messageBus);
             _cpu = new CPU(_mmu, _messageBus);
             _cpu.OnClockTick += UpdateSystems;
             _cpu.OnSpeedSwitch += HandleSpeedSwitch;

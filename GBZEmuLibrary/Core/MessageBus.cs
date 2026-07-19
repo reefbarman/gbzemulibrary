@@ -13,6 +13,7 @@ namespace GBZEmuLibrary
         public Action<byte, int> OnWriteByte;
 
         public Action OnHBlank;
+        public Action OnVBlank;
 
         /// <summary>
         /// Routes an interrupt request to this emulator's CPU interrupt handler.
@@ -44,6 +45,14 @@ namespace GBZEmuLibrary
         public void HBlankStarted()
         {
             OnHBlank?.Invoke();
+        }
+
+        /// <summary>
+        /// Notifies instance-owned peripherals at the VBlank interrupt request boundary.
+        /// </summary>
+        public void VBlankStarted()
+        {
+            OnVBlank?.Invoke();
         }
     }
 }
