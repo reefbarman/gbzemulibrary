@@ -29,7 +29,7 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | `Update()`                          | Execute enough CPU and subsystem clocks for one 70,224-cycle hardware frame (approximately 59.7275 Hz). The host owns scheduling.         |
 | `GetScreenData()`                   | Return the reusable 160×144 RGB framebuffer as `Color[x, y]`. This is the emulator's internal array, not a copy.                          |
 | `GetSuperGameBoyScreenData()`       | Return the reusable 256×224 colorized SGB composite frame, including the active game-supplied or GBZEmu fallback border.                  |
-| `GetSoundSamples(out frameCount)`   | Swap and return reusable interleaved band-limited float amplitudes plus their valid stereo-frame count. Call once per emulation update.  |
+| `GetSoundSamples(out frameCount)`   | Swap and return reusable interleaved band-limited float amplitudes plus their valid stereo-frame count. Call once per emulation update.   |
 | `ButtonDown(...)` / `ButtonUp(...)` | Forward Game Boy button transitions to the joypad and interrupt logic.                                                                    |
 | `FrameRate` / `ClockRate`           | Report the selected model's host scheduling rate; SGB1 uses its approximately 2.4% faster NTSC clock.                                     |
 | `ToggleChannel(...)`                | Enable or mute one of the four emulated audio channels.                                                                                   |
@@ -37,7 +37,7 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | `RumbleChanged`                     | Notify compatibility consumers synchronously whenever the raw MBC5 motor-enable latch changes.                                            |
 | `RumbleStrength`                    | Report the most recently completed frame's cycle-integrated motor duty in the range `0..1`.                                               |
 | `RumbleStrengthUpdated`             | Notify hosts after every completed rumble-capable frame, including repeated strengths used to refresh timed haptics.                      |
-| `Cheats`                            | Parse, add, remove, enable, and disable engine-neutral Game Genie and GameShark/Action Replay entries.                                   |
+| `Cheats`                            | Parse, add, remove, enable, and disable engine-neutral Game Genie and GameShark/Action Replay entries.                                    |
 | `CaptureState()` / `RestoreState()` | Capture or restore a versioned snapshot bound to the running ROM, firmware, and hardware mode.                                            |
 | `AdvanceFrames(...)`                | Execute a bounded number of hardware frames without adding wall-clock pacing.                                                             |
 | `FastForward(...)`                  | Execute multiple hardware frames immediately while draining their core audio.                                                             |
@@ -406,6 +406,8 @@ The cartridge header parser recognizes these controller families. Recognition do
 | MBC2             | A8-gated ROM/RAM commands and persistent 512×4-bit internal RAM.                         | All 7 committed Mooneye MBC2 cases pass.                                                         |
 | MBC3             | ROM/RAM banking plus cycle-driven RTC registers, latching, halt, carry, and persistence. | Broader game compatibility remains unverified.                                                   |
 | MBC5             | 9-bit ROM banking, RAM-bank selection, and type-aware rumble output.                     | All 8 committed Mooneye MBC5 ROM-geometry cases pass; rumble has focused synthetic-ROM coverage. |
+
+Mapper bank selection uses complete physical ROM banks beyond an under-declared homebrew header, including MBC3 demos that intentionally declare a smaller size than the file contains.
 
 The header parser also detects DMG-only, CGB-compatible, and CGB-only ROM flags and includes the CGB work-RAM, VRAM, palette, speed-switch, and DMA paths.
 

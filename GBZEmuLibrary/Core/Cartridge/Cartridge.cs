@@ -446,10 +446,19 @@ namespace GBZEmuLibrary
 
         private int NormalizeMBC1ROMBank(int bank)
         {
-            var bankCount = _header.ROMBanks;
+            var bankCount = GetEffectiveROMBankCount();
             return (bankCount & (bankCount - 1)) == 0
                 ? bank & (bankCount - 1)
                 : bank % bankCount;
+        }
+
+        /// <summary>
+        /// Uses all complete physical ROM banks when homebrew under-declares its cartridge size.
+        /// </summary>
+        private int GetEffectiveROMBankCount()
+        {
+            var physicalBankCount = _header.Length / CartridgeSchema.ROM_BANK_SIZE;
+            return Math.Max(_header.ROMBanks, physicalBankCount);
         }
 
         private int GetMBC1RAMBank()
@@ -544,7 +553,7 @@ namespace GBZEmuLibrary
                     break;
             }
 
-            _romBank %= _header.ROMBanks;
+            _romBank %= GetEffectiveROMBankCount();
         }
 
         /// <summary>

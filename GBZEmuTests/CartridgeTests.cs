@@ -84,6 +84,31 @@ public sealed class CartridgeTests
     }
 
     /// <summary>
+    /// Verifies homebrew that under-declares its ROM size can still select every physically present MBC3 bank.
+    /// </summary>
+    [Fact]
+    public void Mbc3UsesPhysicalBanksBeyondUnderDeclaredHeaderSize()
+    {
+        const int physicalBankCount = 12;
+        using var rom = CreateMbc3BankedRom(physicalBankCount, declaredSizeCode: 0x00);
+        var emulator = EmulatorFactory.Start(rom);
+
+        Assert.Equal(0x00, emulator.Debug.PeekByte(0x0000));
+        emulator.Debug.PokeByte(0x00, 0x2000);
+        Assert.Equal(0x01, emulator.Debug.PeekByte(0x4000));
+
+        for (var bank = 1; bank < physicalBankCount; bank++)
+        {
+            emulator.Debug.PokeByte((byte)bank, 0x2000);
+
+            Assert.Equal((byte)bank, emulator.Debug.PeekByte(0x4000));
+            Assert.Equal((byte)(bank ^ 0xFF), emulator.Debug.PeekByte(0x7FFF));
+        }
+
+        emulator.Terminate();
+    }
+
+    /// <summary>
     /// Verifies MBC3 RAM/RTC selection and latch writes do not alter the selected switchable ROM bank.
     /// Crystal interleaves these controller operations with asset and code reads from banked ROM.
     /// </summary>
@@ -507,12 +532,11 @@ public sealed class CartridgeTests
     }
 
     /// <summary>
-    /// Creates a synthetic 2 MiB MBC3+timer+RAM+battery cartridge matching worldwide Pokémon Crystal geometry.
+    /// Creates a synthetic MBC3+timer+RAM+battery cartridge with configurable physical and declared ROM geometry.
     /// Each bank has distinct boundary bytes so tests can detect incorrect selection, wrapping, or window offsets.
     /// </summary>
-    private static TestRom CreateMbc3BankedRom()
+    private static TestRom CreateMbc3BankedRom(int bankCount = 128, byte declaredSizeCode = 0x06)
     {
-        const int bankCount = 128;
         var rom = TestRom.Create(0x00);
         var bytes = new byte[bankCount * CartridgeSchema.ROM_BANK_SIZE];
         for (var bank = 0; bank < bankCount; bank++)
@@ -524,7 +548,7 @@ public sealed class CartridgeTests
 
         bytes[CartridgeSchema.GBC_MODE_LOC] = 0x80;
         bytes[CartridgeSchema.MBC_MODE_LOC] = 0x10;
-        bytes[CartridgeSchema.ROM_BANK_NUM_LOC] = 0x06;
+        bytes[CartridgeSchema.ROM_BANK_NUM_LOC] = declaredSizeCode;
         bytes[CartridgeSchema.RAM_BANK_NUM_LOC] = 0x03;
         File.WriteAllBytes(rom.Path, bytes);
         return rom;
