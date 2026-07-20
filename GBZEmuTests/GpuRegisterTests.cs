@@ -540,10 +540,11 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
-    /// Verifies a late SCX write cannot alter background pixels already fetched ahead of LCD output.
+    /// Verifies a late coarse-SCX write applies at the next background tile-number fetch without changing the
+    /// previously fetched slice.
     /// </summary>
     [Fact]
-    public void DmgLateScrollWritePreservesFetchedBackgroundPixels()
+    public void DmgLateScrollWriteAppliesAtNextTileFetch()
     {
         var gpu = new GPU(new MessageBus());
         gpu.Reset(false);
@@ -571,7 +572,48 @@ public sealed class GpuRegisterTests
         AdvanceToVBlank(gpu);
 
         var screen = gpu.GetScreenData();
-        Assert.Equal(Display.DefaultPalette[2].R, screen[143, 1].R);
+        Assert.Equal(Display.DefaultPalette[1].R, screen[143, 1].R);
+        Assert.Equal(Display.DefaultPalette[1].R, screen[152, 1].R);
+    }
+
+    /// <summary>
+    /// Verifies a transient coarse-SCX value sampled at GetTile T1 is retained for one complete fetched tile slice.
+    /// </summary>
+    [Fact]
+    public void CoarseScrollPulseLatchesOneFetchedTileSlice()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(false);
+        for (var row = 0; row < 8; row++)
+        {
+            gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2);
+            gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2 + 1);
+            gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + 16 + row * 2);
+            gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + 16 + row * 2 + 1);
+        }
+
+        for (var tile = 0; tile < 32; tile++)
+        {
+            gpu.WriteByte((byte)(tile == 18 ? 1 : 0), MemorySchema.BACKGROUND_LAYOUT_0_START + tile);
+        }
+
+        gpu.WriteByte(0xE4, 0xFF47);
+        gpu.Update(4);
+        gpu.WriteByte(0x91, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
+        gpu.Update(140);
+
+        gpu.WriteByte(0x08, 0xFF43);
+        gpu.Update(8);
+        gpu.WriteByte(0x00, 0xFF43);
+        AdvanceToVBlank(gpu);
+
+        var screen = gpu.GetScreenData();
+        // The SCX=8 pulse shifts the marker into the retained 136-143 slice. After SCX returns to zero, the same
+        // marker appears naturally in the adjacent 144-151 slice; the surrounding pixels prove both boundaries.
+        Assert.Equal(Display.DefaultPalette[1].R, screen[135, 1].R);
+        Assert.Equal(Display.DefaultPalette[2].R, screen[136, 1].R);
+        Assert.Equal(Display.DefaultPalette[2].R, screen[151, 1].R);
         Assert.Equal(Display.DefaultPalette[1].R, screen[152, 1].R);
     }
 

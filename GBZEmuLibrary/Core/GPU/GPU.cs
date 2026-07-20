@@ -140,6 +140,7 @@ namespace GBZEmuLibrary
         private readonly byte[] _videoRAM = new byte[MemorySchema.MAX_VRAM_SIZE];
         private readonly byte[] _spriteAttributeTable = new byte[MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START];
         private readonly byte[] _lineSpriteXCoordinates = new byte[10];
+        private readonly int[] _lineSpriteInitialFetchWaits = new int[10];
         private readonly byte[] _scanlineScrollX = new byte[Display.HORIZONTAL_RESOLUTION];
         private readonly byte[] _scanlineScrollY = new byte[Display.HORIZONTAL_RESOLUTION];
         private readonly byte[] _gpuRegisters = new byte[MemorySchema.GPU_REGISTERS_END - MemorySchema.GPU_REGISTERS_START];
@@ -162,6 +163,13 @@ namespace GBZEmuLibrary
         private int _mode3WindowStartPixel = Display.HORIZONTAL_RESOLUTION;
         private int _mode3WindowRestartPixel = -1;
         private int _mode3WindowFetchPenalty = WINDOW_STARTUP_CLOCKS;
+        private int _mode3FetchTimelineDot;
+        private int _mode3BackgroundFetcherDot;
+        private int _mode3FetchPosition;
+        private int _mode3NextSpriteIndex;
+        private int _mode3ObjectFetchWait;
+        private int _mode3ObjectFetchStall;
+        private int _lineSpriteCount;
         private byte _scanlineScrollXLow;
         private bool _line153EarlyReset;
         private bool _pendingVBlankInterrupt;
@@ -237,6 +245,13 @@ namespace GBZEmuLibrary
             _mode3WindowStartPixel = Display.HORIZONTAL_RESOLUTION;
             _mode3WindowRestartPixel = -1;
             _mode3WindowFetchPenalty = WINDOW_STARTUP_CLOCKS;
+            _mode3FetchTimelineDot = 0;
+            _mode3BackgroundFetcherDot = 0;
+            _mode3FetchPosition = 0;
+            _mode3NextSpriteIndex = 0;
+            _mode3ObjectFetchWait = 0;
+            _mode3ObjectFetchStall = 0;
+            _lineSpriteCount = 0;
             _scanlineScrollXLow = 0;
             _line153EarlyReset = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
@@ -668,7 +683,6 @@ namespace GBZEmuLibrary
             _mode3StartupDots += _scanlineScrollXLow - oldFineScroll;
             _mode3ClockTarget += timingDelta;
             _hBlankClockTarget -= timingDelta;
-            _mode3PreparedBackgroundPixels = 0;
         }
 
         /// <summary>
@@ -962,6 +976,12 @@ namespace GBZEmuLibrary
             _hBlankClockTarget = baseHBlankClocks - fineScrollPenalty - spriteFetchPenalty - windowFetchPenalty;
             _mode3RenderedPixels = 0;
             _mode3PreparedBackgroundPixels = 0;
+            _mode3FetchTimelineDot = 0;
+            _mode3BackgroundFetcherDot = 0;
+            _mode3FetchPosition = -12;
+            _mode3NextSpriteIndex = 0;
+            _mode3ObjectFetchWait = 0;
+            _mode3ObjectFetchStall = 0;
             _mode3WindowRestartPixel = -1;
             _hblankDmaWindowOpened = false;
             SetStatusRegister(LCDStatus.TransferringDataToLCDDriver);
@@ -1018,9 +1038,9 @@ namespace GBZEmuLibrary
 
             var spriteHeight = Helpers.TestBit(control, (int)LCDControlBits.SpriteSize) ? 16 : 8;
             var scrollX = GetEffectiveScrollX();
-            var selectedSpriteCount = 0;
+            _lineSpriteCount = 0;
 
-            for (var offset = 0; offset < _spriteAttributeTable.Length && selectedSpriteCount < 10; offset += 4)
+            for (var offset = 0; offset < _spriteAttributeTable.Length && _lineSpriteCount < 10; offset += 4)
             {
                 var spriteY = _spriteAttributeTable[offset] - 16;
                 if (ScanLine < spriteY || ScanLine >= spriteY + spriteHeight)
@@ -1028,11 +1048,11 @@ namespace GBZEmuLibrary
                     continue;
                 }
 
-                _lineSpriteXCoordinates[selectedSpriteCount++] = _spriteAttributeTable[offset + 1];
+                _lineSpriteXCoordinates[_lineSpriteCount++] = _spriteAttributeTable[offset + 1];
             }
 
             // Mode 2 selects in OAM order, but mode 3 fetches the selected sprites from left to right.
-            for (var index = 1; index < selectedSpriteCount; index++)
+            for (var index = 1; index < _lineSpriteCount; index++)
             {
                 var spriteX = _lineSpriteXCoordinates[index];
                 var insertionIndex = index;
@@ -1047,11 +1067,12 @@ namespace GBZEmuLibrary
 
             var penalty = 0;
             var previousFetchGroup = int.MinValue;
-            for (var index = 0; index < selectedSpriteCount; index++)
+            for (var index = 0; index < _lineSpriteCount; index++)
             {
                 var spriteX = _lineSpriteXCoordinates[index];
                 if (spriteX >= Display.HORIZONTAL_RESOLUTION + 8)
                 {
+                    _lineSpriteCount = index;
                     break;
                 }
 
@@ -1059,9 +1080,12 @@ namespace GBZEmuLibrary
                 // OAM X=0 always pays the full initial fetch wait, regardless of background scroll alignment.
                 var distanceFromGroupStart = spriteX == 0 ? 0 : fetchPosition & 0x07;
                 var fetchGroup = fetchPosition & ~0x07;
-                penalty += fetchGroup != previousFetchGroup && distanceFromGroupStart < 5
-                    ? 11 - distanceFromGroupStart
-                    : 6;
+                var initialFetchWait = fetchGroup != previousFetchGroup && distanceFromGroupStart < 5
+                    ? 5 - distanceFromGroupStart
+                    : 0;
+                _lineSpriteInitialFetchWaits[index] = initialFetchWait;
+                // The complete object fetch is its phase-alignment wait plus the six-dot VRAM transaction.
+                penalty += initialFetchWait + 6;
                 previousFetchGroup = fetchGroup;
             }
 
@@ -1166,10 +1190,86 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Advances background tile-number fetches and latches live scroll values at each GetTile T1 address phase.
+        /// Object fetches first align the background fetcher, then hold it for their six-dot VRAM transaction.
+        /// </summary>
+        private void AdvanceBackgroundFetchTimeline()
+        {
+            while (_mode3FetchTimelineDot < _cycleCounter)
+            {
+                _mode3FetchTimelineDot++;
+
+                if (_mode3ObjectFetchWait == 0 &&
+                    _mode3ObjectFetchStall == 0 &&
+                    _mode3NextSpriteIndex < _lineSpriteCount &&
+                    IsObjectFetchMatch(_lineSpriteXCoordinates[_mode3NextSpriteIndex]))
+                {
+                    var spriteIndex = _mode3NextSpriteIndex++;
+                    var spriteX = _lineSpriteXCoordinates[spriteIndex];
+                    var initialFetchWait = _lineSpriteInitialFetchWaits[spriteIndex];
+                    // OAM X 0-8 matches while the fetch stream is still at or before the visible left edge. Mealybug's
+                    // aligned-sprite SCX tests show that its phase wait delays the next T1 sample instead of advancing it.
+                    _mode3ObjectFetchWait = spriteX <= 8 ? 0 : initialFetchWait;
+                    _mode3ObjectFetchStall = spriteX <= 8 ? initialFetchWait + 6 : 6;
+                }
+
+                if (_mode3ObjectFetchWait > 0)
+                {
+                    _mode3ObjectFetchWait--;
+                    AdvanceBackgroundFetcherDot();
+                    continue;
+                }
+
+                if (_mode3ObjectFetchStall > 0)
+                {
+                    _mode3ObjectFetchStall--;
+                    continue;
+                }
+
+                _mode3FetchPosition++;
+                AdvanceBackgroundFetcherDot();
+            }
+        }
+
+        /// <summary>
+        /// Matches OAM X against the fetch stream, including its startup-to-visible boundary.
+        /// </summary>
+        private bool IsObjectFetchMatch(int spriteX)
+        {
+            return spriteX == _mode3FetchPosition + 8;
+        }
+
+        /// <summary>
+        /// Advances one active background-fetcher dot and records a complete tile slice when its address is sampled.
+        /// </summary>
+        private void AdvanceBackgroundFetcherDot()
+        {
+            _mode3BackgroundFetcherDot++;
+            if (_mode3BackgroundFetcherDot < 9 || (_mode3BackgroundFetcherDot - 9) % 8 != 0)
+            {
+                return;
+            }
+
+            var scrollX = GetEffectiveScrollX();
+            var scrollY = _gpuRegisters[(int)Registers.ScrollY];
+            var fetchedTileEnd = Math.Min(
+                Display.HORIZONTAL_RESOLUTION,
+                _mode3PreparedBackgroundPixels + 8);
+            while (_mode3PreparedBackgroundPixels < fetchedTileEnd)
+            {
+                _scanlineScrollX[_mode3PreparedBackgroundPixels] = scrollX;
+                _scanlineScrollY[_mode3PreparedBackgroundPixels] = scrollY;
+                _mode3PreparedBackgroundPixels++;
+            }
+        }
+
+        /// <summary>
         /// Commits pixels whose transfer dots have elapsed using the register and palette state visible now.
         /// </summary>
         private void RenderTransferredPixels()
         {
+            AdvanceBackgroundFetchTimeline();
+
             var outputDots = Math.Max(0, _cycleCounter - _mode3StartupDots);
             var completedPixels = outputDots;
             if (_mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION && outputDots > _mode3WindowStartPixel)
@@ -1179,8 +1279,9 @@ namespace GBZEmuLibrary
                     Math.Max(0, outputDots - _mode3WindowStartPixel - _mode3WindowFetchPenalty);
             }
 
-            completedPixels = Math.Min(Display.HORIZONTAL_RESOLUTION, completedPixels);
-            PrepareBackgroundScroll(Math.Min(Display.HORIZONTAL_RESOLUTION, completedPixels + 16));
+            completedPixels = Math.Min(
+                Math.Min(Display.HORIZONTAL_RESOLUTION, completedPixels),
+                _mode3PreparedBackgroundPixels);
 
             if (completedPixels <= _mode3RenderedPixels)
             {
@@ -1202,24 +1303,12 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            PrepareBackgroundScroll(Display.HORIZONTAL_RESOLUTION);
+            while (_mode3PreparedBackgroundPixels < Display.HORIZONTAL_RESOLUTION)
+            {
+                AdvanceBackgroundFetcherDot();
+            }
             DrawScanLine(_mode3RenderedPixels, Display.HORIZONTAL_RESOLUTION);
             _mode3RenderedPixels = Display.HORIZONTAL_RESOLUTION;
-        }
-
-        /// <summary>
-        /// Samples scroll registers for background pixels fetched up to 16 pixels ahead of LCD output.
-        /// </summary>
-        private void PrepareBackgroundScroll(int fetchedPixels)
-        {
-            var scrollX = GetEffectiveScrollX();
-            var scrollY = _gpuRegisters[(int)Registers.ScrollY];
-            while (_mode3PreparedBackgroundPixels < fetchedPixels)
-            {
-                _scanlineScrollX[_mode3PreparedBackgroundPixels] = scrollX;
-                _scanlineScrollY[_mode3PreparedBackgroundPixels] = scrollY;
-                _mode3PreparedBackgroundPixels++;
-            }
         }
 
         /// <summary>
