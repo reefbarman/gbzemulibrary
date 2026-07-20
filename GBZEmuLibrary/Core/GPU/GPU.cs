@@ -169,6 +169,7 @@ namespace GBZEmuLibrary
         private int _mode3NextSpriteIndex;
         private int _mode3ObjectFetchWait;
         private int _mode3ObjectFetchStall;
+        private int _mode3ObjectOutputStallDots;
         private int _lineSpriteCount;
         private byte _scanlineScrollXLow;
         private bool _line153EarlyReset;
@@ -251,6 +252,7 @@ namespace GBZEmuLibrary
             _mode3NextSpriteIndex = 0;
             _mode3ObjectFetchWait = 0;
             _mode3ObjectFetchStall = 0;
+            _mode3ObjectOutputStallDots = 0;
             _lineSpriteCount = 0;
             _scanlineScrollXLow = 0;
             _line153EarlyReset = false;
@@ -982,6 +984,7 @@ namespace GBZEmuLibrary
             _mode3NextSpriteIndex = 0;
             _mode3ObjectFetchWait = 0;
             _mode3ObjectFetchStall = 0;
+            _mode3ObjectOutputStallDots = 0;
             _mode3WindowRestartPixel = -1;
             _hblankDmaWindowOpened = false;
             SetStatusRegister(LCDStatus.TransferringDataToLCDDriver);
@@ -1216,6 +1219,7 @@ namespace GBZEmuLibrary
                 if (_mode3ObjectFetchWait > 0)
                 {
                     _mode3ObjectFetchWait--;
+                    _mode3ObjectOutputStallDots++;
                     AdvanceBackgroundFetcherDot();
                     continue;
                 }
@@ -1223,6 +1227,7 @@ namespace GBZEmuLibrary
                 if (_mode3ObjectFetchStall > 0)
                 {
                     _mode3ObjectFetchStall--;
+                    _mode3ObjectOutputStallDots++;
                     continue;
                 }
 
@@ -1270,7 +1275,11 @@ namespace GBZEmuLibrary
         {
             AdvanceBackgroundFetchTimeline();
 
-            var outputDots = Math.Max(0, _cycleCounter - _mode3StartupDots);
+            // Preserve every measured object-fetch pause in the LCD output timeline. The mode-transition target is
+            // separately quantized to complete four-dot CPU groups; completion commits its remaining right-edge pixels.
+            var outputDots = Math.Max(
+                0,
+                _cycleCounter - _mode3StartupDots - _mode3ObjectOutputStallDots);
             var completedPixels = outputDots;
             if (_mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION && outputDots > _mode3WindowStartPixel)
             {

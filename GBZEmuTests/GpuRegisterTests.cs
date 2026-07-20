@@ -647,6 +647,49 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies object-fetch alignment and VRAM access pause FIFO output, so a live OBP0 write affects only sprite
+    /// pixels emitted after the complete fetch stall.
+    /// </summary>
+    [Theory]
+    [InlineData((int)GBCMode.NoGBC, 5, 6)]
+    [InlineData((int)GBCMode.GBCCompatibility, 4, 5)]
+    public void ObjectFetchStallsDelayLivePaletteBoundary(int mode, int lastOldPalettePixel, int firstNewPalettePixel)
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset((GBCMode)mode, usingBootROM: false);
+        for (var row = 0; row < 8; row++)
+        {
+            gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2);
+            gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2 + 1);
+        }
+
+        gpu.WriteByte(17, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+        gpu.WriteByte(10, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 1);
+        gpu.WriteByte(0, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 2);
+        gpu.WriteByte(0, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 3);
+        gpu.WriteByte(0x00, 0xFF47);
+        gpu.WriteByte(0xE4, 0xFF48);
+        gpu.Update(4);
+        gpu.WriteByte(0x93, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
+
+        // Mealybug m3_obp0_change completes its second palette write at mode-3 dot 27. After the 12-dot startup,
+        // the X=10 object's three-dot alignment and six-dot fetch leave six emitted DMG pixels at that boundary.
+        // CGB compatibility output starts one dot later, leaving five.
+        gpu.Update(27);
+        gpu.WriteByte(0xFC, 0xFF48);
+        AdvanceToVBlank(gpu);
+
+        var screen = gpu.GetScreenData();
+        var oldColor = mode == (int)GBCMode.NoGBC ? Display.DefaultPalette[1].R : byte.MaxValue;
+        var newColor = mode == (int)GBCMode.NoGBC ? Display.DefaultPalette[3].R : (byte)0;
+        Assert.Equal(oldColor, screen[2, 1].R);
+        Assert.Equal(oldColor, screen[lastOldPalettePixel, 1].R);
+        Assert.Equal(newColor, screen[firstNewPalettePixel, 1].R);
+        Assert.Equal(newColor, screen[9, 1].R);
+    }
+
+    /// <summary>
     /// Verifies that HBlank DMA cannot retroactively change the scanline whose pixel transfer just completed.
     /// </summary>
     [Fact]
