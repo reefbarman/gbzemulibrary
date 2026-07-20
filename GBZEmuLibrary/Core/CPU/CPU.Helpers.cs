@@ -22,7 +22,7 @@
         {
             FlushPendingMemoryCycle();
 
-            // STAT and OAM availability are sampled at the end of the CPU read M-cycle. The complete
+            // STAT, HDMA5, and PPU-memory availability are sampled at the end of the CPU read M-cycle. The complete
             // four-clock cycle is consumed before sampling, so there is no trailing memory cycle to defer.
             // OAM DMA ownership is sampled when the bus cycle begins, independently of PPU OAM ownership.
             if (SamplesPpuStateAtEndOfReadCycle(address))
@@ -118,6 +118,7 @@
         internal static bool SamplesPpuStateAtEndOfReadCycle(int address)
         {
             return address == MemorySchema.GPU_REGISTERS_START + 1 ||
+                   address == MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER ||
                    (address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END) ||
                    (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
                     address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END);

@@ -8,6 +8,8 @@ namespace GBZEmuLibrary
     internal class DMAController : IMemoryUnit
     {
         private const int CGB_DMA_BLOCK_SIZE = 0x10;
+        private const int CGB_DMA_BLOCK_CLOCKS = 32;
+        private const int CGB_DMA_BLOCK_OVERHEAD_CLOCKS = 4;
         private const int OAM_DMA_LENGTH = 0xA0;
         private const int OAM_DMA_START_DELAY_M_CYCLES = 2;
 
@@ -28,6 +30,7 @@ namespace GBZEmuLibrary
         private GBCMode _mode;
 
         private bool _transferring;
+        private int _hblankDmaClocksRemaining;
 
         private readonly MessageBus _messageBus;
 
@@ -37,7 +40,7 @@ namespace GBZEmuLibrary
         public DMAController(MessageBus messageBus)
         {
             _messageBus = messageBus;
-            _messageBus.OnHBlank = OnHBlank;
+            _messageBus.OnHBlankDmaWindow = OnHBlankDmaWindow;
         }
 
         /// <summary>
@@ -143,12 +146,27 @@ namespace GBZEmuLibrary
         public byte OamDmaBusValue => _oamDmaBusValue;
 
         /// <summary>
-        /// Advances the OAM DMA startup pipeline and copies one byte per CPU machine cycle.
+        /// Gets whether a scheduled HBlank DMA block currently prevents the CPU from executing instructions.
+        /// </summary>
+        public bool IsCpuStalledByHBlankDma => _hblankDmaClocksRemaining > 0;
+
+        /// <summary>
+        /// Advances the OAM DMA startup pipeline and any active HBlank DMA bus reservation.
         /// </summary>
         public void Update(int cycles)
         {
             for (var elapsed = 0; elapsed < cycles; elapsed += InstructionSchema.FOUR_CYCLES)
             {
+                if (_hblankDmaClocksRemaining > 0)
+                {
+                    _hblankDmaClocksRemaining -= InstructionSchema.FOUR_CYCLES;
+                    if (_hblankDmaClocksRemaining <= 0)
+                    {
+                        _hblankDmaClocksRemaining = 0;
+                        CopyActiveHBlankBlock();
+                    }
+                }
+
                 if (_oamDmaStartDelay > 0)
                 {
                     if (_oamDmaActive)
@@ -228,10 +246,11 @@ namespace GBZEmuLibrary
             // A cancellation write reloads the visible remaining-length bits before marking HDMA5 inactive.
             _dmaLengthMode = (byte)(0x80 | (data & 0x7F));
             _transferring = false;
+            _hblankDmaClocksRemaining = 0;
         }
 
         /// <summary>
-        /// Starts HDMA or completes GDMA immediately. CPU stall timing is not yet modeled.
+        /// Starts clocked HDMA or completes the currently immediate GDMA implementation.
         /// </summary>
         private void StartTransfer()
         {
@@ -243,7 +262,7 @@ namespace GBZEmuLibrary
                 _transferring = true;
                 if (_messageBus.CanStartHBlankDmaImmediately())
                 {
-                    CopyActiveHBlankBlock();
+                    ScheduleHBlankBlock(includeCurrentCpuCycle: true);
                 }
 
                 return;
@@ -315,14 +334,35 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Advances an active HBlank transfer by exactly one 16-byte block.
         /// </summary>
-        private void OnHBlank()
+        private void OnHBlankDmaWindow()
         {
-            if (!_transferring)
+            if (!_transferring || _messageBus.IsCpuHalted())
             {
                 return;
             }
 
-            CopyActiveHBlankBlock();
+            ScheduleHBlankBlock(includeCurrentCpuCycle: false);
+        }
+
+        /// <summary>
+        /// Reserves the CGB memory bus for one 16-byte block at the active CPU speed.
+        /// </summary>
+        /// <param name="includeCurrentCpuCycle">
+        /// Whether the caller scheduled the block before the current write M-cycle has reached the DMA clock.
+        /// </param>
+        private void ScheduleHBlankBlock(bool includeCurrentCpuCycle)
+        {
+            if (_hblankDmaClocksRemaining > 0)
+            {
+                return;
+            }
+
+            _hblankDmaClocksRemaining =
+                CGB_DMA_BLOCK_CLOCKS * _messageBus.GetCpuSpeedFactor() + CGB_DMA_BLOCK_OVERHEAD_CLOCKS;
+            if (includeCurrentCpuCycle)
+            {
+                _hblankDmaClocksRemaining += InstructionSchema.FOUR_CYCLES;
+            }
         }
 
         /// <summary>

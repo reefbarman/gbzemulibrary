@@ -51,6 +51,8 @@ namespace GBZEmuLibrary
 
             _interruptHandler = new InterruptHandler(_mmu);
             messageBus.OnRequestInterrupt = i => _interruptHandler.RequestInterrupt(i);
+            messageBus.OnIsCpuHalted = () => _interruptHandler.Halted;
+            messageBus.OnGetCpuSpeedFactor = () => SpeedFactor;
 
             InitInstructions();
         }
@@ -62,6 +64,12 @@ namespace GBZEmuLibrary
         {
             try
             {
+                if (_mmu.IsCpuStalledByHBlankDma)
+                {
+                    IncrementClock();
+                    return true;
+                }
+
                 if (_interruptHandler.Halted)
                 {
                     IncrementClock();

@@ -230,6 +230,11 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Gets whether an active CGB HBlank DMA block currently owns the CPU memory bus.
+        /// </summary>
+        internal bool IsCpuStalledByHBlankDma => _dmaController.IsCpuStalledByHBlankDma;
+
+        /// <summary>
         /// Reads an OAM DMA source through the mapped memory device without CPU-side DMA blocking.
         /// </summary>
         private byte ReadOamDmaSourceByte(int address)

@@ -101,6 +101,7 @@ namespace GBZEmuLibrary
         private const int FRAME_START_MODE2_DELAY_CLOCKS = 4;
         private const int LYC_UPDATE_DELAY_CLOCKS = 4;
         private const int LCD_ENABLE_MODE_0_CLOCKS = 81;
+        private const int CGB_DOUBLE_SPEED_LCD_ENABLE_MODE_0_CLOCKS = 80;
         private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS = 80;
         private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
 
@@ -146,6 +147,7 @@ namespace GBZEmuLibrary
         private bool _coincidenceUpdatePending;
         private bool _lcdEnableStartup;
         private bool _mode2StartPending;
+        private bool _hblankDmaWindowOpened;
 
         private bool _gbcMode = false;
         private bool _dmgCompatibilityMode;
@@ -186,6 +188,7 @@ namespace GBZEmuLibrary
             _coincidenceUpdatePending = false;
             _lcdEnableStartup = false;
             _mode2StartPending = false;
+            _hblankDmaWindowOpened = false;
             _cycleCounter = 0;
             _hBlankClockTarget = HBLANK_CLOCKS;
             _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
@@ -576,7 +579,8 @@ namespace GBZEmuLibrary
             var status = _gpuRegisters[(int)Registers.LCDStatus];
             var mode = GetStatusMode();
             var modeSourceActive = lcdEnabled &&
-                (mode == LCDStatus.HBlank && IsInterruptEnabled(LCDStatusBits.HBlankInterruptEnabled) ||
+                (mode == LCDStatus.HBlank && !IsFrameStartMode2Prelude() &&
+                    IsInterruptEnabled(LCDStatusBits.HBlankInterruptEnabled) ||
                  mode == LCDStatus.VBlank && IsInterruptEnabled(LCDStatusBits.VBlankInterruptEnabled) ||
                  (mode == LCDStatus.SearchingSpritesAttributes || _dmgVBlankMode2InterruptSource ||
                     _dmgFrameStartMode2InterruptSource) &&
@@ -622,12 +626,15 @@ namespace GBZEmuLibrary
         {
             if (_lcdEnableStartup)
             {
-                if (_cycleCounter < LCD_ENABLE_MODE_0_CLOCKS)
+                var startupClockTarget = _gbcMode && _messageBus.GetCpuSpeedFactor() == 2
+                    ? CGB_DOUBLE_SPEED_LCD_ENABLE_MODE_0_CLOCKS
+                    : LCD_ENABLE_MODE_0_CLOCKS;
+                if (_cycleCounter < startupClockTarget)
                 {
                     return false;
                 }
 
-                _cycleCounter -= LCD_ENABLE_MODE_0_CLOCKS;
+                _cycleCounter -= startupClockTarget;
                 _lcdEnableStartup = false;
                 PrepareMode3();
                 return true;
@@ -775,6 +782,7 @@ namespace GBZEmuLibrary
             _hBlankClockTarget = baseHBlankClocks - fineScrollPenalty - spriteFetchPenalty;
             _mode3RenderedPixels = 0;
             _mode3PreparedBackgroundPixels = 0;
+            _hblankDmaWindowOpened = false;
             SetStatusRegister(LCDStatus.TransferringDataToLCDDriver);
         }
 
@@ -784,6 +792,13 @@ namespace GBZEmuLibrary
         private bool TransferringDataToLCDDriver()
         {
             RenderTransferredPixels();
+
+            if (!_hblankDmaWindowOpened &&
+                _cycleCounter >= _mode3ClockTarget - GetHBlankDmaLeadClocks())
+            {
+                _hblankDmaWindowOpened = true;
+                _messageBus.HBlankDmaWindowOpened();
+            }
 
             if (_cycleCounter < _mode3ClockTarget)
             {
@@ -883,7 +898,26 @@ namespace GBZEmuLibrary
         /// </summary>
         private bool CanStartHBlankDmaImmediately()
         {
-            return !IsLCDEnabled() || GetStatusMode() == LCDStatus.HBlank;
+            return !IsLCDEnabled() ||
+                   GetStatusMode() == LCDStatus.HBlank && !IsFrameStartMode2Prelude();
+        }
+
+        /// <summary>
+        /// Returns whether STAT temporarily reads mode 0 between VBlank and line-zero mode 2 without a real HBlank.
+        /// </summary>
+        private bool IsFrameStartMode2Prelude()
+        {
+            return _mode2StartPending && _mode2StartDelayClockTarget == FRAME_START_MODE2_DELAY_CLOCKS;
+        }
+
+        /// <summary>
+        /// Returns the lead time for the CGB HBlank DMA bus request. The request is observed on a CPU M-cycle
+        /// boundary; fine scroll values of two or more move acquisition to the later measured boundary.
+        /// </summary>
+        private int GetHBlankDmaLeadClocks()
+        {
+            var leadClocks = InstructionSchema.FOUR_CYCLES / _messageBus.GetCpuSpeedFactor();
+            return _scanlineScrollXLow > 1 ? Math.Max(1, leadClocks / 2) : leadClocks;
         }
 
         /// <summary>

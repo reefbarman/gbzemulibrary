@@ -15,8 +15,11 @@ namespace GBZEmuLibrary
         public Action<byte, int> OnWriteOamDmaByte;
 
         public Action OnHBlank;
+        public Action OnHBlankDmaWindow;
         public Action OnVBlank;
         public Func<bool> OnCanStartHBlankDmaImmediately;
+        public Func<bool> OnIsCpuHalted;
+        public Func<int> OnGetCpuSpeedFactor;
 
         /// <summary>
         /// Routes an interrupt request to this emulator's CPU interrupt handler.
@@ -67,11 +70,35 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Notifies CGB VRAM DMA that the measured pre-HBlank bus-acquisition window has opened.
+        /// </summary>
+        public void HBlankDmaWindowOpened()
+        {
+            OnHBlankDmaWindow?.Invoke();
+        }
+
+        /// <summary>
         /// Reports whether an HBlank DMA start occurs with the LCD disabled or during an active HBlank.
         /// </summary>
         public bool CanStartHBlankDmaImmediately()
         {
             return OnCanStartHBlankDmaImmediately?.Invoke() == true;
+        }
+
+        /// <summary>
+        /// Reports whether HALT currently prevents an HBlank DMA block from starting.
+        /// </summary>
+        public bool IsCpuHalted()
+        {
+            return OnIsCpuHalted?.Invoke() == true;
+        }
+
+        /// <summary>
+        /// Returns the number of raw CPU clock periods per base-speed CGB clock period.
+        /// </summary>
+        public int GetCpuSpeedFactor()
+        {
+            return OnGetCpuSpeedFactor?.Invoke() ?? 1;
         }
 
         /// <summary>

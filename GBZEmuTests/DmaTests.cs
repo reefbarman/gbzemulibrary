@@ -192,7 +192,7 @@ public sealed class DmaTests
     }
 
     /// <summary>
-    /// Verifies that HDMA copies one 16-byte block per HBlank and exposes the remaining block count in HDMA5.
+    /// Verifies that HDMA reserves eight transfer cycles plus its release cycle per HBlank block, then updates HDMA5.
     /// </summary>
     [Fact]
     public void HBlankDmaCopiesOneBlockPerHBlank()
@@ -215,13 +215,20 @@ public sealed class DmaTests
         Assert.Equal(0x00, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER) & 0x80);
         Assert.All(memory[0x8200..0x8220], value => Assert.Equal(0x00, value));
 
-        fixture.HBlankStarted();
+        fixture.HBlankDmaWindowOpened();
+
+        Assert.True(dma.IsCpuStalledByHBlankDma);
+        fixture.UpdateMachineCycle(7);
+        Assert.All(memory[0x8200..0x8220], value => Assert.Equal(0x00, value));
+        fixture.UpdateMachineCycle(2);
 
         Assert.Equal(memory[0xD000..0xD010], memory[0x8200..0x8210]);
         Assert.All(memory[0x8210..0x8220], value => Assert.Equal(0x00, value));
         Assert.Equal(0x00, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
+        Assert.False(dma.IsCpuStalledByHBlankDma);
 
-        fixture.HBlankStarted();
+        fixture.HBlankDmaWindowOpened();
+        fixture.UpdateMachineCycle(9);
 
         Assert.Equal(memory[0xD000..0xD020], memory[0x8200..0x8220]);
         Assert.Equal(0xFF, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
@@ -247,10 +254,11 @@ public sealed class DmaTests
         dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
         dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
         dma.WriteByte(0x81, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
-        fixture.HBlankStarted();
+        fixture.HBlankDmaWindowOpened();
+        fixture.UpdateMachineCycle(9);
 
         dma.WriteByte(0x00, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
-        fixture.HBlankStarted();
+        fixture.HBlankDmaWindowOpened();
 
         Assert.Equal(memory[0xC000..0xC010], memory[0x8000..0x8010]);
         Assert.All(memory[0x8010..0x8020], value => Assert.Equal(0x00, value));
@@ -258,7 +266,7 @@ public sealed class DmaTests
     }
 
     /// <summary>
-    /// Verifies that starting HBlank DMA with the LCD off or already in HBlank copies one block immediately.
+    /// Verifies that starting HBlank DMA with the LCD off or already in HBlank schedules its first block immediately.
     /// </summary>
     [Fact]
     public void HBlankDmaStartCanCopyFirstBlockImmediately()
@@ -276,6 +284,10 @@ public sealed class DmaTests
         dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
         dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
         dma.WriteByte(0x83, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+
+        Assert.True(dma.IsCpuStalledByHBlankDma);
+        Assert.All(memory[0x8000..0x8020], value => Assert.Equal(0x00, value));
+        fixture.UpdateMachineCycle(10);
 
         Assert.Equal(memory[0xC000..0xC010], memory[0x8000..0x8010]);
         Assert.All(memory[0x8010..0x8020], value => Assert.Equal(0x00, value));
@@ -300,6 +312,65 @@ public sealed class DmaTests
         dma.WriteByte(0x00, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
 
         Assert.Equal(0x80, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
+        Assert.False(dma.IsCpuStalledByHBlankDma);
+    }
+
+    /// <summary>
+    /// Verifies that HBlank blocks are skipped while HALT owns the CPU and begin at the next HBlank after wake.
+    /// </summary>
+    [Fact]
+    public void HBlankDmaDoesNotRunDuringCpuHalt()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var fixture = new DmaFixture(memory, cpuHalted: true);
+        var dma = fixture.Controller;
+        memory[0xC000] = 0x5A;
+
+        dma.WriteByte(0xC0, MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
+        dma.WriteByte(0x80, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+
+        fixture.HBlankDmaWindowOpened();
+        fixture.UpdateMachineCycle(8);
+
+        Assert.False(dma.IsCpuStalledByHBlankDma);
+        Assert.Equal(0x00, memory[0x8000]);
+        Assert.Equal(0x00, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
+
+        fixture.CpuHalted = false;
+        fixture.HBlankDmaWindowOpened();
+        fixture.UpdateMachineCycle(9);
+
+        Assert.Equal(0x5A, memory[0x8000]);
+        Assert.Equal(0xFF, dma.ReadByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
+    }
+
+    /// <summary>
+    /// Verifies that double-speed CGB execution consumes twice as many raw CPU machine cycles for one HDMA block.
+    /// </summary>
+    [Fact]
+    public void HBlankDmaPreservesDotDurationAtDoubleSpeed()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var fixture = new DmaFixture(memory, startHBlankDmaImmediately: true, speedFactor: 2);
+        var dma = fixture.Controller;
+        memory[0xC000] = 0x6B;
+
+        dma.WriteByte(0xC0, MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
+        dma.WriteByte(0x80, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+
+        fixture.UpdateMachineCycle(17);
+        Assert.True(dma.IsCpuStalledByHBlankDma);
+        Assert.Equal(0x00, memory[0x8000]);
+
+        fixture.UpdateMachineCycle();
+        Assert.False(dma.IsCpuStalledByHBlankDma);
+        Assert.Equal(0x6B, memory[0x8000]);
     }
 
     /// <summary>
@@ -312,22 +383,28 @@ public sealed class DmaTests
         public DmaFixture(
             byte[] memory,
             bool startHBlankDmaImmediately = false,
-            GBCMode mode = GBCMode.NoGBC)
+            GBCMode mode = GBCMode.NoGBC,
+            bool cpuHalted = false,
+            int speedFactor = 1)
         {
             _messageBus.OnReadByte = address => memory[address];
             _messageBus.OnWriteByte = (data, address) => memory[address] = data;
             _messageBus.OnReadOamDmaSourceByte = address => memory[address];
             _messageBus.OnWriteOamDmaByte = (data, address) => memory[address] = data;
             _messageBus.OnCanStartHBlankDmaImmediately = () => startHBlankDmaImmediately;
+            _messageBus.OnIsCpuHalted = () => CpuHalted;
+            _messageBus.OnGetCpuSpeedFactor = () => speedFactor;
+            CpuHalted = cpuHalted;
             Controller = new DMAController(_messageBus);
             Controller.Init(mode);
         }
 
         public DMAController Controller { get; }
+        public bool CpuHalted { get; set; }
 
-        public void HBlankStarted()
+        public void HBlankDmaWindowOpened()
         {
-            _messageBus.HBlankStarted();
+            _messageBus.HBlankDmaWindowOpened();
         }
 
         public void UpdateMachineCycle(int count = 1)

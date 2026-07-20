@@ -636,6 +636,67 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies that CGB HBlank DMA receives one early bus-window callback before the public mode transition.
+    /// </summary>
+    [Fact]
+    public void HBlankDmaWindowOpensBeforeModeZero()
+    {
+        var messageBus = new MessageBus();
+        var gpu = new GPU(messageBus);
+        gpu.Reset(true);
+        gpu.Update(4);
+        gpu.WriteByte(0x80, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
+
+        var dmaWindowCount = 0;
+        var hBlankCount = 0;
+        messageBus.OnHBlankDmaWindow = () => dmaWindowCount++;
+        messageBus.OnHBlank = () => hBlankCount++;
+
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - 5);
+        Assert.Equal(0, dmaWindowCount);
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(1);
+        Assert.Equal(1, dmaWindowCount);
+        Assert.Equal(0, hBlankCount);
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(4);
+        Assert.Equal(1, dmaWindowCount);
+        Assert.Equal(1, hBlankCount);
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+    }
+
+    /// <summary>
+    /// Verifies that the mode-zero value exposed between VBlank and line-zero mode 2 is not a real HBlank source.
+    /// </summary>
+    [Fact]
+    public void FrameStartModeZeroPreludeDoesNotRequestStatInterrupt()
+    {
+        var (gpu, getInterruptRequests) = CreateInterruptCountingGpu(gbcMode: true);
+        gpu.Update(4);
+        gpu.WriteByte(0x80, 0xFF40);
+        gpu.Update(
+            LCD_ENABLE_MODE_0_CLOCKS +
+            TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS +
+            HBLANK_CLOCKS +
+            VBLANK_ENTRY_HBLANK_CLOCKS - HBLANK_CLOCKS +
+            152 * SCANLINE_CLOCKS);
+        gpu.WriteByte(0x08, 0xFF41);
+        var interruptsBeforeFrameStart = getInterruptRequests();
+
+        gpu.Update(SCANLINE_CLOCKS);
+
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+        Assert.Equal(interruptsBeforeFrameStart, getInterruptRequests());
+
+        gpu.Update(4);
+        Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
+        Assert.Equal(interruptsBeforeFrameStart, getInterruptRequests());
+    }
+
+    /// <summary>
     /// Verifies that one large update consumes every reachable mode transition, renders the completed line,
     /// and starts HBlank exactly once.
     /// </summary>

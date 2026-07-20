@@ -98,12 +98,13 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
-    /// Verifies that STAT/OAM reads and PPU-memory writes use end-of-M-cycle sampling at access boundaries.
+    /// Verifies that STAT, HDMA5, PPU-memory reads, and PPU-memory writes use end-of-M-cycle boundary sampling.
     /// </summary>
     [Fact]
     public void PpuBoundaryReadsUseEndOfCycleSampling()
     {
         Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(0xFF41));
+        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
         Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.VIDEO_RAM_START));
         Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.VIDEO_RAM_END - 1));
         Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START));
