@@ -105,6 +105,7 @@ namespace GBZEmuLibrary
         private const int CGB_DOUBLE_SPEED_LCD_ENABLE_MODE_0_CLOCKS = 80;
         private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS = 80;
         private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
+        private const int WINDOW_STARTUP_CLOCKS = 6;
 
         private const int MAX_SCROLL_AMOUNT = 256;
 
@@ -155,6 +156,8 @@ namespace GBZEmuLibrary
         private int _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION;
         private int _mode3RenderedPixels;
         private int _mode3PreparedBackgroundPixels;
+        private int _mode3WindowStartPixel = Display.HORIZONTAL_RESOLUTION;
+        private int _mode3WindowRestartPixel = -1;
         private byte _scanlineScrollXLow;
         private bool _line153EarlyReset;
         private bool _pendingVBlankInterrupt;
@@ -227,6 +230,8 @@ namespace GBZEmuLibrary
             _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION;
             _mode3RenderedPixels = 0;
             _mode3PreparedBackgroundPixels = 0;
+            _mode3WindowStartPixel = Display.HORIZONTAL_RESOLUTION;
+            _mode3WindowRestartPixel = -1;
             _scanlineScrollXLow = 0;
             _line153EarlyReset = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
@@ -403,6 +408,9 @@ namespace GBZEmuLibrary
                             UpdateCoincidenceFlag();
                             UpdateStatInterruptLine();
                         }
+                        break;
+                    case (int)Registers.WindowX:
+                        WriteWindowX(data);
                         break;
                     default:
                         _gpuRegisters[address] = data;
@@ -613,6 +621,50 @@ namespace GBZEmuLibrary
             SetStatusRegister(LCDStatus.HBlank);
             UpdateCoincidenceFlag();
             UpdateStatInterruptLine();
+        }
+
+        /// <summary>
+        /// Applies a live WX write to a pending window trigger, or records the color-zero pixel produced when an
+        /// already-started window is moved forward to a position the LCD has not reached yet.
+        /// </summary>
+        private void WriteWindowX(byte data)
+        {
+            if (IsLCDEnabled() && GetStatusMode() == LCDStatus.TransferringDataToLCDDriver)
+            {
+                if (_mode3WindowRestartPixel >= _mode3RenderedPixels)
+                {
+                    _mode3WindowRestartPixel = -1;
+                }
+
+                var outputDots = Math.Max(0, _cycleCounter - _mode3StartupDots);
+                var windowStarted =
+                    _mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION &&
+                    outputDots >= _mode3WindowStartPixel;
+                var newStartPixel = GetWindowStartPixel(data);
+
+                if (!windowStarted)
+                {
+                    var hadWindowFetch = _mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION;
+                    var hasWindowFetch = newStartPixel < Display.HORIZONTAL_RESOLUTION;
+                    if (hadWindowFetch != hasWindowFetch)
+                    {
+                        var penaltyDelta = hasWindowFetch ? WINDOW_STARTUP_CLOCKS : -WINDOW_STARTUP_CLOCKS;
+                        _mode3ClockTarget += penaltyDelta;
+                        _hBlankClockTarget -= penaltyDelta;
+                    }
+
+                    _mode3WindowStartPixel = newStartPixel;
+                }
+                else if (newStartPixel >= _mode3RenderedPixels &&
+                         newStartPixel < Display.HORIZONTAL_RESOLUTION &&
+                         // A restart produces the transient color-zero pixel only on the tile-map fetch phase.
+                         (newStartPixel & 0x07) == 5)
+                {
+                    _mode3WindowRestartPixel = newStartPixel;
+                }
+            }
+
+            _gpuRegisters[(int)Registers.WindowX] = data;
         }
 
         /// <summary>
@@ -838,20 +890,29 @@ namespace GBZEmuLibrary
 
             var fineScrollPenalty = _scanlineScrollXLow;
             var spriteFetchPenalty = CalculateSpriteFetchPenalty();
+            _mode3WindowStartPixel = GetWindowStartPixel();
+            var windowFetchPenalty = _mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION
+                ? WINDOW_STARTUP_CLOCKS
+                : 0;
             // CGB compatibility output begins one dot later than the native CGB/DMG fetch phase measured here.
             _mode3StartupDots =
                 TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION +
                 fineScrollPenalty +
                 (_dmgCompatibilityMode ? 1 : 0);
-            _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + fineScrollPenalty + spriteFetchPenalty;
+            _mode3ClockTarget =
+                TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS +
+                fineScrollPenalty +
+                spriteFetchPenalty +
+                windowFetchPenalty;
             // Line 143 retains four additional dots before entering VBlank; the ordinary eight-dot
             // LY-to-mode-2 prelude does not follow that transition.
             var baseHBlankClocks = ScanLine == Display.VERTICAL_RESOLUTION - 1
                 ? VBLANK_ENTRY_HBLANK_CLOCKS
                 : HBLANK_CLOCKS;
-            _hBlankClockTarget = baseHBlankClocks - fineScrollPenalty - spriteFetchPenalty;
+            _hBlankClockTarget = baseHBlankClocks - fineScrollPenalty - spriteFetchPenalty - windowFetchPenalty;
             _mode3RenderedPixels = 0;
             _mode3PreparedBackgroundPixels = 0;
+            _mode3WindowRestartPixel = -1;
             _hblankDmaWindowOpened = false;
             SetStatusRegister(LCDStatus.TransferringDataToLCDDriver);
         }
@@ -1007,6 +1068,34 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Returns the first visible pixel reached by a window enabled at mode-3 entry, or the display width when
+        /// no window fetch will occur on this scanline.
+        /// </summary>
+        private int GetWindowStartPixel()
+        {
+            return GetWindowStartPixel(_gpuRegisters[(int)Registers.WindowX]);
+        }
+
+        /// <summary>
+        /// Returns the visible trigger position for a supplied WX value under the current scanline's window state.
+        /// </summary>
+        private int GetWindowStartPixel(byte windowX)
+        {
+            var control = _gpuRegisters[(int)Registers.LCDControl];
+            var bgWindowEnabled = _gbcMode || Helpers.TestBit(control, (int)LCDControlBits.BGDisplayEnabled);
+            if (!bgWindowEnabled ||
+                !Helpers.TestBit(control, (int)LCDControlBits.WindowDisplayEnabled) ||
+                _gpuRegisters[(int)Registers.WindowY] > ScanLine)
+            {
+                return Display.HORIZONTAL_RESOLUTION;
+            }
+
+            return Math.Min(
+                Display.HORIZONTAL_RESOLUTION,
+                Math.Max(0, windowX - WINDOW_X_OFFSET));
+        }
+
+        /// <summary>
         /// Reports whether CPU-visible CGB palette RAM can be accessed in the current PPU mode.
         /// </summary>
         private bool IsColorPaletteAccessible()
@@ -1019,9 +1108,16 @@ namespace GBZEmuLibrary
         /// </summary>
         private void RenderTransferredPixels()
         {
-            var completedPixels = Math.Min(
-                Display.HORIZONTAL_RESOLUTION,
-                Math.Max(0, _cycleCounter - _mode3StartupDots));
+            var outputDots = Math.Max(0, _cycleCounter - _mode3StartupDots);
+            var completedPixels = outputDots;
+            if (_mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION && outputDots > _mode3WindowStartPixel)
+            {
+                completedPixels =
+                    _mode3WindowStartPixel +
+                    Math.Max(0, outputDots - _mode3WindowStartPixel - WINDOW_STARTUP_CLOCKS);
+            }
+
+            completedPixels = Math.Min(Display.HORIZONTAL_RESOLUTION, completedPixels);
             PrepareBackgroundScroll(Math.Min(Display.HORIZONTAL_RESOLUTION, completedPixels + 16));
 
             if (completedPixels <= _mode3RenderedPixels)
@@ -1152,6 +1248,12 @@ namespace GBZEmuLibrary
                     startPixel,
                     endPixel,
                     true);
+
+                if (_mode3WindowRestartPixel >= startPixel && _mode3WindowRestartPixel < endPixel)
+                {
+                    _renderData[_mode3WindowRestartPixel, ScanLine] =
+                        GetColor(true, 0, 0, (int)Registers.BackgroundTilePalette);
+                }
             }
         }
 

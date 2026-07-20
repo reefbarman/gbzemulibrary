@@ -757,6 +757,96 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies that starting the window pauses pixel output for its six-dot fetch while shortening HBlank by the
+    /// same amount, preserving the 456-dot scanline.
+    /// </summary>
+    [Fact]
+    public void WindowStartupExtendsMode3AndPreservesScanlineLength()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(false);
+        gpu.WriteByte(0, 0xFF4A);
+        gpu.WriteByte(WINDOW_X_OFFSET, 0xFF4B);
+        gpu.Update(4);
+        gpu.WriteByte(0xB1, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
+
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + WINDOW_STARTUP_CLOCKS - 1);
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(1);
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(HBLANK_CLOCKS - WINDOW_STARTUP_CLOCKS - 1);
+        Assert.Equal(1, gpu.ReadByte(0xFF44));
+
+        gpu.Update(1);
+        Assert.Equal(2, gpu.ReadByte(0xFF44));
+    }
+
+    /// <summary>
+    /// Verifies that a palette write during the six-dot window fetch affects pixels which have not yet reached the
+    /// LCD, even though the same number of transfer clocks would have emitted them without the fetch pause.
+    /// </summary>
+    [Fact]
+    public void WindowStartupDelaysPixelOutput()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(false);
+        for (var row = 0; row < 8; row++)
+        {
+            gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2);
+            gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2 + 1);
+        }
+
+        gpu.WriteByte(0xE4, 0xFF47);
+        gpu.WriteByte(0, 0xFF4A);
+        gpu.WriteByte(WINDOW_X_OFFSET, 0xFF4B);
+        gpu.Update(4);
+        gpu.WriteByte(0xB1, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
+        gpu.Update(32);
+
+        gpu.WriteByte(0xFC, 0xFF47);
+        AdvanceToVBlank(gpu);
+
+        var screen = gpu.GetScreenData();
+        Assert.Equal(Display.DefaultPalette[1].R, screen[13, 1].R);
+        Assert.Equal(Display.DefaultPalette[3].R, screen[14, 1].R);
+    }
+
+    /// <summary>
+    /// Verifies that moving WX forward after the window fetcher has started emits one background color-zero pixel
+    /// at the new trigger position.
+    /// </summary>
+    [Fact]
+    public void MovingStartedWindowForwardEmitsColorZeroAtNewTrigger()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(false);
+        for (var row = 0; row < 8; row++)
+        {
+            gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2);
+            gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2 + 1);
+        }
+
+        gpu.WriteByte(0x1B, 0xFF47);
+        gpu.WriteByte(0, 0xFF4A);
+        gpu.WriteByte(WINDOW_X_OFFSET, 0xFF4B);
+        gpu.Update(4);
+        gpu.WriteByte(0xB1, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION + WINDOW_STARTUP_CLOCKS + 1);
+
+        gpu.WriteByte(WINDOW_X_OFFSET + 5, 0xFF4B);
+        AdvanceToVBlank(gpu);
+
+        var screen = gpu.GetScreenData();
+        Assert.Equal(Display.DefaultPalette[3].R, screen[5, 1].R);
+        Assert.Equal(Display.DefaultPalette[0].R, screen[6, 1].R);
+    }
+
+    /// <summary>
     /// Verifies fine SCX delays the first visible pixel and extends mode 3 by its low three bits while shortening
     /// HBlank by the same amount. This is the timing measured by Mooneye hblank_ly_scx_timing-GS.
     /// </summary>
@@ -886,6 +976,8 @@ public sealed class GpuRegisterTests
     private const int LCD_ENABLE_MODE_0_CLOCKS = 81;
     private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS = 80;
     private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
+    private const int WINDOW_STARTUP_CLOCKS = 6;
+    private const byte WINDOW_X_OFFSET = 7;
     private const int SCANLINE_CLOCKS = 456;
 
     private static void AdvanceToLineOneMode3(GPU gpu)
