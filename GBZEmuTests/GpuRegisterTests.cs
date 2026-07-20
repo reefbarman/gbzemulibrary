@@ -785,6 +785,92 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies WX zero delays window activation by one dot when fine scroll is nonzero on CGB-C, while HBlank
+    /// compensates so the complete scanline remains 456 dots.
+    /// </summary>
+    [Theory]
+    [InlineData((int)GBCMode.GBCSupport, 0, 0, WINDOW_STARTUP_CLOCKS)]
+    [InlineData((int)GBCMode.GBCSupport, 0, 1, WINDOW_STARTUP_CLOCKS + 1)]
+    [InlineData((int)GBCMode.GBCCompatibility, 0, 1, WINDOW_STARTUP_CLOCKS + 1)]
+    [InlineData((int)GBCMode.GBCSupport, WINDOW_X_OFFSET, 1, WINDOW_STARTUP_CLOCKS)]
+    [InlineData((int)GBCMode.NoGBC, 0, 1, WINDOW_STARTUP_CLOCKS)]
+    public void WindowAtZeroDelaysTransferWithFineScroll(
+        int mode,
+        byte windowX,
+        byte scrollX,
+        int windowPenalty)
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset((GBCMode)mode, usingBootROM: false);
+        gpu.WriteByte(scrollX, 0xFF43);
+        gpu.WriteByte(0, 0xFF4A);
+        gpu.WriteByte(windowX, 0xFF4B);
+        gpu.Update(4);
+        gpu.WriteByte(0xB1, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
+
+        var mode3Clocks = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + scrollX + windowPenalty;
+        gpu.Update(mode3Clocks - 1);
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(1);
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(HBLANK_CLOCKS - scrollX - windowPenalty - 1);
+        Assert.Equal(1, gpu.ReadByte(0xFF44));
+
+        gpu.Update(1);
+        Assert.Equal(2, gpu.ReadByte(0xFF44));
+    }
+
+    /// <summary>
+    /// Verifies an SCX write completing during mode-3 startup retargets fine-scroll and WX-zero timing before the
+    /// first LCD pixel has committed.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(3, 4)]
+    public void ScrollWriteAtMode3EntryRetargetsStartupTiming(byte initialScroll, byte updatedScroll)
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(true);
+        for (var row = 0; row < 8; row++)
+        {
+            gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2);
+        }
+
+        gpu.WriteByte(0x1F, MemorySchema.GPU_GBC_BG_PALETTE_DATA_REGISTER);
+        gpu.WriteByte(0x80, MemorySchema.GPU_GBC_BG_PALETTE_INDEX_REGISTER);
+        gpu.WriteByte(0x1F, MemorySchema.GPU_GBC_BG_PALETTE_DATA_REGISTER);
+        gpu.WriteByte(initialScroll, 0xFF43);
+        gpu.WriteByte(0, 0xFF4A);
+        gpu.WriteByte(0, 0xFF4B);
+        gpu.Update(4);
+        gpu.WriteByte(0xB1, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
+        const int scrollWriteDot = 7;
+        gpu.Update(scrollWriteDot);
+
+        gpu.WriteByte(updatedScroll, 0xFF43);
+
+        var windowPenalty = updatedScroll == 0 ? WINDOW_STARTUP_CLOCKS : WINDOW_STARTUP_CLOCKS + 1;
+        var mode3Clocks = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + updatedScroll + windowPenalty;
+        gpu.Update(mode3Clocks - scrollWriteDot - 1);
+        Assert.Equal(3, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(1);
+        Assert.Equal(0, gpu.ReadByte(0xFF41) & 0x03);
+
+        gpu.Update(HBLANK_CLOCKS - updatedScroll - windowPenalty - 1);
+        Assert.Equal(1, gpu.ReadByte(0xFF44));
+
+        gpu.Update(1);
+        Assert.Equal(2, gpu.ReadByte(0xFF44));
+        AdvanceToVBlank(gpu);
+        Assert.Equal(255, gpu.GetScreenData()[159, 1].R);
+    }
+
+    /// <summary>
     /// Verifies that a palette write during the six-dot window fetch affects pixels which have not yet reached the
     /// LCD, even though the same number of transfer clocks would have emitted them without the fetch pause.
     /// </summary>

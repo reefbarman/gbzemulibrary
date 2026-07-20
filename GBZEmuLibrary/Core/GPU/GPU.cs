@@ -158,6 +158,7 @@ namespace GBZEmuLibrary
         private int _mode3PreparedBackgroundPixels;
         private int _mode3WindowStartPixel = Display.HORIZONTAL_RESOLUTION;
         private int _mode3WindowRestartPixel = -1;
+        private int _mode3WindowFetchPenalty = WINDOW_STARTUP_CLOCKS;
         private byte _scanlineScrollXLow;
         private bool _line153EarlyReset;
         private bool _pendingVBlankInterrupt;
@@ -232,6 +233,7 @@ namespace GBZEmuLibrary
             _mode3PreparedBackgroundPixels = 0;
             _mode3WindowStartPixel = Display.HORIZONTAL_RESOLUTION;
             _mode3WindowRestartPixel = -1;
+            _mode3WindowFetchPenalty = WINDOW_STARTUP_CLOCKS;
             _scanlineScrollXLow = 0;
             _line153EarlyReset = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
@@ -400,6 +402,9 @@ namespace GBZEmuLibrary
                         // Mode and coincidence bits are read-only; UpdateCoincidenceFlag is authoritative for bit 2.
                         _gpuRegisters[address] = (byte)((_gpuRegisters[address] & 0x07) | (data & 0x78));
                         UpdateStatInterruptLine();
+                        break;
+                    case (int)Registers.ScrollX:
+                        WriteScrollX(data);
                         break;
                     case (int)Registers.LCDYCoord:
                         _gpuRegisters[address] = data;
@@ -624,6 +629,46 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Applies SCX immediately and retargets mode-3 startup when a write completes during the initial fetch and
+        /// fine-scroll discard, before the first LCD pixel has committed.
+        /// </summary>
+        private void WriteScrollX(byte data)
+        {
+            if (!IsLCDEnabled() ||
+                GetStatusMode() != LCDStatus.TransferringDataToLCDDriver ||
+                _cycleCounter > _mode3StartupDots ||
+                _mode3RenderedPixels != 0)
+            {
+                _gpuRegisters[(int)Registers.ScrollX] = data;
+                return;
+            }
+
+            var oldFineScroll = _scanlineScrollXLow;
+            var oldSpriteFetchPenalty = CalculateSpriteFetchPenalty();
+            var oldWindowFetchPenalty = _mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION
+                ? _mode3WindowFetchPenalty
+                : 0;
+
+            _gpuRegisters[(int)Registers.ScrollX] = data;
+            _scanlineScrollXLow = (byte)(data & 0x07);
+
+            var newSpriteFetchPenalty = CalculateSpriteFetchPenalty();
+            _mode3WindowFetchPenalty = GetWindowFetchPenalty(_gpuRegisters[(int)Registers.WindowX]);
+            var newWindowFetchPenalty = _mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION
+                ? _mode3WindowFetchPenalty
+                : 0;
+            var timingDelta =
+                _scanlineScrollXLow - oldFineScroll +
+                newSpriteFetchPenalty - oldSpriteFetchPenalty +
+                newWindowFetchPenalty - oldWindowFetchPenalty;
+
+            _mode3StartupDots += _scanlineScrollXLow - oldFineScroll;
+            _mode3ClockTarget += timingDelta;
+            _hBlankClockTarget -= timingDelta;
+            _mode3PreparedBackgroundPixels = 0;
+        }
+
+        /// <summary>
         /// Applies a live WX write to a pending window trigger, or records the color-zero pixel produced when an
         /// already-started window is moved forward to a position the LCD has not reached yet.
         /// </summary>
@@ -644,15 +689,16 @@ namespace GBZEmuLibrary
 
                 if (!windowStarted)
                 {
-                    var hadWindowFetch = _mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION;
-                    var hasWindowFetch = newStartPixel < Display.HORIZONTAL_RESOLUTION;
-                    if (hadWindowFetch != hasWindowFetch)
-                    {
-                        var penaltyDelta = hasWindowFetch ? WINDOW_STARTUP_CLOCKS : -WINDOW_STARTUP_CLOCKS;
-                        _mode3ClockTarget += penaltyDelta;
-                        _hBlankClockTarget -= penaltyDelta;
-                    }
-
+                    var oldPenalty = _mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION
+                        ? _mode3WindowFetchPenalty
+                        : 0;
+                    _mode3WindowFetchPenalty = GetWindowFetchPenalty(data);
+                    var newPenalty = newStartPixel < Display.HORIZONTAL_RESOLUTION
+                        ? _mode3WindowFetchPenalty
+                        : 0;
+                    var penaltyDelta = newPenalty - oldPenalty;
+                    _mode3ClockTarget += penaltyDelta;
+                    _hBlankClockTarget -= penaltyDelta;
                     _mode3WindowStartPixel = newStartPixel;
                 }
                 else if (newStartPixel >= _mode3RenderedPixels &&
@@ -891,8 +937,9 @@ namespace GBZEmuLibrary
             var fineScrollPenalty = _scanlineScrollXLow;
             var spriteFetchPenalty = CalculateSpriteFetchPenalty();
             _mode3WindowStartPixel = GetWindowStartPixel();
+            _mode3WindowFetchPenalty = GetWindowFetchPenalty(_gpuRegisters[(int)Registers.WindowX]);
             var windowFetchPenalty = _mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION
-                ? WINDOW_STARTUP_CLOCKS
+                ? _mode3WindowFetchPenalty
                 : 0;
             // CGB compatibility output begins one dot later than the native CGB/DMG fetch phase measured here.
             _mode3StartupDots =
@@ -936,6 +983,7 @@ namespace GBZEmuLibrary
                 return false;
             }
 
+            CompleteTransferredScanline();
             _cycleCounter -= _mode3ClockTarget;
 
             // The CPU-visible mode and its STAT source change together. Mooneye hblank_ly_scx_timing-GS
@@ -1096,6 +1144,17 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Returns the window fetch stall, including the one-dot activation delay measured by Mealybug on CGB-C when
+        /// WX zero switches the fetcher while fine scroll is nonzero.
+        /// </summary>
+        private int GetWindowFetchPenalty(byte windowX)
+        {
+            return !IsDmgHardware() && windowX == 0 && _scanlineScrollXLow != 0
+                ? WINDOW_STARTUP_CLOCKS + 1
+                : WINDOW_STARTUP_CLOCKS;
+        }
+
+        /// <summary>
         /// Reports whether CPU-visible CGB palette RAM can be accessed in the current PPU mode.
         /// </summary>
         private bool IsColorPaletteAccessible()
@@ -1114,7 +1173,7 @@ namespace GBZEmuLibrary
             {
                 completedPixels =
                     _mode3WindowStartPixel +
-                    Math.Max(0, outputDots - _mode3WindowStartPixel - WINDOW_STARTUP_CLOCKS);
+                    Math.Max(0, outputDots - _mode3WindowStartPixel - _mode3WindowFetchPenalty);
             }
 
             completedPixels = Math.Min(Display.HORIZONTAL_RESOLUTION, completedPixels);
@@ -1127,6 +1186,22 @@ namespace GBZEmuLibrary
 
             DrawScanLine(_mode3RenderedPixels, completedPixels);
             _mode3RenderedPixels = completedPixels;
+        }
+
+        /// <summary>
+        /// Commits any right-edge pixels still pending when the transfer clock target is reached. Mode 3 completion
+        /// always delivers all 160 visible pixels even when raster writes retarget startup timing mid-fetch.
+        /// </summary>
+        private void CompleteTransferredScanline()
+        {
+            if (_mode3RenderedPixels >= Display.HORIZONTAL_RESOLUTION)
+            {
+                return;
+            }
+
+            PrepareBackgroundScroll(Display.HORIZONTAL_RESOLUTION);
+            DrawScanLine(_mode3RenderedPixels, Display.HORIZONTAL_RESOLUTION);
+            _mode3RenderedPixels = Display.HORIZONTAL_RESOLUTION;
         }
 
         /// <summary>
