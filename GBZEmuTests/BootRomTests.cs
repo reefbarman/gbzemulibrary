@@ -239,6 +239,35 @@ public sealed class BootRomTests
         emulator.Terminate();
     }
 
+    /// <summary>
+    /// Verifies that skipping the CGB boot ROM still supplies its default DMG-compatibility palette and tile handoff.
+    /// </summary>
+    [Fact]
+    public void SkipModeInstallsDefaultCgbCompatibilityHandoff()
+    {
+        using var rom = CreateRom(gbc: false);
+        var emulator = Start(rom, BootMode.GBC | BootMode.Skip);
+
+        Assert.Equal(
+            new byte[] { 0xFF, 0x7F, 0xEF, 0x1B, 0x80, 0x61, 0x00, 0x00 },
+            ReadPalette(emulator, 0xFF68, 0xFF69, 0));
+        Assert.Equal(
+            new byte[] { 0xFF, 0x7F, 0x1F, 0x42, 0xF2, 0x1C, 0x00, 0x00 },
+            ReadPalette(emulator, 0xFF6A, 0xFF6B, 0));
+        Assert.Equal(
+            new byte[] { 0xFF, 0x7F, 0x1F, 0x42, 0xF2, 0x1C, 0x00, 0x00 },
+            ReadPalette(emulator, 0xFF6A, 0xFF6B, 8));
+        Assert.Equal(
+            new byte[]
+            {
+                0x1E, 0x3F, 0x5E, 0x3F, 0x5F, 0x3F, 0x7F, 0x3F,
+                0x3F, 0x7F, 0xBC, 0x7F, 0xBE, 0x7C, 0xFA, 0x7C
+            },
+            Enumerable.Range(0x8190, 16).Select(emulator.Debug.PeekByte));
+
+        emulator.Terminate();
+    }
+
     [Fact]
     public void HostSuppliedBootRomOverridesTheBuiltInImage()
     {

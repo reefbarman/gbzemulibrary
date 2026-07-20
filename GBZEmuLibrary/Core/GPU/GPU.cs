@@ -99,6 +99,7 @@ namespace GBZEmuLibrary
         private const int VBLANK_ENTRY_HBLANK_CLOCKS = 200;
         private const int MODE2_START_DELAY_CLOCKS = 8;
         private const int FRAME_START_MODE2_DELAY_CLOCKS = 4;
+        private const int CGB_COMPATIBILITY_FRAME_START_MODE2_INTERRUPT_DELAY_CLOCKS = 4;
         private const int LYC_UPDATE_DELAY_CLOCKS = 4;
         private const int LCD_ENABLE_MODE_0_CLOCKS = 81;
         private const int CGB_DOUBLE_SPEED_LCD_ENABLE_MODE_0_CLOCKS = 80;
@@ -111,6 +112,23 @@ namespace GBZEmuLibrary
 
         private const int TILE_SIZE = 16;
         private const byte PALETTE_INDEX_UNUSED_READ_MASK = 0x40;
+
+        private static readonly byte[] DefaultCompatibilityBackgroundPalette =
+        {
+            0xFF, 0x7F, 0xEF, 0x1B, 0x80, 0x61, 0x00, 0x00
+        };
+
+        private static readonly byte[] DefaultCompatibilityObjectPalettes =
+        {
+            0xFF, 0x7F, 0x1F, 0x42, 0xF2, 0x1C, 0x00, 0x00,
+            0xFF, 0x7F, 0x1F, 0x42, 0xF2, 0x1C, 0x00, 0x00
+        };
+
+        private static readonly byte[] DefaultCompatibilityTrademarkTile =
+        {
+            0x1E, 0x3F, 0x5E, 0x3F, 0x5F, 0x3F, 0x7F, 0x3F,
+            0x3F, 0x7F, 0xBC, 0x7F, 0xBE, 0x7C, 0xFA, 0x7C
+        };
 
         private readonly Color[,] _screenData = new Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
         private readonly Color[,] _renderData = new Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
@@ -148,6 +166,7 @@ namespace GBZEmuLibrary
         private bool _lcdEnableStartup;
         private bool _mode2StartPending;
         private bool _hblankDmaWindowOpened;
+        private bool _compatibilityFrameStartMode2InterruptPending;
 
         private bool _gbcMode = false;
         private bool _dmgCompatibilityMode;
@@ -181,6 +200,17 @@ namespace GBZEmuLibrary
         {
             _gbcMode = mode != GBCMode.NoGBC && (mode != GBCMode.GBCCompatibility || usingBootROM);
             _dmgCompatibilityMode = mode == GBCMode.GBCCompatibility && !usingBootROM;
+            for (var index = 0; index < MathSchema.MAX_6_BIT_VALUE; index++)
+            {
+                _bgPaletteData[index] = byte.MaxValue;
+                _spritePaletteData[index] = byte.MaxValue;
+            }
+
+            if (_dmgCompatibilityMode)
+            {
+                InstallDefaultCompatibilityHandoff();
+            }
+
             _statInterruptLineHigh = false;
             _dmgVBlankMode2InterruptSource = false;
             _dmgFrameStartMode2InterruptSource = false;
@@ -189,6 +219,7 @@ namespace GBZEmuLibrary
             _lcdEnableStartup = false;
             _mode2StartPending = false;
             _hblankDmaWindowOpened = false;
+            _compatibilityFrameStartMode2InterruptPending = false;
             _cycleCounter = 0;
             _hBlankClockTarget = HBLANK_CLOCKS;
             _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
@@ -200,6 +231,27 @@ namespace GBZEmuLibrary
             _line153EarlyReset = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
             BlankDisplay();
+        }
+
+        /// <summary>
+        /// Installs the stock palette and retained trademark tile from the default CGB compatibility handoff.
+        /// </summary>
+        private void InstallDefaultCompatibilityHandoff()
+        {
+            Array.Copy(
+                DefaultCompatibilityBackgroundPalette,
+                _bgPaletteData,
+                DefaultCompatibilityBackgroundPalette.Length);
+            Array.Copy(
+                DefaultCompatibilityObjectPalettes,
+                _spritePaletteData,
+                DefaultCompatibilityObjectPalettes.Length);
+            Array.Copy(
+                DefaultCompatibilityTrademarkTile,
+                0,
+                _videoRAM,
+                0x19 * TILE_SIZE,
+                DefaultCompatibilityTrademarkTile.Length);
         }
 
         /// <summary>
@@ -536,6 +588,7 @@ namespace GBZEmuLibrary
                 _lcdEnableStartup = false;
                 _mode2StartPending = false;
                 _dmgFrameStartMode2InterruptSource = false;
+                _compatibilityFrameStartMode2InterruptPending = false;
                 _hBlankClockTarget = HBLANK_CLOCKS;
                 _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
                 _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
@@ -554,6 +607,7 @@ namespace GBZEmuLibrary
             _lcdEnableStartup = true;
             _mode2StartPending = false;
             _dmgFrameStartMode2InterruptSource = false;
+            _compatibilityFrameStartMode2InterruptPending = false;
             _hBlankClockTarget = HBLANK_CLOCKS;
             _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
             SetStatusRegister(LCDStatus.HBlank);
@@ -582,8 +636,10 @@ namespace GBZEmuLibrary
                 (mode == LCDStatus.HBlank && !IsFrameStartMode2Prelude() &&
                     IsInterruptEnabled(LCDStatusBits.HBlankInterruptEnabled) ||
                  mode == LCDStatus.VBlank && IsInterruptEnabled(LCDStatusBits.VBlankInterruptEnabled) ||
-                 (mode == LCDStatus.SearchingSpritesAttributes || _dmgVBlankMode2InterruptSource ||
-                    _dmgFrameStartMode2InterruptSource) &&
+                 ((mode == LCDStatus.SearchingSpritesAttributes &&
+                    !_compatibilityFrameStartMode2InterruptPending) ||
+                   _dmgVBlankMode2InterruptSource ||
+                   _dmgFrameStartMode2InterruptSource) &&
                     IsInterruptEnabled(LCDStatusBits.SearchingSpriteAttributesInterruptEnabled));
             var coincidenceSourceActive =
                 Helpers.TestBit(status, (int)LCDStatusBits.Coincidence) &&
@@ -655,10 +711,12 @@ namespace GBZEmuLibrary
                     return false;
                 }
 
+                var frameStartMode2 = IsFrameStartMode2Prelude();
                 _cycleCounter -= _mode2StartDelayClockTarget;
                 _mode2StartPending = false;
                 _mode2StartDelayClockTarget = MODE2_START_DELAY_CLOCKS;
                 _dmgFrameStartMode2InterruptSource = false;
+                _compatibilityFrameStartMode2InterruptPending = frameStartMode2 && _dmgCompatibilityMode;
                 if (_coincidenceUpdatePending)
                 {
                     _coincidenceUpdatePending = false;
@@ -707,7 +765,7 @@ namespace GBZEmuLibrary
                 _messageBus.RequestInterrupt(Interrupts.VBlank);
 
                 // DMG hardware pulses the mode-2 STAT source with the VBlank request at line 144.
-                _dmgVBlankMode2InterruptSource = !_gbcMode;
+                _dmgVBlankMode2InterruptSource = IsDmgHardware();
                 UpdateStatInterruptLine();
                 _dmgVBlankMode2InterruptSource = false;
                 UpdateStatInterruptLine();
@@ -736,7 +794,7 @@ namespace GBZEmuLibrary
                 ScanLine = 0;
                 _mode2StartDelayClockTarget = FRAME_START_MODE2_DELAY_CLOCKS;
                 _mode2StartPending = true;
-                _dmgFrameStartMode2InterruptSource = !_gbcMode;
+                _dmgFrameStartMode2InterruptSource = IsDmgHardware();
                 SetStatusRegister(LCDStatus.HBlank);
             }
             else
@@ -753,6 +811,14 @@ namespace GBZEmuLibrary
         /// </summary>
         private bool HandleSearchingSpritesAttributes()
         {
+            if (_compatibilityFrameStartMode2InterruptPending &&
+                _cycleCounter >= CGB_COMPATIBILITY_FRAME_START_MODE2_INTERRUPT_DELAY_CLOCKS)
+            {
+                _compatibilityFrameStartMode2InterruptPending = false;
+                UpdateStatInterruptLine();
+                return true;
+            }
+
             if (_cycleCounter < SEARCHING_SPRITES_ATTRIBUTES_CLOCKS)
             {
                 return false;
@@ -772,7 +838,11 @@ namespace GBZEmuLibrary
 
             var fineScrollPenalty = _scanlineScrollXLow;
             var spriteFetchPenalty = CalculateSpriteFetchPenalty();
-            _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION + fineScrollPenalty;
+            // CGB compatibility output begins one dot later than the native CGB/DMG fetch phase measured here.
+            _mode3StartupDots =
+                TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION +
+                fineScrollPenalty +
+                (_dmgCompatibilityMode ? 1 : 0);
             _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + fineScrollPenalty + spriteFetchPenalty;
             // Line 143 retains four additional dots before entering VBlank; the ordinary eight-dot
             // LY-to-mode-2 prelude does not follow that transition.
@@ -891,6 +961,14 @@ namespace GBZEmuLibrary
         private bool IsLCDEnabled()
         {
             return Helpers.TestBit(_gpuRegisters[(int)Registers.LCDControl], (int)LCDControlBits.LCDDisplayEnabled);
+        }
+
+        /// <summary>
+        /// Returns whether the PPU is running on physical DMG hardware rather than CGB hardware's DMG renderer.
+        /// </summary>
+        private bool IsDmgHardware()
+        {
+            return !_gbcMode && !_dmgCompatibilityMode;
         }
 
         /// <summary>

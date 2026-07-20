@@ -192,11 +192,12 @@ public sealed class GpuRegisterTests
     /// Verifies the DMG-only mode-2 STAT source pulse when line 144 enters VBlank without exposing mode 2 in STAT.
     /// </summary>
     [Theory]
-    [InlineData(false, 1)]
-    [InlineData(true, 0)]
-    public void VBlankStartPulsesMode2SourceOnlyOnDmg(bool gbcMode, int expectedInterruptRequests)
+    [InlineData((int)GBCMode.NoGBC, 1)]
+    [InlineData((int)GBCMode.GBCSupport, 0)]
+    [InlineData((int)GBCMode.GBCCompatibility, 0)]
+    public void VBlankStartPulsesMode2SourceOnlyOnDmg(int mode, int expectedInterruptRequests)
     {
-        var (gpu, getInterruptRequests) = CreateInterruptCountingGpu(gbcMode);
+        var (gpu, getInterruptRequests) = CreateInterruptCountingGpu((GBCMode)mode);
 
         gpu.Update(4);
         gpu.WriteByte(0x80, 0xFF40);
@@ -697,6 +698,34 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies that CGB hardware delays the line-zero mode-2 STAT edge by four clocks in compatibility mode.
+    /// </summary>
+    [Fact]
+    public void CgbCompatibilityFrameStartMode2InterruptIsDelayedFourClocks()
+    {
+        var (gpu, getInterruptRequests) = CreateInterruptCountingGpu(GBCMode.GBCCompatibility);
+        gpu.Update(4);
+        gpu.WriteByte(0x80, 0xFF40);
+        gpu.Update(
+            LCD_ENABLE_MODE_0_CLOCKS +
+            TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS +
+            HBLANK_CLOCKS +
+            VBLANK_ENTRY_HBLANK_CLOCKS - HBLANK_CLOCKS +
+            152 * SCANLINE_CLOCKS);
+        gpu.WriteByte(0x20, 0xFF41);
+        var interruptsBeforeFrameStart = getInterruptRequests();
+
+        gpu.Update(SCANLINE_CLOCKS + 4);
+        Assert.Equal(2, gpu.ReadByte(0xFF41) & 0x03);
+        Assert.Equal(interruptsBeforeFrameStart, getInterruptRequests());
+
+        gpu.Update(3);
+        Assert.Equal(interruptsBeforeFrameStart, getInterruptRequests());
+        gpu.Update(1);
+        Assert.Equal(interruptsBeforeFrameStart + 1, getInterruptRequests());
+    }
+
+    /// <summary>
     /// Verifies that one large update consumes every reachable mode transition, renders the completed line,
     /// and starts HBlank exactly once.
     /// </summary>
@@ -906,6 +935,11 @@ public sealed class GpuRegisterTests
 
     private static (GPU Gpu, Func<int> GetInterruptRequests) CreateInterruptCountingGpu(bool gbcMode = false)
     {
+        return CreateInterruptCountingGpu(gbcMode ? GBCMode.GBCSupport : GBCMode.NoGBC);
+    }
+
+    private static (GPU Gpu, Func<int> GetInterruptRequests) CreateInterruptCountingGpu(GBCMode mode)
+    {
         var messageBus = new MessageBus();
         var gpu = new GPU(messageBus);
         var interruptRequests = 0;
@@ -917,7 +951,7 @@ public sealed class GpuRegisterTests
             }
         };
 
-        gpu.Reset(gbcMode);
+        gpu.Reset(mode, usingBootROM: false);
         return (gpu, () => interruptRequests);
     }
 }
