@@ -690,6 +690,38 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies latched fine SCX delays the object match and tile fetch rather than only delaying LCD output.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(4, 1)]
+    public void FineScrollDelaysObjectTileFetch(byte scrollX, byte expectedColorIndex)
+    {
+        var gpu = CreateGpuForObjectSizeFetch(scrollX, oldLow: 0x00, oldHigh: 0xFF, newLow: 0xFF, newHigh: 0x00);
+
+        gpu.Update(24);
+        gpu.WriteByte(0x83, 0xFF40);
+        AdvanceToVBlank(gpu);
+
+        Assert.Equal(expectedColorIndex, gpu.GetScreenData()[4, 1].Index);
+    }
+
+    /// <summary>
+    /// Verifies the low and high object tile-data reads independently sample the live LCDC.2 object size.
+    /// </summary>
+    [Fact]
+    public void ObjectTileBytesSampleSizeIndependently()
+    {
+        var gpu = CreateGpuForObjectSizeFetch(scrollX: 4, oldLow: 0xFF, oldHigh: 0x00, newLow: 0x00, newHigh: 0xFF);
+
+        gpu.Update(28);
+        gpu.WriteByte(0x83, 0xFF40);
+        AdvanceToVBlank(gpu);
+
+        Assert.Equal(3, gpu.GetScreenData()[4, 1].Index);
+    }
+
+    /// <summary>
     /// Verifies that HBlank DMA cannot retroactively change the scanline whose pixel transfer just completed.
     /// </summary>
     [Fact]
@@ -1188,6 +1220,29 @@ public sealed class GpuRegisterTests
         gpu.WriteByte((byte)(objectsEnabled ? 0x82 : 0x80), 0xFF40);
         AdvanceToLineOneMode3(gpu);
 
+        return gpu;
+    }
+
+    private static GPU CreateGpuForObjectSizeFetch(
+        byte scrollX,
+        byte oldLow,
+        byte oldHigh,
+        byte newLow,
+        byte newHigh)
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(true);
+        gpu.WriteByte(scrollX, 0xFF43);
+        gpu.WriteByte(oldLow, MemorySchema.TILE_DATA_UNSIGNED_START + 2);
+        gpu.WriteByte(oldHigh, MemorySchema.TILE_DATA_UNSIGNED_START + 3);
+        gpu.WriteByte(newLow, MemorySchema.TILE_DATA_UNSIGNED_START + 18);
+        gpu.WriteByte(newHigh, MemorySchema.TILE_DATA_UNSIGNED_START + 19);
+        gpu.WriteByte(16, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+        gpu.WriteByte(12, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 1);
+        gpu.WriteByte(1, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 2);
+        gpu.Update(4);
+        gpu.WriteByte(0x87, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
         return gpu;
     }
 

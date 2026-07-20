@@ -140,7 +140,11 @@ namespace GBZEmuLibrary
         private readonly byte[] _videoRAM = new byte[MemorySchema.MAX_VRAM_SIZE];
         private readonly byte[] _spriteAttributeTable = new byte[MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START];
         private readonly byte[] _lineSpriteXCoordinates = new byte[10];
+        private readonly byte[] _lineSpriteOamIndices = new byte[10];
         private readonly int[] _lineSpriteInitialFetchWaits = new int[10];
+        private readonly int[] _lineSpriteSlotsByOamIndex = new int[40];
+        private readonly byte[] _lineSpriteDataLow = new byte[10];
+        private readonly byte[] _lineSpriteDataHigh = new byte[10];
         private readonly byte[] _scanlineScrollX = new byte[Display.HORIZONTAL_RESOLUTION];
         private readonly byte[] _scanlineScrollY = new byte[Display.HORIZONTAL_RESOLUTION];
         private readonly byte[] _gpuRegisters = new byte[MemorySchema.GPU_REGISTERS_END - MemorySchema.GPU_REGISTERS_START];
@@ -167,6 +171,7 @@ namespace GBZEmuLibrary
         private int _mode3BackgroundFetcherDot;
         private int _mode3FetchPosition;
         private int _mode3NextSpriteIndex;
+        private int _mode3ActiveSpriteIndex = -1;
         private int _mode3ObjectFetchWait;
         private int _mode3ObjectFetchStall;
         private int _mode3ObjectOutputStallDots;
@@ -250,6 +255,7 @@ namespace GBZEmuLibrary
             _mode3BackgroundFetcherDot = 0;
             _mode3FetchPosition = 0;
             _mode3NextSpriteIndex = 0;
+            _mode3ActiveSpriteIndex = -1;
             _mode3ObjectFetchWait = 0;
             _mode3ObjectFetchStall = 0;
             _mode3ObjectOutputStallDots = 0;
@@ -982,6 +988,7 @@ namespace GBZEmuLibrary
             _mode3BackgroundFetcherDot = 0;
             _mode3FetchPosition = -12;
             _mode3NextSpriteIndex = 0;
+            _mode3ActiveSpriteIndex = -1;
             _mode3ObjectFetchWait = 0;
             _mode3ObjectFetchStall = 0;
             _mode3ObjectOutputStallDots = 0;
@@ -1032,6 +1039,12 @@ namespace GBZEmuLibrary
         /// </summary>
         private int CalculateSpriteFetchPenalty()
         {
+            _lineSpriteCount = 0;
+            for (var index = 0; index < _lineSpriteSlotsByOamIndex.Length; index++)
+            {
+                _lineSpriteSlotsByOamIndex[index] = -1;
+            }
+
             var control = _gpuRegisters[(int)Registers.LCDControl];
             if ((!_gbcMode && !Helpers.TestBit(control, (int)LCDControlBits.SpriteDisplayEnabled)) ||
                 ScanLine >= Display.VERTICAL_RESOLUTION)
@@ -1041,7 +1054,6 @@ namespace GBZEmuLibrary
 
             var spriteHeight = Helpers.TestBit(control, (int)LCDControlBits.SpriteSize) ? 16 : 8;
             var scrollX = GetEffectiveScrollX();
-            _lineSpriteCount = 0;
 
             for (var offset = 0; offset < _spriteAttributeTable.Length && _lineSpriteCount < 10; offset += 4)
             {
@@ -1051,21 +1063,26 @@ namespace GBZEmuLibrary
                     continue;
                 }
 
-                _lineSpriteXCoordinates[_lineSpriteCount++] = _spriteAttributeTable[offset + 1];
+                _lineSpriteXCoordinates[_lineSpriteCount] = _spriteAttributeTable[offset + 1];
+                _lineSpriteOamIndices[_lineSpriteCount] = (byte)(offset / 4);
+                _lineSpriteCount++;
             }
 
             // Mode 2 selects in OAM order, but mode 3 fetches the selected sprites from left to right.
             for (var index = 1; index < _lineSpriteCount; index++)
             {
                 var spriteX = _lineSpriteXCoordinates[index];
+                var oamIndex = _lineSpriteOamIndices[index];
                 var insertionIndex = index;
                 while (insertionIndex > 0 && _lineSpriteXCoordinates[insertionIndex - 1] > spriteX)
                 {
                     _lineSpriteXCoordinates[insertionIndex] = _lineSpriteXCoordinates[insertionIndex - 1];
+                    _lineSpriteOamIndices[insertionIndex] = _lineSpriteOamIndices[insertionIndex - 1];
                     insertionIndex--;
                 }
 
                 _lineSpriteXCoordinates[insertionIndex] = spriteX;
+                _lineSpriteOamIndices[insertionIndex] = oamIndex;
             }
 
             var penalty = 0;
@@ -1090,6 +1107,11 @@ namespace GBZEmuLibrary
                 // The complete object fetch is its phase-alignment wait plus the six-dot VRAM transaction.
                 penalty += initialFetchWait + 6;
                 previousFetchGroup = fetchGroup;
+            }
+
+            for (var index = 0; index < _lineSpriteCount; index++)
+            {
+                _lineSpriteSlotsByOamIndex[_lineSpriteOamIndices[index]] = index;
             }
 
             // The PPU currently advances in CPU-supplied machine-cycle batches. Preserve the hardware-derived
@@ -1208,6 +1230,7 @@ namespace GBZEmuLibrary
                     IsObjectFetchMatch(_lineSpriteXCoordinates[_mode3NextSpriteIndex]))
                 {
                     var spriteIndex = _mode3NextSpriteIndex++;
+                    _mode3ActiveSpriteIndex = spriteIndex;
                     var spriteX = _lineSpriteXCoordinates[spriteIndex];
                     var initialFetchWait = _lineSpriteInitialFetchWaits[spriteIndex];
                     // OAM X 0-8 matches while the fetch stream is still at or before the visible left edge. Mealybug's
@@ -1226,8 +1249,24 @@ namespace GBZEmuLibrary
 
                 if (_mode3ObjectFetchStall > 0)
                 {
+                    var transactionDot = _mode3ObjectFetchStall <= 6
+                        ? 7 - _mode3ObjectFetchStall
+                        : 0;
+                    if (transactionDot == 3)
+                    {
+                        CaptureObjectTileByte(_mode3ActiveSpriteIndex, highByte: false);
+                    }
+                    else if (transactionDot == 5)
+                    {
+                        CaptureObjectTileByte(_mode3ActiveSpriteIndex, highByte: true);
+                    }
+
                     _mode3ObjectFetchStall--;
                     _mode3ObjectOutputStallDots++;
+                    if (_mode3ObjectFetchStall == 0)
+                    {
+                        _mode3ActiveSpriteIndex = -1;
+                    }
                     continue;
                 }
 
@@ -1241,7 +1280,46 @@ namespace GBZEmuLibrary
         /// </summary>
         private bool IsObjectFetchMatch(int spriteX)
         {
-            return spriteX == _mode3FetchPosition + 8;
+            return spriteX + _scanlineScrollXLow == _mode3FetchPosition + 8;
+        }
+
+        /// <summary>
+        /// Captures one object tile-data byte using the live LCDC.2 size at that VRAM address phase.
+        /// </summary>
+        private void CaptureObjectTileByte(int spriteIndex, bool highByte)
+        {
+            var oamOffset = _lineSpriteOamIndices[spriteIndex] * 4;
+            var spriteY = _spriteAttributeTable[oamOffset] - 16;
+            var tileIndex = _spriteAttributeTable[oamOffset + 2];
+            var attributes = _spriteAttributeTable[oamOffset + 3];
+            var use8x16 = Helpers.TestBit(_gpuRegisters[(int)Registers.LCDControl], (int)LCDControlBits.SpriteSize);
+            var spriteHeight = use8x16 ? 16 : 8;
+            var tilePixelRow = (ScanLine - spriteY) & (spriteHeight - 1);
+            if (Helpers.TestBit(attributes, (int)SpriteAttributesBits.YFlip))
+            {
+                tilePixelRow ^= spriteHeight - 1;
+            }
+
+            if (use8x16)
+            {
+                tileIndex &= 0xFE;
+            }
+
+            var bank = _gbcMode ? Helpers.GetBit(attributes, (int)SpriteAttributesBits.TileVRAMBankNumber) : 0;
+            var tileAddress =
+                MemorySchema.TILE_DATA_UNSIGNED_START +
+                tileIndex * TILE_SIZE +
+                tilePixelRow * 2 +
+                (highByte ? 1 : 0);
+            var data = ReadFromVRAMWithBank(tileAddress, bank);
+            if (highByte)
+            {
+                _lineSpriteDataHigh[spriteIndex] = data;
+            }
+            else
+            {
+                _lineSpriteDataLow[spriteIndex] = data;
+            }
         }
 
         /// <summary>
@@ -1508,76 +1586,57 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Composites the mode-2-selected objects from their mode-3-captured tile bytes in OAM priority order.
+        /// </summary>
         private void RenderSprites(byte control, int startPixel, int endPixel)
         {
-            var use8x16 = Helpers.TestBit(control, (int)LCDControlBits.SpriteSize);
-            var ySize = use8x16 ? 16 : 8;
-
-            const int tableStart = MemorySchema.SPRITE_ATTRIBUTE_TABLE_START;
-
-            for (var i = (Display.HORIZONTAL_RESOLUTION - 4); i >= 0; i -= 4)
+            for (var oamIndex = _lineSpriteSlotsByOamIndex.Length - 1; oamIndex >= 0; oamIndex--)
             {
-                var oamOffset = tableStart + i - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START;
-                var y = _spriteAttributeTable[oamOffset] - 16;
-                var x = _spriteAttributeTable[oamOffset + 1] - 8;
-
-                if (ScanLine >= y && ScanLine < (y + ySize))
+                var spriteIndex = _lineSpriteSlotsByOamIndex[oamIndex];
+                if (spriteIndex < 0)
                 {
-                    var tileIndex = _spriteAttributeTable[oamOffset + 2];
-                    if (use8x16)
+                    continue;
+                }
+
+                var oamOffset = oamIndex * 4;
+                var x = _spriteAttributeTable[oamOffset + 1] - 8;
+                var attributes = _spriteAttributeTable[oamOffset + 3];
+                var data1 = _lineSpriteDataLow[spriteIndex];
+                var data2 = _lineSpriteDataHigh[spriteIndex];
+                var paletteAddress = Helpers.TestBit(attributes, (int)SpriteAttributesBits.PaletteNum) ? (int)Registers.SpritePalette1 : (int)Registers.SpritePalette0;
+
+                for (var column = 0; column < 8; column++)
+                {
+                    var spriteX = x + column;
+
+                    if (spriteX >= startPixel && spriteX < endPixel && ScanLine < Display.VERTICAL_RESOLUTION)
                     {
-                        tileIndex &= 0xFE;
-                    }
+                        var tilePixelColumn = column;
 
-                    var attributes = _spriteAttributeTable[oamOffset + 3];
-                    var bank = _gbcMode ? Helpers.GetBit(attributes, (int)SpriteAttributesBits.TileVRAMBankNumber) : 0;
-
-                    var tilePixelRow = ScanLine - y;
-
-                    if (Helpers.TestBit(attributes, (int)SpriteAttributesBits.YFlip))
-                    {
-                        tilePixelRow = Math.Abs(tilePixelRow - (ySize - 1));
-                    }
-
-                    var tileLineOffset = tilePixelRow * 2;
-                    var tileAddress = MemorySchema.TILE_DATA_UNSIGNED_START + (tileIndex * TILE_SIZE);
-
-                    var data1 = ReadFromVRAMWithBank(tileAddress + tileLineOffset, bank);
-                    var data2 = ReadFromVRAMWithBank(tileAddress + tileLineOffset + 1, bank);
-                    var paletteAddress = Helpers.TestBit(attributes, (int)SpriteAttributesBits.PaletteNum) ? (int)Registers.SpritePalette1 : (int)Registers.SpritePalette0;
-
-                    for (var column = 0; column < 8; column++)
-                    {
-                        var spriteX = x + column;
-
-                        if (spriteX >= startPixel && spriteX < endPixel && ScanLine < Display.VERTICAL_RESOLUTION)
+                        if (Helpers.TestBit(attributes, (int)SpriteAttributesBits.XFlip))
                         {
-                            var tilePixelColumn = column;
-
-                            if (Helpers.TestBit(attributes, (int)SpriteAttributesBits.XFlip))
-                            {
-                                tilePixelColumn = Math.Abs(tilePixelColumn - 7);
-                            }
-
-                            byte colorValue = 0;
-                            colorValue |= (byte)((data1 >> (7 - tilePixelColumn)) & 1);
-                            colorValue |= (byte)(((data2 >> (7 - tilePixelColumn)) & 1) << 1);
-
-                            if (colorValue == 0)
-                            {
-                                continue;
-                            }
-
-                            // Bit0 of LCD control register in GBC mode make sprites always render on top
-                            var spritePriority = _gbcMode && !Helpers.TestBit(control, (int)LCDControlBits.BGDisplayEnabled);
-
-                            if (((Helpers.TestBit(attributes, (int)SpriteAttributesBits.SpriteToBGPriority) && _renderData[spriteX, ScanLine].Index != 0) || _renderData[spriteX, ScanLine].BGPriority) && !spritePriority)
-                            {
-                                continue;
-                            }
-
-                            _renderData[spriteX, ScanLine] = GetColor(false, colorValue, attributes, paletteAddress);
+                            tilePixelColumn = Math.Abs(tilePixelColumn - 7);
                         }
+
+                        byte colorValue = 0;
+                        colorValue |= (byte)((data1 >> (7 - tilePixelColumn)) & 1);
+                        colorValue |= (byte)(((data2 >> (7 - tilePixelColumn)) & 1) << 1);
+
+                        if (colorValue == 0)
+                        {
+                            continue;
+                        }
+
+                        // Bit0 of LCD control register in GBC mode make sprites always render on top
+                        var spritePriority = _gbcMode && !Helpers.TestBit(control, (int)LCDControlBits.BGDisplayEnabled);
+
+                        if (((Helpers.TestBit(attributes, (int)SpriteAttributesBits.SpriteToBGPriority) && _renderData[spriteX, ScanLine].Index != 0) || _renderData[spriteX, ScanLine].BGPriority) && !spritePriority)
+                        {
+                            continue;
+                        }
+
+                        _renderData[spriteX, ScanLine] = GetColor(false, colorValue, attributes, paletteAddress);
                     }
                 }
             }
