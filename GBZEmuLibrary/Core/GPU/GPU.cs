@@ -105,6 +105,9 @@ namespace GBZEmuLibrary
         private const int CGB_DOUBLE_SPEED_LCD_ENABLE_MODE_0_CLOCKS = 80;
         private const int SEARCHING_SPRITES_ATTRIBUTES_CLOCKS = 80;
         private const int TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS = 172;
+        // The first tile-number fetch latches fine SCX on every model; compatibility mode's extra dot delays output,
+        // not this fetch phase.
+        private const int SCX_FINE_SCROLL_LATCH_DOT = 8;
         private const int WINDOW_STARTUP_CLOCKS = 6;
 
         private const int MAX_SCROLL_AMOUNT = 256;
@@ -127,8 +130,8 @@ namespace GBZEmuLibrary
 
         private static readonly byte[] DefaultCompatibilityTrademarkTile =
         {
-            0x1E, 0x3F, 0x5E, 0x3F, 0x5F, 0x3F, 0x7F, 0x3F,
-            0x3F, 0x7F, 0xBC, 0x7F, 0xBE, 0x7C, 0xFA, 0x7C
+            0x3C, 0x00, 0x42, 0x00, 0xB9, 0x00, 0xA5, 0x00,
+            0xB9, 0x00, 0xA5, 0x00, 0x42, 0x00, 0x3C, 0x00
         };
 
         private readonly Color[,] _screenData = new Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
@@ -629,14 +632,14 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Applies SCX immediately and retargets mode-3 startup when a write completes during the initial fetch and
-        /// fine-scroll discard, before the first LCD pixel has committed.
+        /// Applies SCX immediately and retargets mode-3 startup until the first background tile-number fetch latches
+        /// the low three bits for this scanline.
         /// </summary>
         private void WriteScrollX(byte data)
         {
             if (!IsLCDEnabled() ||
                 GetStatusMode() != LCDStatus.TransferringDataToLCDDriver ||
-                _cycleCounter > _mode3StartupDots ||
+                _cycleCounter > SCX_FINE_SCROLL_LATCH_DOT ||
                 _mode3RenderedPixels != 0)
             {
                 _gpuRegisters[(int)Registers.ScrollX] = data;
