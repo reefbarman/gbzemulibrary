@@ -145,6 +145,7 @@ namespace GBZEmuLibrary
         private readonly int[] _lineSpriteSlotsByOamIndex = new int[40];
         private readonly byte[] _lineSpriteDataLow = new byte[10];
         private readonly byte[] _lineSpriteDataHigh = new byte[10];
+        private readonly bool[] _scanlineObjectOutputEnabled = new bool[Display.HORIZONTAL_RESOLUTION];
         private readonly byte[] _scanlineScrollX = new byte[Display.HORIZONTAL_RESOLUTION];
         private readonly byte[] _scanlineScrollY = new byte[Display.HORIZONTAL_RESOLUTION];
         private readonly byte[] _gpuRegisters = new byte[MemorySchema.GPU_REGISTERS_END - MemorySchema.GPU_REGISTERS_START];
@@ -163,6 +164,7 @@ namespace GBZEmuLibrary
         private int _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
         private int _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION;
         private int _mode3RenderedPixels;
+        private int _mode3LatchedObjectPixels;
         private int _mode3PreparedBackgroundPixels;
         private int _mode3WindowStartPixel = Display.HORIZONTAL_RESOLUTION;
         private int _mode3WindowRestartPixel = -1;
@@ -177,6 +179,7 @@ namespace GBZEmuLibrary
         private int _mode3ObjectOutputStallDots;
         private int _lineSpriteCount;
         private byte _scanlineScrollXLow;
+        private bool _objectOutputEnabled;
         private bool _line153EarlyReset;
         private bool _pendingVBlankInterrupt;
         private bool _statInterruptLineHigh;
@@ -247,6 +250,7 @@ namespace GBZEmuLibrary
             _mode3ClockTarget = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS;
             _mode3StartupDots = TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS - Display.HORIZONTAL_RESOLUTION;
             _mode3RenderedPixels = 0;
+            _mode3LatchedObjectPixels = 0;
             _mode3PreparedBackgroundPixels = 0;
             _mode3WindowStartPixel = Display.HORIZONTAL_RESOLUTION;
             _mode3WindowRestartPixel = -1;
@@ -261,6 +265,7 @@ namespace GBZEmuLibrary
             _mode3ObjectOutputStallDots = 0;
             _lineSpriteCount = 0;
             _scanlineScrollXLow = 0;
+            _objectOutputEnabled = false;
             _line153EarlyReset = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
             BlankDisplay();
@@ -983,6 +988,7 @@ namespace GBZEmuLibrary
                 : HBLANK_CLOCKS;
             _hBlankClockTarget = baseHBlankClocks - fineScrollPenalty - spriteFetchPenalty - windowFetchPenalty;
             _mode3RenderedPixels = 0;
+            _mode3LatchedObjectPixels = 0;
             _mode3PreparedBackgroundPixels = 0;
             _mode3FetchTimelineDot = 0;
             _mode3BackgroundFetcherDot = 0;
@@ -993,6 +999,9 @@ namespace GBZEmuLibrary
             _mode3ObjectFetchStall = 0;
             _mode3ObjectOutputStallDots = 0;
             _mode3WindowRestartPixel = -1;
+            _objectOutputEnabled = Helpers.TestBit(
+                _gpuRegisters[(int)Registers.LCDControl],
+                (int)LCDControlBits.SpriteDisplayEnabled);
             _hblankDmaWindowOpened = false;
             SetStatusRegister(LCDStatus.TransferringDataToLCDDriver);
         }
@@ -1244,6 +1253,7 @@ namespace GBZEmuLibrary
                     _mode3ObjectFetchWait--;
                     _mode3ObjectOutputStallDots++;
                     AdvanceBackgroundFetcherDot();
+                    AdvanceObjectOutputLatch();
                     continue;
                 }
 
@@ -1267,11 +1277,13 @@ namespace GBZEmuLibrary
                     {
                         _mode3ActiveSpriteIndex = -1;
                     }
+                    AdvanceObjectOutputLatch();
                     continue;
                 }
 
                 _mode3FetchPosition++;
                 AdvanceBackgroundFetcherDot();
+                AdvanceObjectOutputLatch();
             }
         }
 
@@ -1347,6 +1359,36 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Samples LCDC.1 on every transfer dot and records its retained value whenever one pixel leaves the FIFO.
+        /// CGB object selection and fetch therefore continue independently while output is disabled.
+        /// </summary>
+        private void AdvanceObjectOutputLatch()
+        {
+            var outputDots = Math.Max(
+                0,
+                _mode3FetchTimelineDot - _mode3StartupDots - _mode3ObjectOutputStallDots);
+            var completedPixels = outputDots;
+            if (_mode3WindowStartPixel < Display.HORIZONTAL_RESOLUTION && outputDots > _mode3WindowStartPixel)
+            {
+                completedPixels =
+                    _mode3WindowStartPixel +
+                    Math.Max(0, outputDots - _mode3WindowStartPixel - _mode3WindowFetchPenalty);
+            }
+
+            completedPixels = Math.Min(
+                Math.Min(Display.HORIZONTAL_RESOLUTION, completedPixels),
+                _mode3PreparedBackgroundPixels);
+            while (_mode3LatchedObjectPixels < completedPixels)
+            {
+                _scanlineObjectOutputEnabled[_mode3LatchedObjectPixels++] = _objectOutputEnabled;
+            }
+
+            _objectOutputEnabled = Helpers.TestBit(
+                _gpuRegisters[(int)Registers.LCDControl],
+                (int)LCDControlBits.SpriteDisplayEnabled);
+        }
+
+        /// <summary>
         /// Commits pixels whose transfer dots have elapsed using the register and palette state visible now.
         /// </summary>
         private void RenderTransferredPixels()
@@ -1393,6 +1435,13 @@ namespace GBZEmuLibrary
             while (_mode3PreparedBackgroundPixels < Display.HORIZONTAL_RESOLUTION)
             {
                 AdvanceBackgroundFetcherDot();
+            }
+            while (_mode3LatchedObjectPixels < Display.HORIZONTAL_RESOLUTION)
+            {
+                _scanlineObjectOutputEnabled[_mode3LatchedObjectPixels++] = _objectOutputEnabled;
+                _objectOutputEnabled = Helpers.TestBit(
+                    _gpuRegisters[(int)Registers.LCDControl],
+                    (int)LCDControlBits.SpriteDisplayEnabled);
             }
             DrawScanLine(_mode3RenderedPixels, Display.HORIZONTAL_RESOLUTION);
             _mode3RenderedPixels = Display.HORIZONTAL_RESOLUTION;
@@ -1450,7 +1499,7 @@ namespace GBZEmuLibrary
                 RenderWindow(control, startPixel, endPixel);
             }
 
-            if (Helpers.TestBit(control, (int)LCDControlBits.SpriteDisplayEnabled))
+            if (_lineSpriteCount > 0)
             {
                 RenderSprites(control, startPixel, endPixel);
             }
@@ -1610,7 +1659,10 @@ namespace GBZEmuLibrary
                 {
                     var spriteX = x + column;
 
-                    if (spriteX >= startPixel && spriteX < endPixel && ScanLine < Display.VERTICAL_RESOLUTION)
+                    if (spriteX >= startPixel &&
+                        spriteX < endPixel &&
+                        ScanLine < Display.VERTICAL_RESOLUTION &&
+                        _scanlineObjectOutputEnabled[spriteX])
                     {
                         var tilePixelColumn = column;
 

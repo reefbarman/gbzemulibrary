@@ -690,6 +690,45 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies CGB object visibility samples LCDC.1 at the LCD output latch while selection and fetch continue. The
+    /// adjacent assertions pin both disabling and re-enabling to the measured one-pixel boundary.
+    /// </summary>
+    [Fact]
+    public void CgbObjectEnableChangesAtPixelOutputBoundary()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(true);
+        for (var row = 0; row < 8; row++)
+        {
+            gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2);
+            gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2 + 1);
+        }
+
+        gpu.WriteByte(0x02, MemorySchema.GPU_GBC_SPRITE_PALETTE_INDEX_REGISTER);
+        gpu.WriteByte(0x00, MemorySchema.GPU_GBC_SPRITE_PALETTE_DATA_REGISTER);
+        gpu.WriteByte(0x03, MemorySchema.GPU_GBC_SPRITE_PALETTE_INDEX_REGISTER);
+        gpu.WriteByte(0x00, MemorySchema.GPU_GBC_SPRITE_PALETTE_DATA_REGISTER);
+        gpu.WriteByte(17, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+        gpu.WriteByte(8, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 1);
+        gpu.Update(4);
+        gpu.WriteByte(0x81, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
+
+        gpu.Update(24);
+        gpu.WriteByte(0x83, 0xFF40);
+        gpu.Update(2);
+        gpu.WriteByte(0x81, 0xFF40);
+        gpu.Update(2);
+        AdvanceToVBlank(gpu);
+
+        var screen = gpu.GetScreenData();
+        Assert.Equal(0, screen[1, 1].Index);
+        Assert.Equal(1, screen[2, 1].Index);
+        Assert.Equal(1, screen[3, 1].Index);
+        Assert.Equal(0, screen[4, 1].Index);
+    }
+
+    /// <summary>
     /// Verifies latched fine SCX delays the object match and tile fetch rather than only delaying LCD output.
     /// </summary>
     [Theory]
