@@ -97,17 +97,13 @@ mooneye/acceptance/add_sp_e_timing
 mooneye/acceptance/bits/mem_oam
 mooneye/acceptance/bits/reg_f
 mooneye/acceptance/bits/unused_hwio-GS
-mooneye/acceptance/boot_div-S
 mooneye/acceptance/boot_div-dmg0
 mooneye/acceptance/boot_div-dmgABCmgb
-mooneye/acceptance/boot_div2-S
-mooneye/acceptance/boot_hwio-S
 mooneye/acceptance/boot_hwio-dmg0
 mooneye/acceptance/boot_hwio-dmgABCmgb
 mooneye/acceptance/boot_regs-dmg0
 mooneye/acceptance/boot_regs-dmgABC
 mooneye/acceptance/boot_regs-mgb
-mooneye/acceptance/boot_regs-sgb
 mooneye/acceptance/boot_regs-sgb2
 mooneye/acceptance/call_cc_timing
 mooneye/acceptance/call_cc_timing2
@@ -272,5 +268,3 @@ samesuite/dma/hdma_lcd_off
 samesuite/dma/hdma_mode0
 samesuite/interrupt/ei_delay_halt
 samesuite/ppu/blocking_bgpi_increase
-samesuite/sgb/command_mlt_req
-samesuite/sgb/command_mlt_req_1_incrementing

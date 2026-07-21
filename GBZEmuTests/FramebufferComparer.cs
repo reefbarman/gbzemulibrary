@@ -13,7 +13,7 @@ internal static class FramebufferComparer
     /// <summary>
     /// Returns a bounded mismatch description, or <see langword="null"/> when every normalized pixel matches.
     /// </summary>
-    public static string? Compare(EmulatorColor[,] actual, string referencePath, HardwareMode hardware)
+    public static string? Compare(EmulatorColor[,] actual, string referencePath, HardwareModel hardware)
     {
         using var reference = Image.Load<Rgba32>(referencePath);
         if (reference.Width != Display.HORIZONTAL_RESOLUTION || reference.Height != Display.VERTICAL_RESOLUTION)
@@ -46,9 +46,9 @@ internal static class FramebufferComparer
         return differentPixels == 0 ? null : $"{differentPixels} pixels differ; {firstDifference}.";
     }
 
-    private static EmulatorColor Normalize(EmulatorColor color, HardwareMode hardware)
+    private static EmulatorColor Normalize(EmulatorColor color, HardwareModel hardware)
     {
-        if (hardware == HardwareMode.Dmg)
+        if (hardware != HardwareModel.CgbE)
         {
             var intensity = (byte)(255 - (color.SgbIndex * 85));
             return new EmulatorColor(intensity, intensity, intensity);

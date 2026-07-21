@@ -11,13 +11,13 @@ public sealed class HeadlessOptions
     public required string OutputDirectory { get; init; }
     public required string SaveDirectory { get; init; }
     public string? AudioOutputPath { get; init; }
-    public IReadOnlyList<string> BootROMPaths { get; init; } = [];
+    public string? BootROMPath { get; init; }
+    public HardwareModel? HardwareModel { get; init; }
     public IReadOnlyList<HeadlessInputEvent> InputEvents { get; init; } = [];
     public int Frames { get; init; }
     public int CaptureStartFrame { get; init; }
     public int CaptureEndFrame { get; init; }
     public int CaptureEvery { get; init; } = 1;
-    public bool ForceDMG { get; init; }
     public bool SkipBootROM { get; init; }
 
     public static HeadlessOptions Parse(string[] args)
@@ -35,9 +35,9 @@ public sealed class HeadlessOptions
         int? captureEnd = null;
         var frames = 1;
         var captureEvery = 1;
-        var forceDMG = false;
+        HardwareModel? hardwareModel = null;
         var skipBootROM = false;
-        var bootROMPaths = new List<string>();
+        string? bootROMPath = null;
         var inputEvents = new List<HeadlessInputEvent>();
 
         for (var i = 0; i < args.Length; i++)
@@ -63,15 +63,15 @@ public sealed class HeadlessOptions
                     audioOutputPath = ReadValue(args, ref i, "--audio-out");
                     break;
                 case "--bootrom":
-                    bootROMPaths.Add(ReadValue(args, ref i, "--bootrom"));
+                    bootROMPath = ReadValue(args, ref i, "--bootrom");
+                    break;
+                case "--model":
+                    hardwareModel = ParseHardwareModel(ReadValue(args, ref i, "--model"));
                     break;
                 case "--input":
                     inputEvents.Add(HeadlessInputEvent.Parse(ReadValue(args, ref i, "--input")));
                     break;
-                case "--dmg":
-                    forceDMG = true;
-                    break;
-                case "--skip-bios":
+                case "--skip-bootrom":
                     skipBootROM = true;
                     break;
                 default:
@@ -101,9 +101,15 @@ public sealed class HeadlessOptions
             throw new FileNotFoundException("ROM file not found.", romPath);
         }
 
+        if (bootROMPath != null && skipBootROM)
+        {
+            throw new ArgumentException("--bootrom and --skip-bootrom are mutually exclusive.");
+        }
+
         outputDirectory = Path.GetFullPath(outputDirectory ?? Path.Combine(Directory.GetCurrentDirectory(), "headless-output"));
         saveDirectory = Path.GetFullPath(saveDirectory ?? Path.Combine(outputDirectory, "saves"));
         audioOutputPath = audioOutputPath == null ? null : Path.GetFullPath(audioOutputPath);
+        bootROMPath = bootROMPath == null ? null : Path.GetFullPath(bootROMPath);
         captureStart ??= frames;
         captureEnd ??= frames;
 
@@ -112,13 +118,9 @@ public sealed class HeadlessOptions
             throw new ArgumentException("--capture-frames must be within 1..--frames and use START or START-END.");
         }
 
-        for (var i = 0; i < bootROMPaths.Count; i++)
+        if (bootROMPath != null && !File.Exists(bootROMPath))
         {
-            bootROMPaths[i] = Path.GetFullPath(bootROMPaths[i]);
-            if (!File.Exists(bootROMPaths[i]))
-            {
-                throw new FileNotFoundException("Boot ROM file not found.", bootROMPaths[i]);
-            }
+            throw new FileNotFoundException("Boot ROM file not found.", bootROMPath);
         }
 
         if (inputEvents.Any(input => input.Frame > frames))
@@ -132,13 +134,13 @@ public sealed class HeadlessOptions
             OutputDirectory = outputDirectory,
             SaveDirectory = saveDirectory,
             AudioOutputPath = audioOutputPath,
-            BootROMPaths = bootROMPaths,
+            BootROMPath = bootROMPath,
+            HardwareModel = hardwareModel,
             InputEvents = inputEvents.OrderBy(input => input.Frame).ToArray(),
             Frames = frames,
             CaptureStartFrame = captureStart.Value,
             CaptureEndFrame = captureEnd.Value,
             CaptureEvery = captureEvery,
-            ForceDMG = forceDMG,
             SkipBootROM = skipBootROM
         };
     }
@@ -153,14 +155,29 @@ public sealed class HeadlessOptions
         "  --output <path>               Capture/report directory; defaults to ./headless-output\n" +
         "  --save-dir <path>             Save directory; defaults to <output>/saves\n" +
         "  --audio-out <path>            Write exact interleaved float32 core amplitudes for every frame\n" +
-        "  --bootrom <path>              Boot ROM image; may be repeated for DMG and CGB images\n" +
+        "  --model <model>               Hardware model: DmgB, CgbE, Sgb2, Mgb, or AgbA\n" +
+        "                                Defaults to DmgB for DMG-only ROMs and CgbE otherwise\n" +
+        "  --bootrom <path>              External boot ROM for the resolved hardware model\n" +
+        "                                The built-in boot ROM is used when omitted\n" +
+        "  --skip-bootrom                Skip boot ROM execution (mutually exclusive with --bootrom)\n" +
         "  --input <frame:button:state>   Apply a button down/up event before a frame\n" +
-        "  --dmg                         Force DMG mode\n" +
-        "  --skip-bios                   Skip boot ROM execution\n" +
         "  -h, --help                    Show this help\n" +
         "\n" +
         "Buttons: Right, Left, Up, Down, A, B, Select, Start\n" +
         "States: down, up";
+
+    private static HardwareModel ParseHardwareModel(string value)
+    {
+        if (!Enum.TryParse<HardwareModel>(value, true, out var model) ||
+            !Enum.IsDefined(typeof(HardwareModel), model) ||
+            !string.Equals(value, model.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException(
+                $"Unknown hardware model: {value}. Expected DmgB, CgbE, Sgb2, Mgb, or AgbA.");
+        }
+
+        return model;
+    }
 
     private static string ReadValue(string[] args, ref int index, string option)
     {

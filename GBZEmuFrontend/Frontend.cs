@@ -110,30 +110,28 @@ internal sealed class Frontend : IDisposable
         _rawFrames = options.RawFrames;
         _frameBlender.Reset();
 
-        // Boot each cartridge on its native hardware: GBC-flagged carts get the GBC
-        // boot ROM, everything else boots as an original DMG.
-        var cgbCartridge = CartridgeMetadata.Read(romPath).Compatibility != CartridgeCompatibility.DmgOnly;
-        var sgbHardware = options.ForceSGB || options.ForceSGB2;
-        var cgbHardware = !options.ForceDMG && !sgbHardware && cgbCartridge;
-        _correctCgbColors = !sgbHardware && ShouldCorrectCgbColors(options.ForceDMG, cgbCartridge, options.RawColors);
-        var bootMode = options.ForceSGB2 ? BootMode.SGB2
-            : options.ForceSGB ? BootMode.SGB
-            : options.ForceDMG ? BootMode.DMG | BootMode.Force
-            : cgbHardware ? BootMode.GBC
-            : BootMode.DMG;
-        if (options.SkipBootROM)
+        var compatibility = CartridgeMetadata.Read(romPath).Compatibility;
+        var hardwareModel = options.HardwareModel ?? ResolveAutomaticHardwareModel(compatibility);
+        if (HardwareModelMetadata.IsImplemented(hardwareModel) &&
+            !HardwareModelMetadata.SupportsCartridge(hardwareModel, compatibility))
         {
-            bootMode |= BootMode.Skip;
+            throw new ArgumentException(
+                $"Hardware model {hardwareModel} does not support {compatibility} cartridges.");
         }
 
-        _started = _emulator.Start(new Emulator.Config
+        var cgbHardware = hardwareModel == HardwareModel.CgbE;
+        _correctCgbColors = ShouldCorrectCgbColors(hardwareModel, compatibility, options.RawColors);
+        var bootRom = options.SkipBootROM
+            ? BootRomConfig.Skip()
+            : options.BootROMPath == null
+                ? BootRomConfig.BuiltIn()
+                : BootRomConfig.ExternalFile(options.BootROMPath);
+
+        _started = _emulator.Start(new Emulator.Config(hardwareModel)
         {
             ROMPath = romPath,
             SaveLocation = options.SaveDirectory,
-            BootROMPaths = options.BootROMPaths.ToArray(),
-            SGBBootROMPath = options.SGBBootROMPath,
-            SGB2BootROMPath = options.SGB2BootROMPath,
-            BootMode = bootMode
+            BootRom = bootRom
         });
 
         if (!_started)
@@ -247,11 +245,26 @@ internal sealed class Frontend : IDisposable
 
 
     /// <summary>
+    /// Resolves the default concrete hardware model from cartridge compatibility.
+    /// </summary>
+    internal static HardwareModel ResolveAutomaticHardwareModel(CartridgeCompatibility compatibility)
+    {
+        return compatibility == CartridgeCompatibility.DmgOnly
+            ? HardwareModel.DmgB
+            : HardwareModel.CgbE;
+    }
+
+    /// <summary>
     /// Determines whether native CGB execution should use the frontend color profile.
     /// </summary>
-    internal static bool ShouldCorrectCgbColors(bool forceDmg, bool cgbCartridge, bool rawColors)
+    internal static bool ShouldCorrectCgbColors(
+        HardwareModel hardwareModel,
+        CartridgeCompatibility compatibility,
+        bool rawColors)
     {
-        return !forceDmg && cgbCartridge && !rawColors;
+        return hardwareModel == HardwareModel.CgbE &&
+            compatibility != CartridgeCompatibility.DmgOnly &&
+            !rawColors;
     }
 
     private static string? SelectROM(string romDirectory)

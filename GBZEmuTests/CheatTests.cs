@@ -254,21 +254,21 @@ public sealed class CheatTests
 
     private static void StartDmg(Emulator emulator, string romPath)
     {
-        Assert.True(emulator.Start(new Emulator.Config
+        Assert.True(emulator.Start(new Emulator.Config(HardwareModel.DmgB)
         {
             ROMPath = romPath,
             SaveLocation = Path.GetTempPath(),
-            BootMode = BootMode.DMG | BootMode.Skip
+            BootRom = BootRomConfig.Skip()
         }));
     }
 
     private static void StartCgb(Emulator emulator, string romPath)
     {
-        Assert.True(emulator.Start(new Emulator.Config
+        Assert.True(emulator.Start(new Emulator.Config(HardwareModel.CgbE)
         {
             ROMPath = romPath,
             SaveLocation = Path.GetTempPath(),
-            BootMode = BootMode.GBC | BootMode.Skip
+            BootRom = BootRomConfig.Skip()
         }));
     }
 

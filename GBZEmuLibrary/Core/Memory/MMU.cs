@@ -26,7 +26,7 @@ namespace GBZEmuLibrary
 
         private readonly MainMemory _mainMemory = new MainMemory();
         private GBCMode _mode;
-        private SgbModel _sgbModel;
+        private HardwareModel _hardwareModel;
 
         /// <summary>
         /// Builds the fixed address-to-device lookup used by CPU, DMA, and debugger memory accesses.
@@ -71,14 +71,14 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Initializes mode-dependent memory and I/O register behavior.
         /// </summary>
-        public void Init(GBCMode mode, SgbModel sgbModel = SgbModel.None)
+        public void Init(GBCMode mode, HardwareModel hardwareModel)
         {
             _mode = mode;
-            _sgbModel = sgbModel;
+            _hardwareModel = hardwareModel;
             _dmaController.Init(mode);
             _workRAM.Init(mode);
-            // APU mode must be selected before Emulator.Start applies its post-boot reset profile.
-            _apu.Init(mode, sgbModel);
+            // APU hardware must be selected before Emulator.Start applies its post-boot reset profile.
+            _apu.Init(mode, hardwareModel);
             _serialRegisters.Init(mode);
         }
 
@@ -354,8 +354,8 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            // These deterministic values are shared by DMG ABC and the current CGB skip-boot profile.
-            WriteByte(_sgbModel == SgbModel.None ? (byte)0x00 : (byte)0x30, MemorySchema.JOYPAD_REGISTER);
+            // SGB2 starts with both joypad selection lines inactive; handheld profiles start with neither selected.
+            WriteByte(_hardwareModel == HardwareModel.Sgb2 ? (byte)0x30 : (byte)0x00, MemorySchema.JOYPAD_REGISTER);
             WriteByte(0x00, 0xFF05);
             WriteByte(0x00, 0xFF06);
             WriteByte(0x00, 0xFF07);

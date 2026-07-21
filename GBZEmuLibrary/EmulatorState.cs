@@ -9,7 +9,7 @@ namespace GBZEmuLibrary
     /// </summary>
     public sealed class EmulatorState
     {
-        internal const int CurrentFormatVersion = 1;
+        internal const int CurrentFormatVersion = 2;
 
         private readonly byte[] _data;
 
@@ -154,7 +154,7 @@ namespace GBZEmuLibrary
                     {
                         if (identity[index] != expectedIdentity[index])
                         {
-                            throw new InvalidOperationException("Save state belongs to a different ROM or boot-ROM configuration.");
+                            throw new InvalidOperationException("Save state belongs to a different ROM, hardware model, or firmware configuration.");
                         }
                     }
                 }

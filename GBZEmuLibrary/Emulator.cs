@@ -10,26 +10,26 @@ namespace GBZEmuLibrary
     public class Emulator
     {
         /// <summary>
-        /// Defines the ROM, save location, optional boot ROM, and hardware boot mode used by <see cref="Start"/>.
+        /// Defines the ROM, save location, concrete hardware model, and firmware choice used by <see cref="Start"/>.
         /// </summary>
-        public class Config
+        public sealed class Config
         {
+            /// <summary>
+            /// Creates a startup configuration for one required concrete hardware model.
+            /// </summary>
+            public Config(HardwareModel hardwareModel)
+            {
+                HardwareModel = hardwareModel;
+            }
+
             public string ROMPath;
             public string SaveLocation;
-            public string BootROMPath;
-            public byte[] BootROM;
-            public string SGBBootROMPath;
-            public byte[] SGBBootROM;
-            public string SGB2BootROMPath;
-            public byte[] SGB2BootROM;
+            public BootRomConfig BootRom = BootRomConfig.BuiltIn();
+
             /// <summary>
-            /// Optional additional boot-ROM images; each file fills the DMG or CGB slot
-            /// selected by its size. <see cref="BootROM"/>/<see cref="BootROMPath"/> load
-            /// afterwards and win their slot. Missing slots use the built-in GBZEmu images
-            /// unless <see cref="GBZEmuLibrary.BootMode.Skip"/> is set.
+            /// Gets the concrete physical hardware model selected by the host.
             /// </summary>
-            public string[] BootROMPaths;
-            public BootMode BootMode = BootMode.GBC;
+            public HardwareModel HardwareModel { get; }
         }
 
 
@@ -96,6 +96,7 @@ namespace GBZEmuLibrary
         private int _clocksThisFrame;
         private bool _hasStarted;
         private bool _running;
+        private HardwareModel _hardwareModel;
         private byte[] _stateIdentity;
         private int _clockRate = GameBoySchema.MAX_DMG_CLOCK_CYCLES;
         private bool _apuSystemUpdateActive;
@@ -108,7 +109,7 @@ namespace GBZEmuLibrary
         public int ClockRate => _clockRate;
 
         /// <summary>
-        /// Gets the active hardware-frame rate. SGB1 runs approximately 2.4 percent faster than a handheld DMG.
+        /// Gets the active hardware-frame rate.
         /// </summary>
         public double FrameRate => (double)_clockRate / Display.CLOCK_CYCLES_PER_FRAME;
 
@@ -155,53 +156,25 @@ namespace GBZEmuLibrary
                 throw new InvalidOperationException("An Emulator instance can only be started once. Create a new instance to load another ROM.");
             }
 
-            _bootROM.Clear();
+            ValidateHardwareModel(config.HardwareModel);
 
-            if (config.BootROMPaths != null)
+            if (!File.Exists(config.ROMPath))
             {
-                foreach (var path in config.BootROMPaths)
-                {
-                    _bootROM.Load(File.ReadAllBytes(path));
-                }
+                return false;
             }
 
-            if (config.BootROM != null)
+            var compatibility = CartridgeMetadata.Read(config.ROMPath).Compatibility;
+            if (!HardwareModelMetadata.SupportsCartridge(config.HardwareModel, compatibility))
             {
-                _bootROM.Load(config.BootROM);
-            }
-            else if (!string.IsNullOrEmpty(config.BootROMPath))
-            {
-                _bootROM.Load(File.ReadAllBytes(config.BootROMPath));
-            }
-
-            if (config.SGBBootROM != null)
-            {
-                _bootROM.LoadSgb(config.SGBBootROM, false);
-            }
-            else if (!string.IsNullOrEmpty(config.SGBBootROMPath))
-            {
-                _bootROM.LoadSgb(File.ReadAllBytes(config.SGBBootROMPath), false);
+                throw new ArgumentException(
+                    $"Hardware model {config.HardwareModel} does not support {compatibility} cartridges.",
+                    nameof(config));
             }
 
-            if (config.SGB2BootROM != null)
-            {
-                _bootROM.LoadSgb(config.SGB2BootROM, true);
-            }
-            else if (!string.IsNullOrEmpty(config.SGB2BootROMPath))
-            {
-                _bootROM.LoadSgb(File.ReadAllBytes(config.SGB2BootROMPath), true);
-            }
-
-            // Slots without a host-supplied image fall back to the embedded GBZEmu boot ROMs.
-            // This must happen before the cartridge loads because the header's custom-palette
-            // lookup reads the GBC boot ROM.
-            if (!config.BootMode.IsSet(BootMode.Skip))
-            {
-                _bootROM.EnsureDefaults();
-            }
+            BootROM.ValidateConfig(config.BootRom);
+            _bootROM.Load(config.HardwareModel, config.BootRom);
 
             var success = _cartridge.LoadFile(config.ROMPath, config.SaveLocation);
-
             if (!success)
             {
                 return false;
@@ -209,76 +182,22 @@ namespace GBZEmuLibrary
 
             try
             {
-                var mode = _cartridge.GBCMode;
-                var useBootRom = !config.BootMode.IsSet(BootMode.Skip);
-                var gbcBootRom = _cartridge.GBCMode != GBCMode.NoGBC;
-                var sgbModel = config.BootMode.IsSet(BootMode.SGB2) ? SgbModel.Sgb2
-                    : config.BootMode.IsSet(BootMode.SGB) ? SgbModel.Sgb
-                    : SgbModel.None;
+                _hardwareModel = config.HardwareModel;
+                var mode = ResolveExecutionMode(_hardwareModel, _cartridge.GBCMode);
+                var sgbModel = _hardwareModel == HardwareModel.Sgb2 ? SgbModel.Sgb2 : SgbModel.None;
+                var useBootRom = config.BootRom.Source != BootRomSource.Skip;
 
-                if (sgbModel != SgbModel.None)
-                {
-                    if (_cartridge.GBCMode == GBCMode.GBCOnly)
-                    {
-                        throw new ArgumentException("Trying to start a GBC-only ROM on Super Game Boy hardware");
-                    }
-
-                    mode = GBCMode.NoGBC;
-                    gbcBootRom = false;
-                }
-
-                if (sgbModel == SgbModel.None && config.BootMode.IsSet(BootMode.DMG))
-                {
-                    if (config.BootMode.IsSet(BootMode.Force))
-                    {
-                        if (_cartridge.GBCMode == GBCMode.GBCOnly)
-                        {
-                            throw new ArgumentException("Trying to start GBC ROM with invalid Boot Mode");
-                        }
-
-                        mode = GBCMode.NoGBC;
-                    }
-                    else
-                    {
-                        mode = _cartridge.GBCMode == GBCMode.GBCOnly ? GBCMode.GBCOnly : GBCMode.NoGBC;
-                        gbcBootRom = mode == GBCMode.GBCOnly;
-                    }
-                }
-                else if (sgbModel == SgbModel.None && config.BootMode.IsSet(BootMode.GBC))
-                {
-                    gbcBootRom = true;
-
-                    if (config.BootMode.IsSet(BootMode.Force))
-                    {
-                        mode = _cartridge.GBCMode == GBCMode.NoGBC
-                            ? GBCMode.GBCCompatibility
-                            : _cartridge.GBCMode;
-                    }
-                    else
-                    {
-                        mode = _cartridge.GBCMode == GBCMode.NoGBC
-                            ? GBCMode.GBCCompatibility
-                            : _cartridge.GBCMode;
-                    }
-                }
-
-                useBootRom = useBootRom && (sgbModel == SgbModel.None
-                    ? _bootROM.TrySetBootMode(gbcBootRom, config.BootMode.IsSet(BootMode.Short))
-                    : _bootROM.TrySetSgbBootMode(sgbModel));
-
-                _clockRate = sgbModel == SgbModel.Sgb
-                    ? GameBoySchema.SGB_NTSC_CLOCK_CYCLES
-                    : GameBoySchema.MAX_DMG_CLOCK_CYCLES;
-                _mmu.Init(mode, sgbModel);
+                _clockRate = GameBoySchema.MAX_DMG_CLOCK_CYCLES;
+                _mmu.Init(mode, _hardwareModel);
                 _apu.Reset();
                 _timerState.Reset(useBootRom, mode);
-                _cpu.Reset(useBootRom, mode, sgbModel);
+                _cpu.Reset(useBootRom, _hardwareModel, mode);
                 _gpu.Reset(mode, useBootRom);
                 _sgb.Reset(sgbModel, _cartridge.ROMBytes, useBootRom);
 
                 _hasStarted = true;
                 _running = true;
-                _stateIdentity = ComputeStateIdentity(mode, sgbModel);
+                _stateIdentity = ComputeStateIdentity(_hardwareModel, useBootRom);
                 return true;
             }
             catch
@@ -566,21 +485,49 @@ namespace GBZEmuLibrary
             }
         }
 
+        private static void ValidateHardwareModel(HardwareModel model)
+        {
+            if (!Enum.IsDefined(typeof(HardwareModel), model))
+            {
+                throw new ArgumentOutOfRangeException(nameof(model), model, "Unknown hardware model.");
+            }
+
+            if (!HardwareModelMetadata.IsImplemented(model))
+            {
+                throw new NotSupportedException($"Hardware model {model} is not implemented.");
+            }
+        }
+
+        private static GBCMode ResolveExecutionMode(HardwareModel model, GBCMode cartridgeMode)
+        {
+            if (model == HardwareModel.CgbE)
+            {
+                return cartridgeMode == GBCMode.NoGBC ? GBCMode.GBCCompatibility : cartridgeMode;
+            }
+
+            return GBCMode.NoGBC;
+        }
+
         /// <summary>
-        /// Hashes ROM and selected firmware identities without embedding copyrighted firmware bytes in state files.
+        /// Hashes ROM, concrete hardware, boot kind, and active firmware identity without storing firmware in states.
         /// </summary>
-        private byte[] ComputeStateIdentity(GBCMode mode, SgbModel sgbModel)
+        private byte[] ComputeStateIdentity(HardwareModel model, bool usingBootRom)
         {
             using (var sha256 = SHA256.Create())
+            using (var stream = new MemoryStream())
             {
                 var romHash = sha256.ComputeHash(_cartridge.ROMBytes);
-                var bootHash = sha256.ComputeHash(_bootROM.Bytes ?? new byte[0]);
-                var combined = new byte[romHash.Length + bootHash.Length + 2];
-                Buffer.BlockCopy(romHash, 0, combined, 0, romHash.Length);
-                Buffer.BlockCopy(bootHash, 0, combined, romHash.Length, bootHash.Length);
-                combined[combined.Length - 2] = (byte)mode;
-                combined[combined.Length - 1] = (byte)sgbModel;
-                return sha256.ComputeHash(combined);
+                stream.Write(romHash, 0, romHash.Length);
+                stream.WriteByte((byte)model);
+                stream.WriteByte(usingBootRom ? (byte)1 : (byte)0);
+
+                if (usingBootRom)
+                {
+                    var bootHash = sha256.ComputeHash(_bootROM.Bytes);
+                    stream.Write(bootHash, 0, bootHash.Length);
+                }
+
+                return sha256.ComputeHash(stream.ToArray());
             }
         }
     }

@@ -157,11 +157,11 @@ public sealed class DmaTests
         File.WriteAllBytes(rom.Path, romBytes);
 
         var emulator = new Emulator();
-        Assert.True(emulator.Start(new Emulator.Config
+        Assert.True(emulator.Start(new Emulator.Config(HardwareModel.CgbE)
         {
             ROMPath = rom.Path,
             SaveLocation = Path.GetTempPath(),
-            BootMode = BootMode.GBC | BootMode.Force | BootMode.Skip
+            BootRom = BootRomConfig.Skip()
         }));
 
         for (var index = 0; index < 0x10; index++)

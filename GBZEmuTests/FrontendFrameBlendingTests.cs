@@ -103,17 +103,18 @@ public sealed class FrontendFrameBlendingTests
     /// Verifies CGB correction is limited to native CGB presentation and can be bypassed explicitly.
     /// </summary>
     [Theory]
-    [InlineData(false, true, false, true)]
-    [InlineData(true, true, false, false)]
-    [InlineData(false, false, false, false)]
-    [InlineData(false, true, true, false)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, false, true)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbOnly, false, true)]
+    [InlineData(HardwareModel.DmgB, CartridgeCompatibility.CgbCompatible, false, false)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.DmgOnly, false, false)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, true, false)]
     public void CgbCorrectionRequiresNativeCgbPresentation(
-        bool forceDmg,
-        bool cgbCartridge,
+        HardwareModel hardwareModel,
+        CartridgeCompatibility compatibility,
         bool rawColors,
         bool expected)
     {
-        Assert.Equal(expected, Frontend.ShouldCorrectCgbColors(forceDmg, cgbCartridge, rawColors));
+        Assert.Equal(expected, Frontend.ShouldCorrectCgbColors(hardwareModel, compatibility, rawColors));
     }
 
     /// <summary>

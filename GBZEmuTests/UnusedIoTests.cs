@@ -56,11 +56,11 @@ public sealed class UnusedIoTests
     {
         using var rom = TestRom.Create(0x00);
         var emulator = new Emulator();
-        Assert.True(emulator.Start(new Emulator.Config
+        Assert.True(emulator.Start(new Emulator.Config(HardwareModel.CgbE)
         {
             ROMPath = rom.Path,
             SaveLocation = Path.GetTempPath(),
-            BootMode = BootMode.GBC | BootMode.Force | BootMode.Skip
+            BootRom = BootRomConfig.Skip()
         }));
 
         emulator.Debug.PokeByte(0x03, MemorySchema.SWITCHABLE_WORK_RAM_REGISTER);

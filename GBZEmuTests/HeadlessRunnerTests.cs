@@ -26,8 +26,8 @@ public sealed class HeadlessRunnerTests
             "--capture-every", "5",
             "--output", output,
             "--audio-out", Path.Combine(output, "startup.raw"),
-            "--skip-bios",
-            "--dmg",
+            "--skip-bootrom",
+            "--model", "DmgB",
             "--input", "3:Start:down",
             "--input", "4:Start:up"
         ]);
@@ -37,7 +37,7 @@ public sealed class HeadlessRunnerTests
         Assert.Equal(15, options.CaptureEndFrame);
         Assert.Equal(5, options.CaptureEvery);
         Assert.True(options.SkipBootROM);
-        Assert.True(options.ForceDMG);
+        Assert.Equal(HardwareModel.DmgB, options.HardwareModel);
         Assert.Equal(Path.GetFullPath(output), options.OutputDirectory);
         Assert.Equal(Path.Combine(Path.GetFullPath(output), "startup.raw"), options.AudioOutputPath);
         Assert.Equal([
@@ -68,22 +68,23 @@ public sealed class HeadlessRunnerTests
                 "--capture-every", "2",
                 "--output", output,
                 "--audio-out", Path.Combine(output, "audio.raw"),
-                "--skip-bios",
-                "--dmg"
+                "--skip-bootrom",
+                "--model", "DmgB"
             ]);
 
             var reportPath = new HeadlessRunner().Run(options);
             var report = JsonSerializer.Deserialize<HeadlessReport>(File.ReadAllText(reportPath));
 
             Assert.NotNull(report);
-            Assert.Equal(1, report.FormatVersion);
+            Assert.Equal(2, report.FormatVersion);
             Assert.Equal(Path.GetFileName(rom.Path), report.ROMFile);
             Assert.Equal(64, report.ROMSHA256.Length);
             Assert.Equal(4, report.FramesExecuted);
             Assert.Equal(2, report.CaptureStartFrame);
             Assert.Equal(4, report.CaptureEndFrame);
             Assert.Equal(2, report.CaptureEvery);
-            Assert.Equal("DMG, Skip, Force", report.BootMode);
+            Assert.Equal(nameof(HardwareModel.DmgB), report.HardwareModel);
+            Assert.Equal(nameof(BootRomSource.Skip), report.BootRomSource);
             Assert.Empty(report.InputEvents);
             Assert.NotNull(report.Audio);
             Assert.Equal(Sound.SAMPLE_RATE, report.Audio.SampleRate);

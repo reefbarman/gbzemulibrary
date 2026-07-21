@@ -8,21 +8,21 @@ namespace GBZEmuTests;
 /// </summary>
 public sealed class SgbTests
 {
-    [Theory]
-    [InlineData(BootMode.SGB, 0x01)]
-    [InlineData(BootMode.SGB2, 0xFF)]
-    public void BuiltInSgbBootRomHandsOffWithModelRegisters(BootMode mode, int expectedAccumulator)
+    [Fact]
+    public void BuiltInSgb2BootRomHandsOffWithModelRegistersAndNormalClock()
     {
         using var rom = CreateSgbRom();
-        var emulator = Start(rom, mode);
+        var emulator = Start(rom, BootRomConfig.BuiltIn());
 
         Assert.True(emulator.Debug.RunUntilProgramCounter(0x100, 100));
         var cpu = emulator.Debug.GetCpuState();
-        Assert.Equal((ushort)(expectedAccumulator << 8), cpu.AF);
+        Assert.Equal(0xFF00, cpu.AF);
         Assert.Equal(0x0014, cpu.BC);
         Assert.Equal(0x0000, cpu.DE);
         Assert.Equal(0xC060, cpu.HL);
         Assert.Equal(0xFFFE, cpu.SP);
+        Assert.Equal(GameBoySchema.MAX_DMG_CLOCK_CYCLES, emulator.ClockRate);
+        Assert.Equal((double)GameBoySchema.MAX_DMG_CLOCK_CYCLES / Display.CLOCK_CYCLES_PER_FRAME, emulator.FrameRate);
         Assert.True(emulator.IsSuperGameBoy);
         emulator.Terminate();
     }
@@ -31,7 +31,7 @@ public sealed class SgbTests
     public void SgbAddsCompositeFrameWithoutChangingRawFramebufferContract()
     {
         using var rom = CreateSgbRom();
-        var emulator = Start(rom, BootMode.SGB | BootMode.Skip);
+        var emulator = Start(rom, BootRomConfig.Skip());
 
         Assert.Equal(Display.HORIZONTAL_RESOLUTION, emulator.GetScreenData().GetLength(0));
         Assert.Equal(Display.VERTICAL_RESOLUTION, emulator.GetScreenData().GetLength(1));
@@ -44,7 +44,7 @@ public sealed class SgbTests
     public void SgbSkipBootLeavesBothJoypadSelectionLinesInactive()
     {
         using var rom = CreateSgbRom();
-        var emulator = Start(rom, BootMode.SGB | BootMode.Skip);
+        var emulator = Start(rom, BootRomConfig.Skip());
 
         Assert.Equal(0xFF, emulator.Debug.PeekByte(MemorySchema.JOYPAD_REGISTER));
         Assert.Equal(0xF0, emulator.Debug.PeekByte(APUSchema.SOUND_ENABLED));
@@ -58,7 +58,7 @@ public sealed class SgbTests
         var gpu = new GPU(bus);
         var sgb = new SgbSystem(gpu);
         var joypad = new Joypad(bus, sgb);
-        sgb.Reset(SgbModel.Sgb, CreateValidHeader(), usingBootROM: false);
+        sgb.Reset(SgbModel.Sgb2, CreateValidHeader(), usingBootROM: false);
 
         var packet = new byte[16];
         packet[0] = 0x01; // PAL01, one packet
@@ -79,7 +79,7 @@ public sealed class SgbTests
         var gpu = new GPU(bus);
         var sgb = new SgbSystem(gpu);
         var joypad = new Joypad(bus, sgb);
-        sgb.Reset(SgbModel.Sgb, CreateValidHeader(), usingBootROM: false);
+        sgb.Reset(SgbModel.Sgb2, CreateValidHeader(), usingBootROM: false);
 
         var packet = new byte[16];
         packet[0] = 0x89; // MLT_REQ, one packet
@@ -100,7 +100,7 @@ public sealed class SgbTests
         var gpu = new GPU(bus);
         var sgb = new SgbSystem(gpu);
         var joypad = new Joypad(bus, sgb);
-        sgb.Reset(SgbModel.Sgb, CreateValidHeader(), usingBootROM: false);
+        sgb.Reset(SgbModel.Sgb2, CreateValidHeader(), usingBootROM: false);
 
         var source = gpu.GetScreenData();
         for (var row = 0; row < 8; row++)
@@ -126,19 +126,6 @@ public sealed class SgbTests
         Assert.Equal(0, pixel.B);
     }
 
-    [Fact]
-    public void FrontendExposesDistinctSgbAndSgb2Selections()
-    {
-        using var rom = CreateSgbRom();
-        var sgb = FrontendOptions.Parse(new[] { rom.Path, "--sgb" });
-        var sgb2 = FrontendOptions.Parse(new[] { rom.Path, "--sgb2" });
-
-        Assert.True(sgb.ForceSGB);
-        Assert.False(sgb.ForceSGB2);
-        Assert.True(sgb2.ForceSGB2);
-        Assert.False(sgb2.ForceSGB);
-        Assert.Throws<ArgumentException>(() => FrontendOptions.Parse(new[] { rom.Path, "--dmg", "--sgb" }));
-    }
 
     private static void SendPacket(Joypad joypad, byte[] packet)
     {
@@ -195,14 +182,14 @@ public sealed class SgbTests
         return bytes;
     }
 
-    private static Emulator Start(TestRom rom, BootMode mode)
+    private static Emulator Start(TestRom rom, BootRomConfig bootRom)
     {
         var emulator = new Emulator();
-        Assert.True(emulator.Start(new Emulator.Config
+        Assert.True(emulator.Start(new Emulator.Config(HardwareModel.Sgb2)
         {
             ROMPath = rom.Path,
             SaveLocation = Path.GetTempPath(),
-            BootMode = mode
+            BootRom = bootRom
         }));
         return emulator;
     }

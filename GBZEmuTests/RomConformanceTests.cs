@@ -25,7 +25,7 @@ internal static class RomConformanceTestCases
     {
         var test = CasesById.Value[testId];
         Assert.True(File.Exists(test.RomPath), $"Missing ROM fixture: {test.RomPath}");
-        using var runner = new RomTestRunner(test.RomPath, test.BootMode);
+        using var runner = new RomTestRunner(test.RomPath, test.HardwareModel);
 
         switch (test.Protocol)
         {
@@ -49,7 +49,7 @@ internal static class RomConformanceTestCases
                 Assert.NotNull(test.ReferenceImagePath);
                 Assert.True(File.Exists(test.ReferenceImagePath), $"Missing reference image: {test.ReferenceImagePath}");
                 runner.RunToLoadBB(test.MaxFrames);
-                var difference = FramebufferComparer.Compare(runner.Emulator.GetScreenData(), test.ReferenceImagePath, test.Hardware);
+                var difference = FramebufferComparer.Compare(runner.Emulator.GetScreenData(), test.ReferenceImagePath, test.HardwareModel);
                 if (difference != null)
                 {
                     throw new InvalidOperationException($"Framebuffer mismatch: {difference}");

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using GBZEmuLibrary;
 
 namespace GBZEmuTests;
@@ -78,11 +79,11 @@ public sealed class TimeControlTests
         bytes[0x143] = 0x80;
         File.WriteAllBytes(rom.Path, bytes);
         var emulator = new Emulator();
-        Assert.True(emulator.Start(new Emulator.Config
+        Assert.True(emulator.Start(new Emulator.Config(HardwareModel.CgbE)
         {
             ROMPath = rom.Path,
             SaveLocation = Path.GetTempPath(),
-            BootMode = BootMode.GBC | BootMode.Skip
+            BootRom = BootRomConfig.Skip()
         }));
 
         emulator.Debug.PokeByte(0x01, MemorySchema.GPU_VRAM_BANK_REGISTER);
@@ -119,6 +120,80 @@ public sealed class TimeControlTests
 
         first.Terminate();
         second.Terminate();
+    }
+
+    [Fact]
+    public void SaveStateIdentityIncludesConcreteHardwareModel()
+    {
+        using var rom = CreateCounterRom();
+        var dmg = Start(rom, HardwareModel.DmgB, BootRomConfig.Skip());
+        var sgb2 = Start(rom, HardwareModel.Sgb2, BootRomConfig.Skip());
+        var state = dmg.CaptureState();
+
+        Assert.Throws<InvalidOperationException>(() => sgb2.RestoreState(state));
+        dmg.Terminate();
+        sgb2.Terminate();
+    }
+
+    [Fact]
+    public void SaveStateIdentitySeparatesSkipAndFirmwareBoot()
+    {
+        using var rom = CreateCounterRom();
+        var skipped = Start(rom, HardwareModel.DmgB, BootRomConfig.Skip());
+        var booted = Start(rom, HardwareModel.DmgB, BootRomConfig.BuiltIn());
+        var state = skipped.CaptureState();
+
+        Assert.Throws<InvalidOperationException>(() => booted.RestoreState(state));
+        skipped.Terminate();
+        booted.Terminate();
+    }
+
+    [Fact]
+    public void SaveStateIdentityMatchesByteIdenticalBuiltInAndExternalFirmware()
+    {
+        using var rom = CreateCounterRom();
+        var builtInBytes = ReadBuiltInFirmware("dmg_boot.bin");
+        var builtIn = Start(rom, HardwareModel.DmgB, BootRomConfig.BuiltIn());
+        var external = Start(rom, HardwareModel.DmgB, BootRomConfig.ExternalBytes(builtInBytes));
+        var state = builtIn.CaptureState();
+
+        external.RestoreState(state);
+        builtIn.Terminate();
+        external.Terminate();
+    }
+
+    [Fact]
+    public void SaveStateIdentityRejectsDifferentActiveFirmware()
+    {
+        using var rom = CreateCounterRom();
+        var firstImage = new byte[0x100];
+        var secondImage = new byte[0x100];
+        firstImage[0] = 0x01;
+        secondImage[0] = 0x02;
+        var first = Start(rom, HardwareModel.DmgB, BootRomConfig.ExternalBytes(firstImage));
+        var second = Start(rom, HardwareModel.DmgB, BootRomConfig.ExternalBytes(secondImage));
+        var state = first.CaptureState();
+
+        Assert.Throws<InvalidOperationException>(() => second.RestoreState(state));
+        first.Terminate();
+        second.Terminate();
+    }
+
+    [Fact]
+    public void OldSaveStateVersionIsRejectedWithoutMigration()
+    {
+        using var rom = CreateCounterRom();
+        var emulator = EmulatorFactory.Start(rom);
+        var bytes = emulator.CaptureState().ToArray();
+        BitConverter.GetBytes(EmulatorState.CurrentFormatVersion - 1).CopyTo(bytes, 8);
+        using (var sha256 = SHA256.Create())
+        {
+            var checksum = sha256.ComputeHash(bytes, 0, bytes.Length - 32);
+            checksum.CopyTo(bytes, bytes.Length - checksum.Length);
+        }
+
+        Assert.Throws<NotSupportedException>(() => EmulatorState.FromArray(bytes));
+        emulator.Terminate();
     }
 
     [Fact]
@@ -220,6 +295,37 @@ public sealed class TimeControlTests
         emulator.Terminate();
 
         Assert.Throws<InvalidOperationException>(() => emulator.RestoreState(state));
+    }
+
+    private static Emulator Start(TestRom rom, HardwareModel model, BootRomConfig bootRom)
+    {
+        var emulator = new Emulator();
+        Assert.True(emulator.Start(new Emulator.Config(model)
+        {
+            ROMPath = rom.Path,
+            SaveLocation = Path.GetTempPath(),
+            BootRom = bootRom
+        }));
+        return emulator;
+    }
+
+    private static byte[] ReadBuiltInFirmware(string name)
+    {
+        var path = Path.Combine(
+            AppContext.BaseDirectory,
+            "Resources",
+            name);
+
+        if (File.Exists(path))
+        {
+            return File.ReadAllBytes(path);
+        }
+
+        var repositoryPath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..", "..", "..", "..",
+            "GBZEmuLibrary", "Resources", name));
+        return File.ReadAllBytes(repositoryPath);
     }
 
     private static TestRom CreateCounterRom()

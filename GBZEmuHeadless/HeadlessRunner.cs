@@ -34,21 +34,29 @@ public sealed class HeadlessRunner
         Directory.CreateDirectory(options.SaveDirectory);
         DeletePreviousCaptures(options.OutputDirectory);
 
-        var bootMode = options.ForceDMG ? BootMode.DMG | BootMode.Force : BootMode.GBC;
-        if (options.SkipBootROM)
+        var compatibility = CartridgeMetadata.Read(options.ROMPath).Compatibility;
+        var hardwareModel = options.HardwareModel ?? ResolveAutomaticHardwareModel(compatibility);
+        if (HardwareModelMetadata.IsImplemented(hardwareModel) &&
+            !HardwareModelMetadata.SupportsCartridge(hardwareModel, compatibility))
         {
-            bootMode |= BootMode.Skip;
+            throw new ArgumentException(
+                $"Hardware model {hardwareModel} does not support {compatibility} cartridges.");
         }
+
+        var bootRom = options.SkipBootROM
+            ? BootRomConfig.Skip()
+            : options.BootROMPath == null
+                ? BootRomConfig.BuiltIn()
+                : BootRomConfig.ExternalFile(options.BootROMPath);
 
         var emulator = new Emulator();
         try
         {
-            if (!emulator.Start(new Emulator.Config
+            if (!emulator.Start(new Emulator.Config(hardwareModel)
             {
                 ROMPath = options.ROMPath,
                 SaveLocation = options.SaveDirectory,
-                BootROMPaths = options.BootROMPaths.ToArray(),
-                BootMode = bootMode
+                BootRom = bootRom
             }))
             {
                 throw new InvalidOperationException($"Failed to load ROM: {options.ROMPath}");
@@ -101,7 +109,8 @@ public sealed class HeadlessRunner
                 CaptureStartFrame = options.CaptureStartFrame,
                 CaptureEndFrame = options.CaptureEndFrame,
                 CaptureEvery = options.CaptureEvery,
-                BootMode = bootMode.ToString(),
+                HardwareModel = hardwareModel.ToString(),
+                BootRomSource = bootRom.Source.ToString(),
                 Audio = audioCapture?.Complete(),
                 InputEvents = options.InputEvents.Select(input => new HeadlessInputEventReport
                 {
@@ -122,6 +131,13 @@ public sealed class HeadlessRunner
         {
             emulator.Terminate();
         }
+    }
+
+    private static HardwareModel ResolveAutomaticHardwareModel(CartridgeCompatibility compatibility)
+    {
+        return compatibility == CartridgeCompatibility.DmgOnly
+            ? HardwareModel.DmgB
+            : HardwareModel.CgbE;
     }
 
     private sealed class RawAudioCapture : IDisposable

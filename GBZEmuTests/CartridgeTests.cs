@@ -495,11 +495,11 @@ public sealed class CartridgeTests
     private static Emulator StartWithSaveDirectory(TestRom rom, string saveDirectory)
     {
         var emulator = new Emulator();
-        Assert.True(emulator.Start(new Emulator.Config
+        Assert.True(emulator.Start(new Emulator.Config(HardwareModel.DmgB)
         {
             ROMPath = rom.Path,
             SaveLocation = saveDirectory,
-            BootMode = BootMode.DMG | BootMode.Skip
+            BootRom = BootRomConfig.Skip()
         }));
         return emulator;
     }

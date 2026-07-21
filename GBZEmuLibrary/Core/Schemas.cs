@@ -56,7 +56,6 @@
     internal class GameBoySchema
     {
         public const int MAX_DMG_CLOCK_CYCLES = 4194304;
-        public const int SGB_NTSC_CLOCK_CYCLES = 21477272 / 5;
         public const int MAX_AUDIO_FRAMES_PER_VIDEO_FRAME = (int)
             (((long)Sound.SAMPLE_RATE * Display.CLOCK_CYCLES_PER_FRAME + MAX_DMG_CLOCK_CYCLES - 1) / MAX_DMG_CLOCK_CYCLES);
     }
@@ -148,7 +147,6 @@
     internal enum SgbModel
     {
         None,
-        Sgb,
         Sgb2
     }
 

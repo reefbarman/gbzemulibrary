@@ -1,3 +1,5 @@
+using GBZEmuLibrary;
+
 namespace GBZEmuTests;
 
 public sealed class FixtureIntegrityTests
@@ -63,18 +65,18 @@ public sealed class FixtureIntegrityTests
     {
         var tests = RomManifest.Load().Tests.ToDictionary(test => test.Id, StringComparer.Ordinal);
 
-        Assert.Equal(HardwareMode.Cgb, tests["samesuite/apu/channel_2/channel_2_nrx2_glitch"].Hardware);
-        Assert.Equal(HardwareMode.Cgb, tests["samesuite/apu/channel_2/channel_2_nrx2_speed_change"].Hardware);
-        Assert.Equal(HardwareMode.Sgb, tests["samesuite/sgb/command_mlt_req"].Hardware);
-        Assert.Equal(HardwareMode.Sgb, tests["mooneye/acceptance/boot_div-S"].Hardware);
-        Assert.Equal(HardwareMode.Sgb, tests["mooneye/acceptance/boot_div2-S"].Hardware);
-        Assert.Equal(HardwareMode.Sgb, tests["mooneye/acceptance/boot_hwio-S"].Hardware);
-        Assert.Equal(HardwareMode.Sgb, tests["mooneye/acceptance/boot_regs-sgb"].Hardware);
-        Assert.Equal(HardwareMode.Sgb2, tests["mooneye/acceptance/boot_regs-sgb2"].Hardware);
+        Assert.Equal(HardwareModel.CgbE, tests["samesuite/apu/channel_2/channel_2_nrx2_glitch"].HardwareModel);
+        Assert.Equal(HardwareModel.CgbE, tests["samesuite/apu/channel_2/channel_2_nrx2_speed_change"].HardwareModel);
+        Assert.DoesNotContain("samesuite/sgb/command_mlt_req", tests.Keys);
+        Assert.DoesNotContain("mooneye/acceptance/boot_div-S", tests.Keys);
+        Assert.DoesNotContain("mooneye/acceptance/boot_div2-S", tests.Keys);
+        Assert.DoesNotContain("mooneye/acceptance/boot_hwio-S", tests.Keys);
+        Assert.DoesNotContain("mooneye/acceptance/boot_regs-sgb", tests.Keys);
+        Assert.Equal(HardwareModel.Sgb2, tests["mooneye/acceptance/boot_regs-sgb2"].HardwareModel);
         Assert.Contains("DMG-CPU-0", tests["mooneye/acceptance/boot_regs-dmg0"].SkipReason);
         Assert.Contains("MGB startup", tests["mooneye/acceptance/boot_regs-mgb"].SkipReason);
         Assert.Contains("original DMG ABC/MGB boot-ROM I/O handoff phase", tests["mooneye/acceptance/boot_hwio-dmgABCmgb"].SkipReason);
-        Assert.Contains("original SGB/SGB2 boot-ROM DIV phase", tests["mooneye/acceptance/boot_div-S"].SkipReason);
+
     }
 
     /// <summary>

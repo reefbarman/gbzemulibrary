@@ -152,7 +152,7 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Resets CPU registers, execution state, and startup values for the selected hardware mode.
         /// </summary>
-        public void Reset(bool usingBootROM, GBCMode gbcMode, SgbModel sgbModel = SgbModel.None)
+        public void Reset(bool usingBootROM, HardwareModel hardwareModel, GBCMode gbcMode)
         {
             _gbcMode = gbcMode;
             _pendingInterruptEnabled = -1;
@@ -168,13 +168,14 @@ namespace GBZEmuLibrary
             {
                 _mmu.WriteByte(0, MemorySchema.BOOT_ROM_DISABLE_REGISTER);
 
-                var accumulator = _gbcMode != GBCMode.NoGBC ? 0x11
-                    : sgbModel == SgbModel.Sgb2 ? 0xFF
+                var sgb2 = hardwareModel == HardwareModel.Sgb2;
+                var accumulator = hardwareModel == HardwareModel.CgbE ? 0x11
+                    : sgb2 ? 0xFF
                     : 0x01;
-                _registers.AF = (ushort)((accumulator << 8) | (sgbModel == SgbModel.None ? 0xB0 : 0x00));
-                _registers.BC = (ushort)(sgbModel == SgbModel.None ? 0x0013 : 0x0014);
-                _registers.DE = (ushort)(sgbModel == SgbModel.None ? 0x00D8 : 0x0000);
-                _registers.HL = (ushort)(sgbModel == SgbModel.None ? 0x014D : 0xC060);
+                _registers.AF = (ushort)((accumulator << 8) | (sgb2 ? 0x00 : 0xB0));
+                _registers.BC = (ushort)(sgb2 ? 0x0014 : 0x0013);
+                _registers.DE = (ushort)(sgb2 ? 0x0000 : 0x00D8);
+                _registers.HL = (ushort)(sgb2 ? 0xC060 : 0x014D);
 
                 _sp.SP = 0xFFFE;
                 _pc = 0x100;

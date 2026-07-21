@@ -288,11 +288,11 @@ public sealed class TimerTests
         File.WriteAllBytes(rom.Path, romBytes);
 
         var emulator = new Emulator();
-        Assert.True(emulator.Start(new Emulator.Config
+        Assert.True(emulator.Start(new Emulator.Config(HardwareModel.CgbE)
         {
             ROMPath = rom.Path,
             SaveLocation = Path.GetTempPath(),
-            BootMode = BootMode.GBC | BootMode.Force | BootMode.Skip
+            BootRom = BootRomConfig.Skip()
         }));
         emulator.Debug.LoadBBExecuted += emulator.Debug.RequestStop;
 

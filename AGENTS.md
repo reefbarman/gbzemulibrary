@@ -66,7 +66,7 @@ Do not claim concurrent multi-instance or thread-safe support without first remo
 Treat these as compatibility-sensitive:
 
 - `Emulator.Start`, `Update`, `Terminate`, input methods, channel toggles, and output getters;
-- `Emulator.Config` fields and `BootMode` values;
+- `Emulator.Config(HardwareModel)`, `HardwareModel` values, and immutable `BootRomConfig` choices;
 - `Display` dimensions and `Sound.SAMPLE_RATE`;
 - framebuffer indexing as `Color[x, y]` at 160×144;
 - audio as fixed-rate interleaved `left, right` byte amplitudes;
@@ -112,9 +112,9 @@ Treat these as compatibility-sensitive:
 
 ### Boot behavior
 
-`Emulator.Config` accepts boot-ROM bytes or a path at runtime. `Core/BootROM.cs` validates and stores 256-byte DMG and 2304-byte CGB images; no firmware is distributed. If the requested image is unavailable, startup falls back to post-boot initialization. `BootMode.Short` applies the existing shortened-animation patch only to a private DMG-image copy.
+`Emulator.Config(HardwareModel)` requires a concrete model and accepts one immutable `BootRomConfig`: built-in firmware, an external file, external bytes, or skip. `Core/BootROM.cs` validates exact model-specific images: 256 bytes for DMG-B and SGB2, and 2304 bytes for CGB-E. External byte-backed configuration and active firmware storage must remain privately owned. Built-in replacement firmware is maintained under `GBZEmuLibrary/BootROMs/`; official Nintendo firmware is never distributed.
 
-Do not commit copyrighted firmware. Any boot change must cover DMG-only, CGB-compatible, and CGB-only cartridge headers plus `DMG`, `GBC`, `Skip`, `Short`, and `Force` combinations. Preserve the DMG overlay at `0x0000–0x00FF`, the additional CGB overlay at `0x0200–0x08FF`, and fallback to cartridge ROM outside the selected image.
+Any boot change must cover DMG-only, CGB-compatible, and CGB-only cartridge headers across implemented DMG-B, CGB-E, and SGB2 models and all four firmware choices where applicable. MGB and AGB-A must fail as defined but unimplemented models before firmware lookup. Preserve the DMG/SGB2 overlay at `0x0000–0x00FF`, the additional CGB-E overlay at `0x0200–0x08FF`, and fallback to cartridge ROM outside the selected image.
 
 ## Coding conventions
 
@@ -161,7 +161,7 @@ dotnet run --project GBZEmuHeadless -c Release -- <rom-path> \
   --output runtime/captures/<case>
 ```
 
-Frames are numbered from 1 after each `Emulator.Update()`. Use repeated `--input <frame>:<button>:down|up` options for deterministic input, and `--dmg`, `--skip-bios`, or repeated `--bootrom <path>` options to control hardware and boot paths. Inspect the generated PPM frames and compare `report.json` framebuffer, palette, VRAM, CPU, and PPU hashes/state. Give each run an isolated `--output` directory and do not commit captures, commercial ROMs, firmware, or generated saves. Headless evidence supplements focused xUnit tests and committed ROM oracles; it does not replace or weaken them.
+Frames are numbered from 1 after each `Emulator.Update()`. Use repeated `--input <frame>:<button>:down|up` options for deterministic input, `--model <DmgB|CgbE|Sgb2|Mgb|AgbA>` for concrete hardware selection, and either `--bootrom <path>` or `--skip-bootrom` for firmware policy. Inspect the generated PPM frames and compare `report.json` framebuffer, palette, VRAM, CPU, and PPU hashes/state. Give each run an isolated `--output` directory and do not commit captures, commercial ROMs, proprietary firmware, or generated saves. Headless evidence supplements focused xUnit tests and committed ROM oracles; it does not replace or weaken them.
 
 For behavior changes:
 
@@ -183,7 +183,7 @@ Update `README.md` whenever a change affects:
 
 - build requirements or target framework;
 - public lifecycle, input, video, or audio contracts;
-- boot-ROM expectations or `BootMode` behavior;
+- hardware-model compatibility or boot-ROM source behavior;
 - supported cartridge controllers or known hardware gaps;
 - save filename/location behavior;
 - Unity/host integration constraints.

@@ -3,19 +3,13 @@ using GBZEmuLibrary;
 namespace GBZEmuTests;
 
 /// <summary>
-/// Verifies the embedded GBZEmu boot ROMs: they run when no host image is supplied, they hand
-/// off to the cartridge with the same register and I/O state as the skip-boot profile, and the
-/// Skip and host-supplied boot ROM paths keep their existing behavior.
+/// Verifies concrete hardware selection, typed firmware inputs, model-specific overlays, and retained boot handoffs.
 /// </summary>
 public sealed class BootRomTests
 {
     private const ushort CartridgeEntryPoint = 0x100;
     private const int LongBootFrameBudget = 400;
 
-    /// <summary>
-    /// Registers covered by the emulator's skip-boot profile that a completed boot must reproduce.
-    /// Timing-dependent registers (DIV, LY) are intentionally absent.
-    /// </summary>
     private static readonly int[] SkipProfileRegisters =
     {
         0xFF40, 0xFF42, 0xFF43, 0xFF45, 0xFF47, 0xFF48, 0xFF49, 0xFF4A, 0xFF4B,
@@ -23,26 +17,22 @@ public sealed class BootRomTests
         0xFF10, 0xFF11, 0xFF12, 0xFF14, 0xFF24, 0xFF25, 0xFF26
     };
 
-    /// <summary>
-    /// Verifies that hosts see a complete mode-appropriate startup blank rather than default struct memory before VBlank publishes the first emulated frame.
-    /// </summary>
     [Theory]
-    [InlineData(false, false)]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    [InlineData(true, true)]
-    public void Start_InitializesHostVisibleFramebufferBeforeFirstUpdate(bool gbc, bool skipBootRom)
+    [InlineData(HardwareModel.DmgB, CartridgeCompatibility.DmgOnly, false)]
+    [InlineData(HardwareModel.DmgB, CartridgeCompatibility.DmgOnly, true)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, false)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, true)]
+    [InlineData(HardwareModel.Sgb2, CartridgeCompatibility.DmgOnly, false)]
+    [InlineData(HardwareModel.Sgb2, CartridgeCompatibility.DmgOnly, true)]
+    public void Start_InitializesHostVisibleFramebufferBeforeFirstUpdate(
+        HardwareModel model,
+        CartridgeCompatibility compatibility,
+        bool skipBootRom)
     {
-        using var rom = CreateRom(gbc);
-        var bootMode = gbc ? BootMode.GBC : BootMode.DMG | BootMode.Force;
-        if (skipBootRom)
-        {
-            bootMode |= BootMode.Skip;
-        }
-
-        var emulator = Start(rom, bootMode);
+        using var rom = CreateRom(compatibility);
+        var emulator = Start(rom, model, skipBootRom ? BootRomConfig.Skip() : BootRomConfig.BuiltIn());
         var screen = emulator.GetScreenData();
-        var expected = gbc
+        var expected = model == HardwareModel.CgbE
             ? new Color(byte.MaxValue, byte.MaxValue, byte.MaxValue)
             : Display.DefaultPalette[0];
 
@@ -50,7 +40,8 @@ public sealed class BootRomTests
         {
             for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
             {
-                Assert.Equal((expected.R, expected.G, expected.B),
+                Assert.Equal(
+                    (expected.R, expected.G, expected.B),
                     (screen[x, y].R, screen[x, y].G, screen[x, y].B));
             }
         }
@@ -59,18 +50,17 @@ public sealed class BootRomTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void BuiltInBootRomMatchesSkipProfileAtHandoff(bool gbc)
+    [InlineData(HardwareModel.DmgB, CartridgeCompatibility.DmgOnly)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible)]
+    public void BuiltInBootRomMatchesModelSpecificSkipProfileAtHandoff(
+        HardwareModel model,
+        CartridgeCompatibility compatibility)
     {
-        using var rom = CreateRom(gbc);
-        var bootMode = gbc ? BootMode.GBC : BootMode.DMG | BootMode.Force;
-
-        var booted = Start(rom, bootMode);
+        using var rom = CreateRom(compatibility);
+        var booted = Start(rom, model, BootRomConfig.BuiltIn());
         Assert.True(booted.Debug.RunUntilProgramCounter(CartridgeEntryPoint, LongBootFrameBudget));
 
-        var skipped = Start(rom, bootMode | BootMode.Skip);
-
+        var skipped = Start(rom, model, BootRomConfig.Skip());
         var bootedState = booted.Debug.GetCpuState();
         var skippedState = skipped.Debug.GetCpuState();
 
@@ -93,29 +83,10 @@ public sealed class BootRomTests
     }
 
     [Fact]
-    public void ShortBootModeShortensTheDmgAnimation()
-    {
-        using var rom = CreateRom(gbc: false);
-
-        var shortBoot = Start(rom, BootMode.DMG | BootMode.Force | BootMode.Short);
-        Assert.True(shortBoot.Debug.RunUntilProgramCounter(CartridgeEntryPoint, 40));
-        shortBoot.Terminate();
-
-        var longBoot = Start(rom, BootMode.DMG | BootMode.Force);
-        Assert.False(longBoot.Debug.RunUntilProgramCounter(CartridgeEntryPoint, 40));
-        Assert.True(longBoot.Debug.RunUntilProgramCounter(CartridgeEntryPoint, LongBootFrameBudget));
-        longBoot.Terminate();
-    }
-
-    /// <summary>
-    /// The built-in DMG animation leaves its completed lockup visible long enough to avoid an
-    /// abrupt transition from the final scroll position into cartridge execution.
-    /// </summary>
-    [Fact]
     public void BuiltInDmgBootRomHoldsSettledLogoBeforeHandoff()
     {
-        using var rom = CreateRom(gbc: false);
-        var emulator = Start(rom, BootMode.DMG | BootMode.Force);
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
+        var emulator = Start(rom, HardwareModel.DmgB, BootRomConfig.BuiltIn());
         var sawScrolling = false;
 
         for (var frame = 0; frame < LongBootFrameBudget; frame++)
@@ -143,41 +114,29 @@ public sealed class BootRomTests
         emulator.Terminate();
     }
 
-    /// <summary>
-    /// A Nintendo-licensed DMG cart whose title checksum appears in the boot ROM hash table runs
-    /// in GBC compatibility mode, colorized by the palettes the boot ROM wrote.
-    /// </summary>
     [Fact]
     public void BuiltInCgbBootRomColorizesKnownDmgCart()
     {
-        using var rom = CreateRom(gbc: false);
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
         var bytes = File.ReadAllBytes(rom.Path);
-        bytes[0x134] = 0x88; // title checksum present in the hash table
-        bytes[0x14B] = 0x01; // Nintendo old-license code
+        bytes[0x134] = 0x88;
+        bytes[0x14B] = 0x01;
         File.WriteAllBytes(rom.Path, bytes);
 
-        var emulator = Start(rom, BootMode.GBC);
+        var emulator = Start(rom, HardwareModel.CgbE, BootRomConfig.BuiltIn());
         Assert.True(emulator.Debug.RunUntilProgramCounter(CartridgeEntryPoint, LongBootFrameBudget));
 
-        // The selected title combination installs black as BG palette 0 color 3
-        // instead of retaining the $FFFF power-on default.
         emulator.Debug.PokeByte(0x06, 0xFF68);
         Assert.Equal(0x00, emulator.Debug.PeekByte(0xFF69));
-
-        // BG palette 7 color 3 is the deep-navy fill where the reveal settles ($38C4).
         emulator.Debug.PokeByte(0x3E, 0xFF68);
         Assert.Equal(0xC4, emulator.Debug.PeekByte(0xFF69));
         emulator.Debug.PokeByte(0x3F, 0xFF68);
         Assert.Equal(0x38, emulator.Debug.PeekByte(0xFF69));
 
-        // Cartridge execution starts during vblank, matching the stock CGB firmware's
-        // phase closely enough that a first-frame interrupt cannot fire during line 0.
         var ppu = emulator.Debug.GetPpuState();
         Assert.Equal(144, ppu.ScanLine);
         Assert.Equal(1, ppu.Mode);
 
-        // Both tile maps are blank in both VRAM banks, while the boot ROM's tile data
-        // remains available just as it does after the stock CGB firmware hand-off.
         var retainedTileData = false;
         foreach (var bank in new byte[] { 0x00, 0x01 })
         {
@@ -194,25 +153,20 @@ public sealed class BootRomTests
         }
 
         Assert.True(retainedTileData);
-
         emulator.Debug.PokeByte(0x00, 0xFF4F);
         emulator.Terminate();
     }
 
-    /// <summary>
-    /// Donkey Kong Land's 16-byte title selects the stock combination with separate OBJ0, OBJ1, and BG palettes.
-    /// This guards the complete title-specific lookup rather than merely checking that a title hash is recognized.
-    /// </summary>
     [Fact]
     public void BuiltInCgbBootRomSelectsDonkeyKongLandPalettes()
     {
-        using var rom = CreateRom(gbc: false);
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
         var bytes = File.ReadAllBytes(rom.Path);
         "DONKEYKONGLAND95"u8.CopyTo(bytes.AsSpan(0x134, 16));
         bytes[0x14B] = 0x01;
         File.WriteAllBytes(rom.Path, bytes);
 
-        var emulator = Start(rom, BootMode.GBC | BootMode.Force);
+        var emulator = Start(rom, HardwareModel.CgbE, BootRomConfig.BuiltIn());
         Assert.True(emulator.Debug.RunUntilProgramCounter(CartridgeEntryPoint, LongBootFrameBudget));
 
         Assert.Equal(
@@ -229,34 +183,19 @@ public sealed class BootRomTests
     }
 
     [Fact]
-    public void SkipModeBypassesTheBuiltInBootRom()
+    public void SkipBootUsesCgbCompatibilityHandoffWithoutMappingFirmware()
     {
-        using var rom = CreateRom(gbc: false);
-        var emulator = Start(rom, BootMode.GBC | BootMode.Skip);
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
+        var emulator = Start(rom, HardwareModel.CgbE, BootRomConfig.Skip());
 
         Assert.Equal(CartridgeEntryPoint, emulator.Debug.GetCpuState().PC);
-        Assert.Equal(0x00, emulator.Debug.PeekByte(0x0000)); // cartridge, not boot ROM, is mapped
-        emulator.Terminate();
-    }
-
-    /// <summary>
-    /// Verifies that skipping the CGB boot ROM still supplies its default DMG-compatibility palette and tile handoff.
-    /// </summary>
-    [Fact]
-    public void SkipModeInstallsDefaultCgbCompatibilityHandoff()
-    {
-        using var rom = CreateRom(gbc: false);
-        var emulator = Start(rom, BootMode.GBC | BootMode.Skip);
-
+        Assert.Equal(0x00, emulator.Debug.PeekByte(0x0000));
         Assert.Equal(
             new byte[] { 0xFF, 0x7F, 0xEF, 0x1B, 0x80, 0x61, 0x00, 0x00 },
             ReadPalette(emulator, 0xFF68, 0xFF69, 0));
         Assert.Equal(
             new byte[] { 0xFF, 0x7F, 0x1F, 0x42, 0xF2, 0x1C, 0x00, 0x00 },
             ReadPalette(emulator, 0xFF6A, 0xFF6B, 0));
-        Assert.Equal(
-            new byte[] { 0xFF, 0x7F, 0x1F, 0x42, 0xF2, 0x1C, 0x00, 0x00 },
-            ReadPalette(emulator, 0xFF6A, 0xFF6B, 8));
         Assert.Equal(
             new byte[]
             {
@@ -268,73 +207,134 @@ public sealed class BootRomTests
         emulator.Terminate();
     }
 
-    [Fact]
-    public void HostSuppliedBootRomOverridesTheBuiltInImage()
+    [Theory]
+    [InlineData(HardwareModel.DmgB, 0x100)]
+    [InlineData(HardwareModel.CgbE, 0x900)]
+    [InlineData(HardwareModel.Sgb2, 0x100)]
+    public void ExternalByteArrayIsPrivatelyOwnedAndMappedForSelectedModel(HardwareModel model, int size)
     {
-        using var rom = CreateRom(gbc: false);
-
-        // A minimal image that unmaps itself immediately: jp $00FC; ld a, $01; ldh [$FF50], a.
-        var hostBootRom = new byte[0x100];
-        hostBootRom[0x00] = 0xC3;
-        hostBootRom[0x01] = 0xFC;
-        hostBootRom[0xFC] = 0x3E;
-        hostBootRom[0xFD] = 0x01;
-        hostBootRom[0xFE] = 0xE0;
-        hostBootRom[0xFF] = 0x50;
-
-        var emulator = new Emulator();
-        Assert.True(emulator.Start(new Emulator.Config
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
+        var image = new byte[size];
+        image[0] = 0xA5;
+        if (size > 0x200)
         {
-            ROMPath = rom.Path,
-            SaveLocation = Path.GetTempPath(),
-            BootROM = hostBootRom,
-            BootMode = BootMode.DMG | BootMode.Force
-        }));
+            image[0x200] = 0xC3;
+        }
 
-        // The built-in animation takes over 100 frames; an instant hand-off proves the host image ran.
-        Assert.True(emulator.Debug.RunUntilProgramCounter(CartridgeEntryPoint, 2));
+        var bootRom = BootRomConfig.ExternalBytes(image);
+        image[0] = 0x5A;
+        if (size > 0x200)
+        {
+            image[0x200] = 0x3C;
+        }
+
+        var emulator = Start(rom, model, bootRom);
+        Assert.Equal(0xA5, emulator.Debug.PeekByte(0x0000));
+        Assert.Equal(model == HardwareModel.CgbE ? 0xC3 : 0x00, emulator.Debug.PeekByte(0x0200));
         emulator.Terminate();
     }
 
-    /// <summary>
-    /// Config.BootROMPaths slots each file by size, so external DMG and CGB images can be
-    /// supplied together and each overrides the matching built-in image.
-    /// </summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void BootRomPathsFillBothSlotsBySize(bool gbc)
+    [InlineData(HardwareModel.DmgB, 0x100)]
+    [InlineData(HardwareModel.CgbE, 0x900)]
+    [InlineData(HardwareModel.Sgb2, 0x100)]
+    public void ExternalFileLoadsExactModelSpecificImage(HardwareModel model, int size)
     {
-        using var rom = CreateRom(gbc);
-
-        // Instant hand-off images: jp $00FC; ld a, $01; ldh [$FF50], a.
-        var dmgPath = WriteInstantBootRom(0x100);
-        var gbcPath = WriteInstantBootRom(0x900);
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
+        var path = WriteBootRom(size, 0x76);
 
         try
         {
-            var emulator = new Emulator();
-            Assert.True(emulator.Start(new Emulator.Config
-            {
-                ROMPath = rom.Path,
-                SaveLocation = Path.GetTempPath(),
-                BootROMPaths = new[] { dmgPath, gbcPath },
-                BootMode = gbc ? BootMode.GBC : BootMode.DMG | BootMode.Force
-            }));
-
-            // The built-in animations take over 100 frames; an instant hand-off proves the
-            // external image for this hardware type ran.
-            Assert.True(emulator.Debug.RunUntilProgramCounter(CartridgeEntryPoint, 2));
+            var emulator = Start(rom, model, BootRomConfig.ExternalFile(path));
+            Assert.Equal(0x76, emulator.Debug.PeekByte(0x0000));
             emulator.Terminate();
         }
         finally
         {
-            File.Delete(dmgPath);
-            File.Delete(gbcPath);
+            File.Delete(path);
         }
     }
 
-    private static string WriteInstantBootRom(int size)
+    [Theory]
+    [InlineData(HardwareModel.DmgB, 0x900)]
+    [InlineData(HardwareModel.CgbE, 0x100)]
+    [InlineData(HardwareModel.Sgb2, 0x900)]
+    public void ExternalFirmwareRejectsWrongModelSpecificSize(HardwareModel model, int wrongSize)
+    {
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
+        var emulator = new Emulator();
+        var config = CreateConfig(rom, model, BootRomConfig.ExternalBytes(new byte[wrongSize]));
+
+        var error = Assert.Throws<ArgumentException>(() => emulator.Start(config));
+        Assert.Contains("must be exactly", error.Message);
+    }
+
+    [Fact]
+    public void ExternalFileRejectsMissingPath()
+    {
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
+        var missing = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.bin");
+        var emulator = new Emulator();
+
+        Assert.Throws<FileNotFoundException>(() =>
+            emulator.Start(CreateConfig(rom, HardwareModel.DmgB, BootRomConfig.ExternalFile(missing))));
+    }
+
+    [Fact]
+    public void BootRomConfigFactoriesExposeOnlyOneImmutableSource()
+    {
+        var bytes = new byte[] { 1, 2, 3 };
+        var externalBytes = BootRomConfig.ExternalBytes(bytes);
+        bytes[0] = 9;
+        var returned = externalBytes.Bytes;
+        returned[1] = 9;
+
+        Assert.Equal(BootRomSource.External, externalBytes.Source);
+        Assert.Null(externalBytes.Path);
+        Assert.Equal(new byte[] { 1, 2, 3 }, externalBytes.Bytes);
+
+        var externalFile = BootRomConfig.ExternalFile("firmware.bin");
+        Assert.Equal("firmware.bin", externalFile.Path);
+        Assert.Null(externalFile.Bytes);
+        Assert.Throws<ArgumentException>(() => BootRomConfig.ExternalFile(" "));
+        Assert.Throws<ArgumentNullException>(() => BootRomConfig.ExternalBytes(null!));
+    }
+
+    [Fact]
+    public void StartValidatesModelThenImplementationThenCompatibilityBeforeFirmwareIo()
+    {
+        using var dmgRom = CreateRom(CartridgeCompatibility.DmgOnly);
+        using var cgbOnlyRom = CreateRom(CartridgeCompatibility.CgbOnly);
+        var missing = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.bin");
+
+        var invalidModel = new Emulator();
+        Assert.Throws<ArgumentOutOfRangeException>(() => invalidModel.Start(
+            CreateConfig(dmgRom, (HardwareModel)999, BootRomConfig.ExternalFile(missing))));
+
+        var unimplemented = new Emulator();
+        var unimplementedError = Assert.Throws<NotSupportedException>(() => unimplemented.Start(
+            CreateConfig(dmgRom, HardwareModel.Mgb, BootRomConfig.ExternalFile(missing))));
+        Assert.Contains("not implemented", unimplementedError.Message);
+
+        var incompatible = new Emulator();
+        var compatibilityError = Assert.Throws<ArgumentException>(() => incompatible.Start(
+            CreateConfig(cgbOnlyRom, HardwareModel.DmgB, BootRomConfig.ExternalFile(missing))));
+        Assert.Contains("does not support", compatibilityError.Message);
+    }
+
+    [Fact]
+    public void ExternalImageCanExecuteAndUnmapItself()
+    {
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
+        var image = CreateInstantBootRom(0x100);
+        var emulator = Start(rom, HardwareModel.DmgB, BootRomConfig.ExternalBytes(image));
+
+        Assert.True(emulator.Debug.RunUntilProgramCounter(CartridgeEntryPoint, 2));
+        Assert.Equal(0x00, emulator.Debug.PeekByte(0x0000));
+        emulator.Terminate();
+    }
+
+    private static byte[] CreateInstantBootRom(int size)
     {
         var image = new byte[size];
         image[0x00] = 0xC3;
@@ -343,7 +343,13 @@ public sealed class BootRomTests
         image[0xFD] = 0x01;
         image[0xFE] = 0xE0;
         image[0xFF] = 0x50;
+        return image;
+    }
 
+    private static string WriteBootRom(int size, byte firstByte)
+    {
+        var image = new byte[size];
+        image[0] = firstByte;
         var path = Path.Combine(Path.GetTempPath(), $"gbzemu-boot-{Guid.NewGuid():N}.bin");
         File.WriteAllBytes(path, image);
         return path;
@@ -361,30 +367,35 @@ public sealed class BootRomTests
         return palette;
     }
 
-    private static TestRom CreateRom(bool gbc)
+    private static TestRom CreateRom(CartridgeCompatibility compatibility)
     {
-        var rom = TestRom.Create(0x18, 0xFE); // jr @ $0100
-        if (gbc)
+        var rom = TestRom.Create(0x18, 0xFE);
+        var bytes = File.ReadAllBytes(rom.Path);
+        bytes[0x143] = compatibility switch
         {
-            var bytes = File.ReadAllBytes(rom.Path);
-            bytes[0x143] = 0x80;
-            File.WriteAllBytes(rom.Path, bytes);
-        }
-
+            CartridgeCompatibility.CgbCompatible => (byte)0x80,
+            CartridgeCompatibility.CgbOnly => (byte)0xC0,
+            _ => (byte)0x00
+        };
+        bytes[0x200] = 0x00;
+        File.WriteAllBytes(rom.Path, bytes);
         return rom;
     }
 
-    private static Emulator Start(TestRom rom, BootMode bootMode)
+    private static Emulator.Config CreateConfig(TestRom rom, HardwareModel model, BootRomConfig bootRom)
     {
-        var emulator = new Emulator();
-        var started = emulator.Start(new Emulator.Config
+        return new Emulator.Config(model)
         {
             ROMPath = rom.Path,
             SaveLocation = Path.GetTempPath(),
-            BootMode = bootMode
-        });
+            BootRom = bootRom
+        };
+    }
 
-        Assert.True(started);
+    private static Emulator Start(TestRom rom, HardwareModel model, BootRomConfig bootRom)
+    {
+        var emulator = new Emulator();
+        Assert.True(emulator.Start(CreateConfig(rom, model, bootRom)));
         return emulator;
     }
 }

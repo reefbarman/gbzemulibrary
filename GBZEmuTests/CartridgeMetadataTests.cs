@@ -45,22 +45,38 @@ public sealed class CartridgeMetadataTests
         Assert.Throws<InvalidDataException>(() => CartridgeMetadata.Read(new byte[0x143]));
     }
 
-    [Theory]
-    [InlineData(BootRomMetadata.DmgImageSize, true, BootRomSystem.Dmg)]
-    [InlineData(BootRomMetadata.CgbImageSize, true, BootRomSystem.Cgb)]
-    [InlineData(0, false, BootRomSystem.Dmg)]
-    [InlineData(1024, false, BootRomSystem.Dmg)]
-    public void BootRomMetadata_ClassifiesExactImageSizes(
-        long length,
-        bool expectedResult,
-        BootRomSystem expectedSystem)
+    [Fact]
+    public void HardwareModelMetadata_ReportsImplementedModelsInStableOrder()
     {
-        var result = BootRomMetadata.TryGetSystem(length, out var system);
+        Assert.Equal(
+            new[] { HardwareModel.DmgB, HardwareModel.CgbE, HardwareModel.Sgb2 },
+            HardwareModelMetadata.ImplementedModels);
+        Assert.True(HardwareModelMetadata.IsImplemented(HardwareModel.DmgB));
+        Assert.False(HardwareModelMetadata.IsImplemented(HardwareModel.Mgb));
+        Assert.False(HardwareModelMetadata.IsImplemented(HardwareModel.AgbA));
+        Assert.False(HardwareModelMetadata.IsImplemented((HardwareModel)999));
+    }
 
-        Assert.Equal(expectedResult, result);
-        if (expectedResult)
-        {
-            Assert.Equal(expectedSystem, system);
-        }
+    [Theory]
+    [InlineData(HardwareModel.DmgB, CartridgeCompatibility.DmgOnly, true)]
+    [InlineData(HardwareModel.DmgB, CartridgeCompatibility.CgbCompatible, true)]
+    [InlineData(HardwareModel.DmgB, CartridgeCompatibility.CgbOnly, false)]
+    [InlineData(HardwareModel.Mgb, CartridgeCompatibility.DmgOnly, true)]
+    [InlineData(HardwareModel.Mgb, CartridgeCompatibility.CgbOnly, false)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.DmgOnly, true)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, true)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbOnly, true)]
+    [InlineData(HardwareModel.Sgb2, CartridgeCompatibility.DmgOnly, true)]
+    [InlineData(HardwareModel.Sgb2, CartridgeCompatibility.CgbCompatible, true)]
+    [InlineData(HardwareModel.Sgb2, CartridgeCompatibility.CgbOnly, false)]
+    [InlineData(HardwareModel.AgbA, CartridgeCompatibility.DmgOnly, true)]
+    [InlineData(HardwareModel.AgbA, CartridgeCompatibility.CgbCompatible, true)]
+    [InlineData(HardwareModel.AgbA, CartridgeCompatibility.CgbOnly, true)]
+    public void HardwareModelMetadata_UsesCanonicalCartridgeMatrix(
+        HardwareModel model,
+        CartridgeCompatibility compatibility,
+        bool expected)
+    {
+        Assert.Equal(expected, HardwareModelMetadata.SupportsCartridge(model, compatibility));
     }
 }

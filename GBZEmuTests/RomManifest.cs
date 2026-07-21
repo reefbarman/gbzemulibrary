@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using GBZEmuLibrary;
+using EmulatedHardwareModel = GBZEmuLibrary.HardwareModel;
 
 namespace GBZEmuTests;
 
@@ -11,6 +12,7 @@ internal sealed class RomManifest
     public static RomManifest Load()
     {
         var manifest = LoadOverrides();
+        manifest.Tests.RemoveAll(test => IsOriginalSgbOnlyId(test.Id));
         var discovered = DiscoverFixtures().ToList();
         EnsureUniqueIds(discovered, "discovered ROM fixtures");
 
@@ -51,6 +53,15 @@ internal sealed class RomManifest
         return cgbFlag == 0x80 || cgbFlag == 0xC0;
     }
 
+    internal static bool IsOriginalSgbOnlyId(string id)
+    {
+        return id.StartsWith("samesuite/sgb/", StringComparison.Ordinal) ||
+               id == "mooneye/acceptance/boot_div-S" ||
+               id == "mooneye/acceptance/boot_div2-S" ||
+               id == "mooneye/acceptance/boot_hwio-S" ||
+               id == "mooneye/acceptance/boot_regs-sgb";
+    }
+
     internal static void EnsureUniqueIds(IEnumerable<RomTestCase> tests, string source)
     {
         var duplicates = tests
@@ -79,6 +90,11 @@ internal sealed class RomManifest
             }
 
             var test = CreateTest(relativePath);
+            if (IsOriginalSgbOnlyId(test.Id))
+            {
+                continue;
+            }
+
             using (var stream = File.OpenRead(path))
             {
                 if (stream.Length > 0x143)
@@ -86,7 +102,7 @@ internal sealed class RomManifest
                     stream.Position = 0x143;
                     if (IsCgbHeader(stream.ReadByte()))
                     {
-                        test.Hardware = HardwareMode.Cgb;
+                        test.HardwareModel = EmulatedHardwareModel.CgbE;
                     }
                 }
             }
@@ -103,7 +119,7 @@ internal sealed class RomManifest
             Id = id,
             Rom = relativePath,
             MaxFrames = 3600,
-            Hardware = HardwareMode.Dmg,
+            HardwareModel = EmulatedHardwareModel.DmgB,
             Protocol = RomProtocol.Fibonacci
         };
 
@@ -118,9 +134,9 @@ internal sealed class RomManifest
                             relativePath == "blargg/halt_bug.gb"
                 ? RomProtocol.BlarggMemory
                 : RomProtocol.Serial;
-            test.Hardware = relativePath.StartsWith("blargg/cgb_sound/", StringComparison.Ordinal)
-                ? HardwareMode.Cgb
-                : HardwareMode.Dmg;
+            test.HardwareModel = relativePath.StartsWith("blargg/cgb_sound/", StringComparison.Ordinal)
+                ? EmulatedHardwareModel.CgbE
+                : EmulatedHardwareModel.DmgB;
         }
         else if (relativePath == "acid2/dmg/dmg-acid2.gb")
         {
@@ -132,7 +148,7 @@ internal sealed class RomManifest
         {
             test.Protocol = RomProtocol.Framebuffer;
             test.ReferenceImage = "acid2/cgb/reference.png";
-            test.Hardware = HardwareMode.Cgb;
+            test.HardwareModel = EmulatedHardwareModel.CgbE;
             test.MaxFrames = 60;
         }
         else if (relativePath.StartsWith("samesuite/", StringComparison.Ordinal) &&
@@ -140,28 +156,15 @@ internal sealed class RomManifest
                   relativePath.StartsWith("samesuite/dma/", StringComparison.Ordinal) ||
                   relativePath.StartsWith("samesuite/ppu/", StringComparison.Ordinal)))
         {
-            test.Hardware = HardwareMode.Cgb;
-        }
-        else if (relativePath.StartsWith("samesuite/sgb/", StringComparison.Ordinal))
-        {
-            test.Hardware = HardwareMode.Sgb;
-        }
-        else if (id.StartsWith("mooneye/acceptance/boot_", StringComparison.Ordinal) &&
-                 id.EndsWith("-S", StringComparison.Ordinal))
-        {
-            test.Hardware = HardwareMode.Sgb;
-        }
-        else if (relativePath == "mooneye/acceptance/boot_regs-sgb.gb")
-        {
-            test.Hardware = HardwareMode.Sgb;
+            test.HardwareModel = EmulatedHardwareModel.CgbE;
         }
         else if (relativePath == "mooneye/acceptance/boot_regs-sgb2.gb")
         {
-            test.Hardware = HardwareMode.Sgb2;
+            test.HardwareModel = EmulatedHardwareModel.Sgb2;
         }
         else if (relativePath.StartsWith("mealybug/roms/", StringComparison.Ordinal))
         {
-            test.Hardware = HardwareMode.Cgb;
+            test.HardwareModel = EmulatedHardwareModel.CgbE;
             // The RTC fixture contains approximately 20 emulated seconds of deliberate delay loops.
             test.MaxFrames = relativePath == "mealybug/roms/mbc/mbc3_rtc.gb" ? 1800 : 600;
 
@@ -222,7 +225,7 @@ internal sealed class RomTestCase
     public string Id { get; set; } = string.Empty;
     public string Rom { get; set; } = string.Empty;
     public RomProtocol Protocol { get; set; }
-    public HardwareMode Hardware { get; set; }
+    public EmulatedHardwareModel HardwareModel { get; set; }
     public int MaxFrames { get; set; } = 3600;
     public string? ReferenceImage { get; set; }
     public HardwareRevisionRequirement RevisionRequirement { get; set; }
@@ -252,25 +255,12 @@ internal sealed class RomTestCase
                 return "Requires the original DMG ABC/MGB boot-ROM I/O handoff phase; GBZEmu's redistributable replacement firmware and skip-boot profile do not reproduce proprietary firmware timing.";
             }
 
-            if (Id == "mooneye/acceptance/boot_div-S" ||
-                Id == "mooneye/acceptance/boot_div2-S")
-            {
-                return "Requires cartridge-dependent original SGB/SGB2 boot-ROM DIV phase; GBZEmu's redistributable replacement firmware and skip-boot profile do not reproduce proprietary firmware duration.";
-            }
-
-            return Hardware == HardwareMode.Cgb && !RevisionRequirement.SupportsCgbE()
+            return HardwareModel == EmulatedHardwareModel.CgbE && !RevisionRequirement.SupportsCgbE()
                 ? $"Requires {RevisionRequirement.DisplayName()}; GBZEmu targets CPU CGB-E."
                 : null;
         }
     }
 
-    public BootMode BootMode => Hardware == HardwareMode.Cgb
-        ? BootMode.GBC | BootMode.Skip
-        : Hardware == HardwareMode.Sgb2
-            ? BootMode.SGB2 | BootMode.Skip
-        : Hardware == HardwareMode.Sgb
-            ? BootMode.SGB | BootMode.Skip
-            : BootMode.DMG | BootMode.Force | BootMode.Skip;
 
     private static string FixturePath(string relativePath)
     {
@@ -286,13 +276,6 @@ internal enum RomProtocol
     Framebuffer
 }
 
-internal enum HardwareMode
-{
-    Dmg,
-    Cgb,
-    Sgb,
-    Sgb2
-}
 
 internal enum HardwareRevisionRequirement
 {

@@ -1,12 +1,7 @@
-# Third-party notices
+Expat License
 
-## SameBoy
-
-The Super Game Boy HLE behavior and `GBZEmuLibrary/BootROMs/sgb2_boot.asm` were adapted with reference to SameBoy, including its `BootROMs/sgb_boot.asm` replacement bootstrap. The historical upstream revision used by the original adaptation was not recorded; the derivative entered this repository in local commit `79faf8d`.
-
-SameBoy files outside its iOS and HexFiend directories are licensed under the Expat License:
-
-Copyright (c) 2015-2026 Lior Halphon
+Copyright (c) 2026 GBZEmu contributors
+Copyright (c) 2015-2026 Lior Halphon (SameBoy-derived portions)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

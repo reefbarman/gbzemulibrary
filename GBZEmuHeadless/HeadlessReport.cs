@@ -5,14 +5,15 @@ namespace GBZEmuHeadless;
 /// </summary>
 public sealed class HeadlessReport
 {
-    public int FormatVersion { get; init; } = 1;
+    public int FormatVersion { get; init; } = 2;
     public required string ROMFile { get; init; }
     public required string ROMSHA256 { get; init; }
     public int FramesExecuted { get; init; }
     public int CaptureStartFrame { get; init; }
     public int CaptureEndFrame { get; init; }
     public int CaptureEvery { get; init; }
-    public required string BootMode { get; init; }
+    public required string HardwareModel { get; init; }
+    public required string BootRomSource { get; init; }
     public HeadlessAudioCapture? Audio { get; init; }
     public required IReadOnlyList<HeadlessInputEventReport> InputEvents { get; init; }
     public required IReadOnlyList<HeadlessCapture> Captures { get; init; }

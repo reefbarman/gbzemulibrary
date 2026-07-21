@@ -11,7 +11,7 @@ internal sealed class RomTestRunner : IDisposable
     public Emulator Emulator { get; }
     public string SerialOutput => _serialOutput.ToString();
 
-    public RomTestRunner(string romPath, BootMode bootMode = BootMode.DMG | BootMode.Skip)
+    public RomTestRunner(string romPath, HardwareModel hardwareModel = HardwareModel.DmgB)
     {
         _saveDirectory = Path.Combine(Path.GetTempPath(), $"gbzemu-saves-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_saveDirectory);
@@ -19,11 +19,11 @@ internal sealed class RomTestRunner : IDisposable
         Emulator = new Emulator();
         Emulator.Debug.SerialByteTransferred += value => _serialOutput.Append((char)value);
 
-        var started = Emulator.Start(new Emulator.Config
+        var started = Emulator.Start(new Emulator.Config(hardwareModel)
         {
             ROMPath = romPath,
             SaveLocation = _saveDirectory,
-            BootMode = bootMode
+            BootRom = BootRomConfig.Skip()
         });
 
         if (!started)

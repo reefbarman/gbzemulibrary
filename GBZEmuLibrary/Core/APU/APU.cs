@@ -41,21 +41,27 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Selects revision-specific APU behavior for the active hardware mode.
+        /// Selects the canonical handheld APU revision implied by an execution mode.
         /// </summary>
-        public void Init(GBCMode mode, SgbModel sgbModel = SgbModel.None)
+        public void Init(GBCMode mode)
         {
-            // Both GBCSupport and GBCOnly represent execution on CGB hardware; cartridge compatibility is separate.
+            Init(mode, mode == GBCMode.NoGBC ? HardwareModel.DmgB : HardwareModel.CgbE);
+        }
+
+        /// <summary>
+        /// Selects revision-specific APU behavior for the active hardware model and execution mode.
+        /// </summary>
+        public void Init(GBCMode mode, HardwareModel hardwareModel)
+        {
             _gbcMode = mode != GBCMode.NoGBC;
-            _sgbMode = sgbModel != SgbModel.None;
-            _hardwareRevision = _gbcMode ? ApuHardwareRevision.CgbE : ApuHardwareRevision.DmgB;
+            _sgbMode = hardwareModel == HardwareModel.Sgb2;
+            _hardwareRevision = hardwareModel == HardwareModel.CgbE
+                ? ApuHardwareRevision.CgbE
+                : ApuHardwareRevision.DmgB;
             _channel1.SetHardwareRevision(_hardwareRevision);
             _channel2.SetHardwareRevision(_hardwareRevision);
             _channel4.SetHardwareRevision(_hardwareRevision);
-            var clockRate = sgbModel == SgbModel.Sgb
-                ? GameBoySchema.SGB_NTSC_CLOCK_CYCLES
-                : GameBoySchema.MAX_DMG_CLOCK_CYCLES;
-            _bandLimitedRenderer.SetClockRate(clockRate);
+            _bandLimitedRenderer.SetClockRate(GameBoySchema.MAX_DMG_CLOCK_CYCLES);
         }
 
         public void ToggleChannel(Sound.Channel channel, bool enabled)

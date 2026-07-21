@@ -16,10 +16,10 @@ public sealed class DebuggerTests
         Assert.Throws<InvalidOperationException>(() => emulator.Debug.GetCpuState());
 
         using var rom = TestRom.Create(0x00);
-        Assert.True(emulator.Start(new Emulator.Config
+        Assert.True(emulator.Start(new Emulator.Config(HardwareModel.DmgB)
         {
             ROMPath = rom.Path,
-            BootMode = BootMode.DMG | BootMode.Skip
+            BootRom = BootRomConfig.Skip()
         }));
 
         emulator.Terminate();
@@ -449,17 +449,15 @@ public sealed class DebuggerTests
 
         var first = new Emulator();
         var second = new Emulator();
-        Assert.True(first.Start(new Emulator.Config
+        Assert.True(first.Start(new Emulator.Config(HardwareModel.DmgB)
         {
             ROMPath = firstRom.Path,
-            BootROM = firstBootRom,
-            BootMode = BootMode.DMG | BootMode.Force
+            BootRom = BootRomConfig.ExternalBytes(firstBootRom)
         }));
-        Assert.True(second.Start(new Emulator.Config
+        Assert.True(second.Start(new Emulator.Config(HardwareModel.DmgB)
         {
             ROMPath = secondRom.Path,
-            BootROM = secondBootRom,
-            BootMode = BootMode.DMG | BootMode.Force
+            BootRom = BootRomConfig.ExternalBytes(secondBootRom)
         }));
 
         Assert.Equal(0x11, first.Debug.PeekByte(0));

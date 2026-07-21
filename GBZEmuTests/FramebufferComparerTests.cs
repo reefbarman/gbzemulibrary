@@ -42,7 +42,7 @@ public sealed class FramebufferComparerTests
         {
             reference.SaveAsPng(referencePath);
 
-            Assert.Null(FramebufferComparer.Compare(framebuffer, referencePath, HardwareMode.Dmg));
+            Assert.Null(FramebufferComparer.Compare(framebuffer, referencePath, HardwareModel.DmgB));
         }
         finally
         {
