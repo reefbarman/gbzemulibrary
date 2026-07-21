@@ -1101,6 +1101,76 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies the window's internal line coordinate pauses while WX hides the window and resumes from the next
+    /// unrendered row on DMG, CGB compatibility, and native CGB hardware.
+    /// </summary>
+    [Theory]
+    [InlineData((int)GBCMode.NoGBC)]
+    [InlineData((int)GBCMode.GBCCompatibility)]
+    [InlineData((int)GBCMode.GBCSupport)]
+    public void WindowLineAdvancesOnlyWhenWindowIsVisible(int mode)
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset((GBCMode)mode, usingBootROM: false);
+        gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START);
+        gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + 1);
+        gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + 2);
+        gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + 3);
+        gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + 4);
+        gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + 5);
+        gpu.WriteByte(1, MemorySchema.BACKGROUND_LAYOUT_0_START);
+        gpu.WriteByte(0, MemorySchema.BACKGROUND_LAYOUT_1_START);
+        gpu.WriteByte(0xE4, 0xFF47);
+        gpu.WriteByte(0, 0xFF4A);
+        gpu.WriteByte(WINDOW_X_OFFSET, 0xFF4B);
+        gpu.Update(4);
+        gpu.WriteByte(0xF1, 0xFF40);
+
+        AdvanceToScanlineMode2(gpu, 2);
+        gpu.WriteByte(167, 0xFF4B);
+        AdvanceToScanlineMode2(gpu, 3);
+        gpu.WriteByte(WINDOW_X_OFFSET, 0xFF4B);
+        AdvanceToVBlank(gpu);
+
+        var screen = gpu.GetScreenData();
+        Assert.Equal(1, screen[0, 0].Index);
+        Assert.Equal(2, screen[0, 1].Index);
+        Assert.Equal(0, screen[0, 2].Index);
+        Assert.Equal(3, screen[0, 3].Index);
+    }
+
+    /// <summary>
+    /// Verifies entering VBlank resets the internal window line for the next frame.
+    /// </summary>
+    [Fact]
+    public void WindowLineResetsForNextFrame()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(false);
+        gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START);
+        gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + 1);
+        gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + 2);
+        gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + 3);
+        gpu.WriteByte(1, MemorySchema.BACKGROUND_LAYOUT_0_START);
+        gpu.WriteByte(0, MemorySchema.BACKGROUND_LAYOUT_1_START);
+        gpu.WriteByte(0xE4, 0xFF47);
+        gpu.WriteByte(0, 0xFF4A);
+        gpu.WriteByte(WINDOW_X_OFFSET, 0xFF4B);
+        gpu.Update(4);
+        gpu.WriteByte(0xF1, 0xFF40);
+
+        AdvanceToVBlank(gpu);
+        while (gpu.ReadByte(0xFF44) != 0 || (gpu.ReadByte(0xFF41) & 0x03) != 3)
+        {
+            gpu.Update(1);
+        }
+        gpu.Update(TRANSFERRING_DATA_TO_LCD_DRIVER_CLOCKS + WINDOW_STARTUP_CLOCKS);
+        AdvanceToVBlank(gpu);
+
+        Assert.Equal(1, gpu.GetScreenData()[0, 0].Index);
+    }
+
+    /// <summary>
     /// Verifies the first background tile-number fetch latches fine SCX: a dot-eight write still retargets startup,
     /// while a dot-twelve write updates FF43 without changing this scanline's timing.
     /// </summary>
@@ -1357,6 +1427,16 @@ public sealed class GpuRegisterTests
         {
             gpu.Update(4);
         }
+    }
+
+    private static void AdvanceToScanlineMode2(GPU gpu, byte scanline)
+    {
+        while (gpu.ReadByte(0xFF44) < scanline || (gpu.ReadByte(0xFF41) & 0x03) != 2)
+        {
+            gpu.Update(1);
+        }
+
+        Assert.Equal(scanline, gpu.ReadByte(0xFF44));
     }
 
     private static GPU CreateGpuAtMode3(

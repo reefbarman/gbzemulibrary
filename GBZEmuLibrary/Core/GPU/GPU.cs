@@ -169,6 +169,8 @@ namespace GBZEmuLibrary
         private int _mode3WindowStartPixel = Display.HORIZONTAL_RESOLUTION;
         private int _mode3WindowRestartPixel = -1;
         private int _mode3WindowFetchPenalty = WINDOW_STARTUP_CLOCKS;
+        private byte _windowLine;
+        private byte _scanlineWindowLine;
         private int _mode3FetchTimelineDot;
         private int _mode3BackgroundFetcherDot;
         private int _mode3FetchPosition;
@@ -180,6 +182,7 @@ namespace GBZEmuLibrary
         private int _lineSpriteCount;
         private byte _scanlineScrollXLow;
         private bool _objectOutputEnabled;
+        private bool _windowRenderedThisScanline;
         private bool _line153EarlyReset;
         private bool _pendingVBlankInterrupt;
         private bool _statInterruptLineHigh;
@@ -255,6 +258,8 @@ namespace GBZEmuLibrary
             _mode3WindowStartPixel = Display.HORIZONTAL_RESOLUTION;
             _mode3WindowRestartPixel = -1;
             _mode3WindowFetchPenalty = WINDOW_STARTUP_CLOCKS;
+            _windowLine = 0;
+            _scanlineWindowLine = 0;
             _mode3FetchTimelineDot = 0;
             _mode3BackgroundFetcherDot = 0;
             _mode3FetchPosition = 0;
@@ -266,6 +271,7 @@ namespace GBZEmuLibrary
             _lineSpriteCount = 0;
             _scanlineScrollXLow = 0;
             _objectOutputEnabled = false;
+            _windowRenderedThisScanline = false;
             _line153EarlyReset = false;
             _gpuRegisters[(int)Registers.LCDStatus] = 0x85;
             BlankDisplay();
@@ -626,6 +632,9 @@ namespace GBZEmuLibrary
                 // Reset LY and mode while retaining the frozen coincidence source as STAT edge history.
                 _cycleCounter = 0;
                 _gpuRegisters[(int)Registers.Scanline] = 0;
+                _windowLine = 0;
+                _scanlineWindowLine = 0;
+                _windowRenderedThisScanline = false;
                 _line153EarlyReset = false;
                 _coincidenceClearPending = false;
                 _coincidenceUpdatePending = false;
@@ -646,6 +655,9 @@ namespace GBZEmuLibrary
             // its dedicated startup phase. Mooneye lcdon_timing-GS measures this transition.
             _cycleCounter = 0;
             _gpuRegisters[(int)Registers.Scanline] = 0;
+            _windowLine = 0;
+            _scanlineWindowLine = 0;
+            _windowRenderedThisScanline = false;
             _coincidenceClearPending = false;
             _coincidenceUpdatePending = false;
             _lcdEnableStartup = true;
@@ -865,6 +877,7 @@ namespace GBZEmuLibrary
             if (nextScanLine == Display.VERTICAL_RESOLUTION)
             {
                 ScanLine = nextScanLine;
+                _windowLine = 0;
                 PublishFrame();
                 _pendingVBlankInterrupt = true;
                 SetStatusRegister(LCDStatus.VBlank);
@@ -990,6 +1003,8 @@ namespace GBZEmuLibrary
             _mode3RenderedPixels = 0;
             _mode3LatchedObjectPixels = 0;
             _mode3PreparedBackgroundPixels = 0;
+            _scanlineWindowLine = _windowLine;
+            _windowRenderedThisScanline = false;
             _mode3FetchTimelineDot = 0;
             _mode3BackgroundFetcherDot = 0;
             _mode3FetchPosition = -12;
@@ -1026,6 +1041,11 @@ namespace GBZEmuLibrary
             }
 
             CompleteTransferredScanline();
+            if (_windowRenderedThisScanline)
+            {
+                _windowLine++;
+            }
+
             _cycleCounter -= _mode3ClockTarget;
 
             // The CPU-visible mode and its STAT source change together. Mooneye hblank_ly_scx_timing-GS
@@ -1537,6 +1557,10 @@ namespace GBZEmuLibrary
             }
         }
 
+        /// <summary>
+        /// Renders the window from its internal line coordinate, which advances only on scanlines that reach a
+        /// visible window trigger.
+        /// </summary>
         private void RenderWindow(byte control, int startPixel, int endPixel)
         {
             var windowX = _gpuRegisters[(int)Registers.WindowX] - WINDOW_X_OFFSET;
@@ -1544,10 +1568,15 @@ namespace GBZEmuLibrary
 
             if (windowY <= ScanLine)
             {
+                if (endPixel > Math.Max(startPixel, Math.Max(0, windowX)))
+                {
+                    _windowRenderedThisScanline = true;
+                }
+
                 RenderTiles(
                     control,
                     windowX,
-                    (ScanLine - windowY) % MAX_SCROLL_AMOUNT,
+                    _scanlineWindowLine,
                     startPixel,
                     endPixel,
                     true);
