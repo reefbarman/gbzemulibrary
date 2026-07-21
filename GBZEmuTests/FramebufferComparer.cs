@@ -5,8 +5,14 @@ using EmulatorColor = GBZEmuLibrary.Color;
 
 namespace GBZEmuTests;
 
+/// <summary>
+/// Compares completed emulator framebuffers with hardware-specific reference images.
+/// </summary>
 internal static class FramebufferComparer
 {
+    /// <summary>
+    /// Returns a bounded mismatch description, or <see langword="null"/> when every normalized pixel matches.
+    /// </summary>
     public static string? Compare(EmulatorColor[,] actual, string referencePath, HardwareMode hardware)
     {
         using var reference = Image.Load<Rgba32>(referencePath);
@@ -44,7 +50,7 @@ internal static class FramebufferComparer
     {
         if (hardware == HardwareMode.Dmg)
         {
-            var intensity = (byte)(255 - (color.Index * 85));
+            var intensity = (byte)(255 - (color.SgbIndex * 85));
             return new EmulatorColor(intensity, intensity, intensity);
         }
 

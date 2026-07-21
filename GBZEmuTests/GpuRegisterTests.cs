@@ -690,6 +690,36 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies DMG rendering retains the raw object color ID for priority while separately exposing the OBP-mapped
+    /// shade used for display and framebuffer-oracle normalization.
+    /// </summary>
+    [Fact]
+    public void DmgObjectPixelRetainsRawColorAndMappedShade()
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(false);
+        for (var row = 0; row < 8; row++)
+        {
+            gpu.WriteByte(0xFF, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2);
+            gpu.WriteByte(0x00, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2 + 1);
+        }
+
+        gpu.WriteByte(17, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+        gpu.WriteByte(8, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 1);
+        gpu.WriteByte(0, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 2);
+        gpu.WriteByte(0x10, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 3);
+        gpu.WriteByte(0x2C, 0xFF49);
+        gpu.Update(4);
+        gpu.WriteByte(0x93, 0xFF40);
+        AdvanceToVBlank(gpu);
+
+        var pixel = gpu.GetScreenData()[0, 1];
+        Assert.Equal(1, pixel.Index);
+        Assert.Equal(3, pixel.SgbIndex);
+        Assert.Equal(Display.DefaultPalette[3].R, pixel.R);
+    }
+
+    /// <summary>
     /// Verifies CGB object visibility samples LCDC.1 at the LCD output latch while selection and fetch continue. The
     /// adjacent assertions pin both disabling and re-enabling to the measured one-pixel boundary.
     /// </summary>
