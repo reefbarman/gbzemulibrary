@@ -1636,62 +1636,104 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Composites the mode-2-selected objects from their mode-3-captured tile bytes in OAM priority order.
+        /// Resolves the winning mode-2-selected object pixel before comparing that winner with background priority.
         /// </summary>
         private void RenderSprites(byte control, int startPixel, int endPixel)
         {
-            for (var oamIndex = _lineSpriteSlotsByOamIndex.Length - 1; oamIndex >= 0; oamIndex--)
+            if (ScanLine >= Display.VERTICAL_RESOLUTION)
             {
-                var spriteIndex = _lineSpriteSlotsByOamIndex[oamIndex];
-                if (spriteIndex < 0)
+                return;
+            }
+
+            for (var pixel = startPixel; pixel < endPixel; pixel++)
+            {
+                if (!_scanlineObjectOutputEnabled[pixel] ||
+                    !TryGetWinningObjectPixel(pixel, out var spriteIndex, out var colorValue))
                 {
                     continue;
                 }
 
-                var oamOffset = oamIndex * 4;
-                var x = _spriteAttributeTable[oamOffset + 1] - 8;
+                var oamOffset = _lineSpriteOamIndices[spriteIndex] * 4;
                 var attributes = _spriteAttributeTable[oamOffset + 3];
-                var data1 = _lineSpriteDataLow[spriteIndex];
-                var data2 = _lineSpriteDataHigh[spriteIndex];
-                var paletteAddress = Helpers.TestBit(attributes, (int)SpriteAttributesBits.PaletteNum) ? (int)Registers.SpritePalette1 : (int)Registers.SpritePalette0;
-
-                for (var column = 0; column < 8; column++)
+                var background = _renderData[pixel, ScanLine];
+                var objectsAlwaysOnTop =
+                    _gbcMode && !Helpers.TestBit(control, (int)LCDControlBits.BGDisplayEnabled);
+                if (!objectsAlwaysOnTop &&
+                    background.Index != 0 &&
+                    (Helpers.TestBit(attributes, (int)SpriteAttributesBits.SpriteToBGPriority) ||
+                     background.BGPriority))
                 {
-                    var spriteX = x + column;
+                    continue;
+                }
 
-                    if (spriteX >= startPixel &&
-                        spriteX < endPixel &&
-                        ScanLine < Display.VERTICAL_RESOLUTION &&
-                        _scanlineObjectOutputEnabled[spriteX])
+                var paletteAddress = Helpers.TestBit(attributes, (int)SpriteAttributesBits.PaletteNum)
+                    ? (int)Registers.SpritePalette1
+                    : (int)Registers.SpritePalette0;
+                _renderData[pixel, ScanLine] = GetColor(false, colorValue, attributes, paletteAddress);
+            }
+        }
+
+        /// <summary>
+        /// Finds the first opaque object pixel in the active hardware's drawing-priority order.
+        /// </summary>
+        private bool TryGetWinningObjectPixel(int pixel, out int winningSpriteIndex, out byte colorValue)
+        {
+            if (_gbcMode)
+            {
+                for (var oamIndex = 0; oamIndex < _lineSpriteSlotsByOamIndex.Length; oamIndex++)
+                {
+                    var spriteIndex = _lineSpriteSlotsByOamIndex[oamIndex];
+                    if (spriteIndex >= 0 && TryGetObjectColorValue(spriteIndex, pixel, out colorValue))
                     {
-                        var tilePixelColumn = column;
-
-                        if (Helpers.TestBit(attributes, (int)SpriteAttributesBits.XFlip))
-                        {
-                            tilePixelColumn = Math.Abs(tilePixelColumn - 7);
-                        }
-
-                        byte colorValue = 0;
-                        colorValue |= (byte)((data1 >> (7 - tilePixelColumn)) & 1);
-                        colorValue |= (byte)(((data2 >> (7 - tilePixelColumn)) & 1) << 1);
-
-                        if (colorValue == 0)
-                        {
-                            continue;
-                        }
-
-                        // Bit0 of LCD control register in GBC mode make sprites always render on top
-                        var spritePriority = _gbcMode && !Helpers.TestBit(control, (int)LCDControlBits.BGDisplayEnabled);
-
-                        if (((Helpers.TestBit(attributes, (int)SpriteAttributesBits.SpriteToBGPriority) && _renderData[spriteX, ScanLine].Index != 0) || _renderData[spriteX, ScanLine].BGPriority) && !spritePriority)
-                        {
-                            continue;
-                        }
-
-                        _renderData[spriteX, ScanLine] = GetColor(false, colorValue, attributes, paletteAddress);
+                        winningSpriteIndex = spriteIndex;
+                        return true;
                     }
                 }
             }
+            else
+            {
+                // The selected list is stably sorted by X, preserving OAM order for equal coordinates.
+                for (var spriteIndex = 0; spriteIndex < _lineSpriteCount; spriteIndex++)
+                {
+                    if (TryGetObjectColorValue(spriteIndex, pixel, out colorValue))
+                    {
+                        winningSpriteIndex = spriteIndex;
+                        return true;
+                    }
+                }
+            }
+
+            winningSpriteIndex = -1;
+            colorValue = 0;
+            return false;
+        }
+
+        /// <summary>
+        /// Returns one fetched object's opaque color index at a visible screen pixel.
+        /// </summary>
+        private bool TryGetObjectColorValue(int spriteIndex, int pixel, out byte colorValue)
+        {
+            var oamOffset = _lineSpriteOamIndices[spriteIndex] * 4;
+            var objectX = _lineSpriteXCoordinates[spriteIndex] - 8;
+            var tilePixelColumn = pixel - objectX;
+            if (tilePixelColumn < 0 || tilePixelColumn >= 8)
+            {
+                colorValue = 0;
+                return false;
+            }
+
+            var attributes = _spriteAttributeTable[oamOffset + 3];
+            if (Helpers.TestBit(attributes, (int)SpriteAttributesBits.XFlip))
+            {
+                tilePixelColumn = 7 - tilePixelColumn;
+            }
+
+            var data1 = _lineSpriteDataLow[spriteIndex];
+            var data2 = _lineSpriteDataHigh[spriteIndex];
+            colorValue = (byte)(
+                ((data1 >> (7 - tilePixelColumn)) & 1) |
+                (((data2 >> (7 - tilePixelColumn)) & 1) << 1));
+            return colorValue != 0;
         }
 
         private void SetStatusRegister(LCDStatus status)

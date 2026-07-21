@@ -729,6 +729,127 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies DMG drawing priority prefers the lower X coordinate while native CGB priority prefers the earlier
+    /// OAM entry when opaque objects overlap.
+    /// </summary>
+    [Theory]
+    [InlineData((int)GBCMode.NoGBC, 2)]
+    [InlineData((int)GBCMode.GBCCompatibility, 2)]
+    [InlineData((int)GBCMode.GBCSupport, 1)]
+    public void ObjectDrawingPriorityDependsOnHardwareMode(int mode, byte expectedColorIndex)
+    {
+        var gpu = CreateGpuForObjectPriority(
+            (GBCMode)mode,
+            firstX: 12,
+            firstLow: 0xFF,
+            firstHigh: 0x00,
+            firstAttributes: 0,
+            secondX: 11,
+            secondLow: 0x00,
+            secondHigh: 0xFF,
+            secondAttributes: 0);
+
+        AdvanceToVBlank(gpu);
+
+        Assert.Equal(expectedColorIndex, gpu.GetScreenData()[4, 1].Index);
+    }
+
+    /// <summary>
+    /// Verifies equal-X objects use OAM order in both drawing-priority modes.
+    /// </summary>
+    [Theory]
+    [InlineData((int)GBCMode.NoGBC)]
+    [InlineData((int)GBCMode.GBCCompatibility)]
+    [InlineData((int)GBCMode.GBCSupport)]
+    public void EqualXObjectsPreferEarlierOamEntry(int mode)
+    {
+        var gpu = CreateGpuForObjectPriority(
+            (GBCMode)mode,
+            firstX: 12,
+            firstLow: 0xFF,
+            firstHigh: 0x00,
+            firstAttributes: 0,
+            secondX: 12,
+            secondLow: 0x00,
+            secondHigh: 0xFF,
+            secondAttributes: 0);
+
+        AdvanceToVBlank(gpu);
+
+        Assert.Equal(1, gpu.GetScreenData()[4, 1].Index);
+    }
+
+    /// <summary>
+    /// Verifies transparent pixels do not claim object priority and allow the next opaque object through.
+    /// </summary>
+    [Fact]
+    public void TransparentHigherPriorityObjectAllowsLowerObjectPixel()
+    {
+        var gpu = CreateGpuForObjectPriority(
+            GBCMode.GBCSupport,
+            firstX: 12,
+            firstLow: 0x00,
+            firstHigh: 0x00,
+            firstAttributes: 0,
+            secondX: 12,
+            secondLow: 0x00,
+            secondHigh: 0xFF,
+            secondAttributes: 0);
+
+        AdvanceToVBlank(gpu);
+
+        Assert.Equal(2, gpu.GetScreenData()[4, 1].Index);
+    }
+
+    /// <summary>
+    /// Verifies object priority is resolved before background priority, so an opaque winner hidden by a nonzero
+    /// background pixel still masks lower-priority objects.
+    /// </summary>
+    [Fact]
+    public void BackgroundHiddenObjectWinnerMasksLowerPriorityObjects()
+    {
+        var gpu = CreateGpuForObjectPriority(
+            GBCMode.GBCSupport,
+            firstX: 12,
+            firstLow: 0xFF,
+            firstHigh: 0x00,
+            firstAttributes: 0x80,
+            secondX: 12,
+            secondLow: 0x00,
+            secondHigh: 0xFF,
+            secondAttributes: 0,
+            backgroundLow: 0xFF,
+            backgroundHigh: 0xFF);
+
+        AdvanceToVBlank(gpu);
+
+        Assert.Equal(3, gpu.GetScreenData()[4, 1].Index);
+    }
+
+    /// <summary>
+    /// Verifies CGB background-map priority yields to an object when the raw background color index is zero.
+    /// </summary>
+    [Fact]
+    public void CgbBackgroundPriorityYieldsToObjectOverColorZero()
+    {
+        var gpu = CreateGpuForObjectPriority(
+            GBCMode.GBCSupport,
+            firstX: 12,
+            firstLow: 0xFF,
+            firstHigh: 0x00,
+            firstAttributes: 0,
+            secondX: 168,
+            secondLow: 0x00,
+            secondHigh: 0x00,
+            secondAttributes: 0,
+            backgroundAttributes: 0x80);
+
+        AdvanceToVBlank(gpu);
+
+        Assert.Equal(1, gpu.GetScreenData()[4, 1].Index);
+    }
+
+    /// <summary>
     /// Verifies latched fine SCX delays the object match and tile fetch rather than only delaying LCD output.
     /// </summary>
     [Theory]
@@ -1259,6 +1380,56 @@ public sealed class GpuRegisterTests
         gpu.WriteByte((byte)(objectsEnabled ? 0x82 : 0x80), 0xFF40);
         AdvanceToLineOneMode3(gpu);
 
+        return gpu;
+    }
+
+    private static GPU CreateGpuForObjectPriority(
+        GBCMode mode,
+        byte firstX,
+        byte firstLow,
+        byte firstHigh,
+        byte firstAttributes,
+        byte secondX,
+        byte secondLow,
+        byte secondHigh,
+        byte secondAttributes,
+        byte backgroundLow = 0,
+        byte backgroundHigh = 0,
+        byte backgroundAttributes = 0)
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset(mode, usingBootROM: false);
+        for (var row = 0; row < 8; row++)
+        {
+            gpu.WriteByte(firstLow, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2);
+            gpu.WriteByte(firstHigh, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2 + 1);
+            gpu.WriteByte(secondLow, MemorySchema.TILE_DATA_UNSIGNED_START + 16 + row * 2);
+            gpu.WriteByte(secondHigh, MemorySchema.TILE_DATA_UNSIGNED_START + 16 + row * 2 + 1);
+            gpu.WriteByte(backgroundLow, MemorySchema.TILE_DATA_UNSIGNED_START + 32 + row * 2);
+            gpu.WriteByte(backgroundHigh, MemorySchema.TILE_DATA_UNSIGNED_START + 32 + row * 2 + 1);
+        }
+
+        gpu.WriteByte(2, MemorySchema.BACKGROUND_LAYOUT_0_START);
+        if (mode != GBCMode.NoGBC && backgroundAttributes != 0)
+        {
+            gpu.WriteByte(1, MemorySchema.GPU_VRAM_BANK_REGISTER);
+            gpu.WriteByte(backgroundAttributes, MemorySchema.BACKGROUND_LAYOUT_0_START);
+            gpu.WriteByte(0, MemorySchema.GPU_VRAM_BANK_REGISTER);
+        }
+
+        gpu.WriteByte(17, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START);
+        gpu.WriteByte(firstX, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 1);
+        gpu.WriteByte(0, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 2);
+        gpu.WriteByte(firstAttributes, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 3);
+        gpu.WriteByte(17, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 4);
+        gpu.WriteByte(secondX, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 5);
+        gpu.WriteByte(1, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 6);
+        gpu.WriteByte(secondAttributes, MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 7);
+        gpu.WriteByte(0xE4, 0xFF47);
+        gpu.WriteByte(0xE4, 0xFF48);
+        gpu.Update(4);
+        gpu.WriteByte(0x93, 0xFF40);
+        AdvanceToLineOneMode3(gpu);
         return gpu;
     }
 
