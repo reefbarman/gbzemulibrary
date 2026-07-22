@@ -9,7 +9,7 @@ namespace GBZEmuLibrary
     /// </summary>
     public sealed class EmulatorState
     {
-        internal const int CurrentFormatVersion = 2;
+        internal const int CurrentFormatVersion = 3;
 
         private readonly byte[] _data;
 

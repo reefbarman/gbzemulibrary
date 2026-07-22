@@ -265,6 +265,8 @@ internal sealed class Frontend : IDisposable
             HardwareModel.Mgb => false,
             HardwareModel.CgbE => true,
             HardwareModel.Sgb2 => false,
+            // Retain the CGB-like DC-block approximation until a measured AGB coefficient is available.
+            HardwareModel.AgbA => true,
             _ => throw new NotSupportedException(
                 $"Hardware model {hardwareModel} does not have an implemented frontend audio profile.")
         };

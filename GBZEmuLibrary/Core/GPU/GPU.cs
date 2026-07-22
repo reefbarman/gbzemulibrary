@@ -197,6 +197,7 @@ namespace GBZEmuLibrary
 
         private bool _gbcMode = false;
         private bool _dmgCompatibilityMode;
+        private bool _dmgObjectPriority;
 
         private readonly MessageBus _messageBus;
 
@@ -227,6 +228,7 @@ namespace GBZEmuLibrary
         {
             _gbcMode = mode != GBCMode.NoGBC && (mode != GBCMode.GBCCompatibility || usingBootROM);
             _dmgCompatibilityMode = mode == GBCMode.GBCCompatibility && !usingBootROM;
+            _dmgObjectPriority = mode != GBCMode.GBCSupport && mode != GBCMode.GBCOnly && !usingBootROM;
             for (var index = 0; index < MathSchema.MAX_6_BIT_VALUE; index++)
             {
                 _bgPaletteData[index] = byte.MaxValue;
@@ -296,6 +298,24 @@ namespace GBZEmuLibrary
                 _videoRAM,
                 0x19 * TILE_SIZE,
                 DefaultCompatibilityTrademarkTile.Length);
+        }
+
+        /// <summary>
+        /// Installs the raw palettes selected for a DMG cartridge on color-family hardware.
+        /// </summary>
+        public void InstallCompatibilityPalettes(CompatibilityPaletteHandoff handoff)
+        {
+            Array.Copy(handoff.BackgroundPalette, 0, _bgPaletteData, 0, handoff.BackgroundPalette.Length);
+            Array.Copy(handoff.ObjectPalette0, 0, _spritePaletteData, 0, handoff.ObjectPalette0.Length);
+            Array.Copy(handoff.ObjectPalette1, 0, _spritePaletteData, 8, handoff.ObjectPalette1.Length);
+        }
+
+        /// <summary>
+        /// Selects whether overlapping objects use DMG X-coordinate priority or CGB OAM order.
+        /// </summary>
+        public void SetDmgObjectPriority(bool enabled)
+        {
+            _dmgObjectPriority = enabled;
         }
 
         /// <summary>
@@ -1718,7 +1738,7 @@ namespace GBZEmuLibrary
         /// </summary>
         private bool TryGetWinningObjectPixel(int pixel, out int winningSpriteIndex, out byte colorValue)
         {
-            if (_gbcMode)
+            if (!_dmgObjectPriority)
             {
                 for (var oamIndex = 0; oamIndex < _lineSpriteSlotsByOamIndex.Length; oamIndex++)
                 {

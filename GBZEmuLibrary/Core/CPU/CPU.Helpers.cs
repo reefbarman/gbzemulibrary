@@ -30,7 +30,7 @@
                 var blockedByOamDma = _mmu.IsCpuAccessBlockedByOamDma(address);
                 var dmaBusValue = blockedByOamDma ? _mmu.ReadByteForCpu(address) : (byte)0;
                 AdvanceMachineCycle();
-                return blockedByOamDma ? dmaBusValue : _mmu.ReadByte(address);
+                return blockedByOamDma ? dmaBusValue : _mmu.ReadByteForCpuWithoutOamDma(address);
             }
 
             var data = _mmu.ReadByteForCpu(address);

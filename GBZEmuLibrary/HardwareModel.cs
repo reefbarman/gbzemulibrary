@@ -25,7 +25,8 @@ namespace GBZEmuLibrary
             HardwareModel.DmgB,
             HardwareModel.Mgb,
             HardwareModel.CgbE,
-            HardwareModel.Sgb2
+            HardwareModel.Sgb2,
+            HardwareModel.AgbA
         });
 
         /// <summary>
@@ -44,6 +45,7 @@ namespace GBZEmuLibrary
                 case HardwareModel.Mgb:
                 case HardwareModel.CgbE:
                 case HardwareModel.Sgb2:
+                case HardwareModel.AgbA:
                     return true;
                 default:
                     return false;

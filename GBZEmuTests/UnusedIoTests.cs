@@ -28,23 +28,29 @@ public sealed class UnusedIoTests
     }
 
     /// <summary>
-    /// Verifies that the CGB-only I/O window is hidden behind 0xFF pull-ups while the CPU runs in DMG mode.
+    /// Verifies that guest CPU access sees CGB-only I/O pull-ups while debugger access remains observational.
     /// </summary>
     [Fact]
-    public void DmgModeHidesCgbOnlyIoWindow()
+    public void DmgCpuHidesCgbOnlyIoWindow()
     {
-        using var rom = TestRom.Create(0x00);
+        using var rom = TestRom.Create(
+            0x3E, 0x01,       // LD A, $01
+            0xE0, 0x4D,       // LDH (KEY1), A
+            0xF0, 0x4D,       // LDH A, (KEY1)
+            0xEA, 0x00, 0xC0, // LD ($C000), A
+            0x3E, 0x00,       // LD A, $00
+            0xE0, 0x55,       // LDH (HDMA5), A
+            0xF0, 0x55,       // LDH A, (HDMA5)
+            0xEA, 0x01, 0xC0, // LD ($C001), A
+            0x40);            // LD B, B
         var emulator = EmulatorFactory.Start(rom);
+        emulator.Debug.LoadBBExecuted += emulator.Debug.RequestStop;
 
-        for (var address = 0xFF4C; address <= 0xFF7F; address++)
-        {
-            emulator.Debug.PokeByte(0x00, address);
-            Assert.Equal(0xFF, emulator.Debug.PeekByte(address));
+        emulator.Update();
 
-            emulator.Debug.PokeByte(0xFF, address);
-            Assert.Equal(0xFF, emulator.Debug.PeekByte(address));
-        }
-
+        Assert.Equal(0xFF, emulator.Debug.PeekByte(0xC000));
+        Assert.Equal(0xFF, emulator.Debug.PeekByte(0xC001));
+        Assert.Equal(0x00, emulator.Debug.PeekByte(MemorySchema.CPU_SPEED_SWITCH_REGISTER));
         emulator.Terminate();
     }
 

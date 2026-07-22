@@ -183,7 +183,10 @@ namespace GBZEmuLibrary
             try
             {
                 _hardwareModel = config.HardwareModel;
-                var mode = ResolveExecutionMode(_hardwareModel, _cartridge.GBCMode);
+                var startupProfile = _hardwareModel == HardwareModel.AgbA
+                    ? HardwareStartupProfile.ResolveAgbA(_cartridge.Header)
+                    : null;
+                var mode = startupProfile?.ExecutionMode ?? ResolveExecutionMode(_hardwareModel, _cartridge.GBCMode);
                 var sgbModel = _hardwareModel == HardwareModel.Sgb2 ? SgbModel.Sgb2 : SgbModel.None;
                 var useBootRom = config.BootRom.Source != BootRomSource.Skip;
 
@@ -191,8 +194,17 @@ namespace GBZEmuLibrary
                 _mmu.Init(mode, _hardwareModel);
                 _apu.Reset();
                 _timerState.Reset(useBootRom, mode);
-                _cpu.Reset(useBootRom, _hardwareModel, mode);
+                _mmu.Reset(useBootRom);
                 _gpu.Reset(mode, useBootRom);
+                if (!useBootRom && startupProfile != null)
+                {
+                    _mmu.ApplyStartupProfile(startupProfile);
+                    if (startupProfile.InstallCompatibilityPalettes)
+                    {
+                        _gpu.InstallCompatibilityPalettes(CompatibilityPaletteSelector.Select(_cartridge.Header));
+                    }
+                }
+                _cpu.Reset(useBootRom, _hardwareModel, mode, startupProfile);
                 _sgb.Reset(sgbModel, _cartridge.ROMBytes, useBootRom);
 
                 _hasStarted = true;
@@ -290,6 +302,7 @@ namespace GBZEmuLibrary
                 _apu,
                 _serialRegisters,
                 _mmu,
+                _mmu.CompatibilityModeRegisters,
                 _cpu);
             return StateEnvelope.Create(_stateIdentity, payload);
         }
@@ -321,6 +334,7 @@ namespace GBZEmuLibrary
                 _apu,
                 _serialRegisters,
                 _mmu,
+                _mmu.CompatibilityModeRegisters,
                 _cpu);
 
             _clocksThisUpdate = timing[0];
@@ -500,7 +514,7 @@ namespace GBZEmuLibrary
 
         private static GBCMode ResolveExecutionMode(HardwareModel model, GBCMode cartridgeMode)
         {
-            if (model == HardwareModel.CgbE)
+            if (model == HardwareModel.CgbE || model == HardwareModel.AgbA)
             {
                 return cartridgeMode == GBCMode.NoGBC ? GBCMode.GBCCompatibility : cartridgeMode;
             }

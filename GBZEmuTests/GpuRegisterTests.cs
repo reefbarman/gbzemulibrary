@@ -785,6 +785,31 @@ public sealed class GpuRegisterTests
     }
 
     /// <summary>
+    /// Verifies OPRI selects object winner ordering independently from the active renderer mode.
+    /// </summary>
+    [Theory]
+    [InlineData((int)GBCMode.GBCSupport, true, 2)]
+    [InlineData((int)GBCMode.GBCCompatibility, false, 1)]
+    public void ObjectPriorityRegisterOverridesRendererDefault(int mode, bool dmgPriority, byte expectedColorIndex)
+    {
+        var gpu = CreateGpuForObjectPriority(
+            (GBCMode)mode,
+            firstX: 12,
+            firstLow: 0xFF,
+            firstHigh: 0x00,
+            firstAttributes: 0,
+            secondX: 11,
+            secondLow: 0x00,
+            secondHigh: 0xFF,
+            secondAttributes: 0,
+            dmgObjectPriority: dmgPriority);
+
+        AdvanceToVBlank(gpu);
+
+        Assert.Equal(expectedColorIndex, gpu.GetScreenData()[4, 1].Index);
+    }
+
+    /// <summary>
     /// Verifies equal-X objects use OAM order in both drawing-priority modes.
     /// </summary>
     [Theory]
@@ -1505,10 +1530,15 @@ public sealed class GpuRegisterTests
         byte secondAttributes,
         byte backgroundLow = 0,
         byte backgroundHigh = 0,
-        byte backgroundAttributes = 0)
+        byte backgroundAttributes = 0,
+        bool? dmgObjectPriority = null)
     {
         var gpu = new GPU(new MessageBus());
         gpu.Reset(mode, usingBootROM: false);
+        if (dmgObjectPriority.HasValue)
+        {
+            gpu.SetDmgObjectPriority(dmgObjectPriority.Value);
+        }
         for (var row = 0; row < 8; row++)
         {
             gpu.WriteByte(firstLow, MemorySchema.TILE_DATA_UNSIGNED_START + row * 2);

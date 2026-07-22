@@ -31,7 +31,7 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | `GetSuperGameBoyScreenData()`       | Return the reusable 256×224 colorized SGB composite frame, including the active game-supplied or GBZEmu fallback border.                                                     |
 | `GetSoundSamples(out frameCount)`   | Swap and return reusable interleaved band-limited float amplitudes plus their valid stereo-frame count. Call once per emulation update.                                      |
 | `ButtonDown(...)` / `ButtonUp(...)` | Forward Game Boy button transitions to the joypad and interrupt logic.                                                                                                       |
-| `FrameRate` / `ClockRate`           | Report the selected model's host scheduling rate. DMG-B, MGB, CGB-E, and SGB2 currently use the normal Game Boy frame rate.                                                  |
+| `FrameRate` / `ClockRate`           | Report the selected model's host scheduling rate. DMG-B, MGB, CGB-E, AGB-A, and SGB2 use the normal Game Boy frame rate.                                                     |
 | `ToggleChannel(...)`                | Enable or mute one of the four emulated audio channels.                                                                                                                      |
 | `SupportsRumble` / `RumbleActive`   | Report whether the loaded cartridge has rumble hardware and its current raw motor-enable latch.                                                                              |
 | `RumbleChanged`                     | Notify compatibility consumers synchronously whenever the raw MBC5 motor-enable latch changes.                                                                               |
@@ -154,8 +154,8 @@ rewind.TryRewind(emulator);
 int completedFrames = emulator.FastForward(10);
 ```
 
-Save-state format version 2 captures CPU, interrupts, MMU/main/work RAM, cartridge banking and RAM, MBC3 RTC phase,
-timer/divider, serial, joypad, DMA, PPU/framebuffers, APU channels, and core audio buffers. A SHA-256 checksum rejects
+Save-state format version 3 captures CPU, interrupts, MMU/main/work RAM, cartridge banking and RAM, MBC3 RTC phase,
+timer/divider, serial, joypad, DMA, PPU/framebuffers, APU channels, compatibility-mode KEY0/OPRI state, and core audio buffers. A SHA-256 checksum rejects
 corrupt data. State identity binds the exact ROM bytes, concrete `HardwareModel`, a firmware-vs-skip boot-kind marker,
 and the active firmware hash without embedding the firmware. Built-in and byte-identical external firmware intentionally
 share identity; skipped startup never shares identity with firmware startup. Restoring into another running instance is
@@ -193,7 +193,7 @@ SGB2 expands the frontend to 256×224, colorizes the Game Boy image, and display
 Options:
 
 - `--rom-dir <path>`: show an in-window picker containing `.gb` and `.gbc` files from the directory instead of supplying a ROM path.
-- `--model <DmgB|Mgb|CgbE|Sgb2|AgbA>`: select a concrete hardware model. DMG-B, MGB, CGB-E, and SGB2 are implemented; AGB-A is named for forward-compatible host configuration but currently fails with a clear not-implemented error. Automatic selection remains DMG-B for DMG-only cartridges and CGB-E otherwise; MGB is deliberate selection.
+- `--model <DmgB|Mgb|CgbE|Sgb2|AgbA>`: select a concrete implemented hardware model. Automatic selection remains DMG-B for DMG-only cartridges and CGB-E otherwise; MGB, SGB2, and AGB-A require deliberate selection.
 - `--bootrom <path>`: use external firmware for the selected model instead of its built-in image.
 - `--skip-bootrom`: skip firmware execution and apply the model-specific deterministic handoff state; mutually exclusive with `--bootrom`.
 - `--save-dir <path>`: save directory; defaults to the ROM directory and is created by the frontend.
@@ -368,9 +368,9 @@ Timer-capable MBC3 cartridges append a BGB-compatible 48-byte RTC trailer after 
 | `Mgb`  | Implemented | DMG-only, CGB-compatible           | 256 bytes           |
 | `CgbE` | Implemented | DMG-only, CGB-compatible, CGB-only | 2,304 bytes         |
 | `Sgb2` | Implemented | DMG-only, CGB-compatible           | 256 bytes           |
-| `AgbA` | Planned     | DMG-only, CGB-compatible, CGB-only | Not yet provided    |
+| `AgbA` | Implemented | DMG-only, CGB-compatible, CGB-only | 2,304 bytes         |
 
-`Emulator.Config(HardwareModel)` requires the selection up front. Undefined enum values and planned models fail with explicit validation errors before cartridge compatibility, firmware validation, or resource lookup. CGB-only cartridges are rejected on DMG-B, MGB, and SGB2. MGB uses the late monochrome hardware path with its distinct `A=$FF` startup identity; ordinary CPU, timer, serial, PPU, joypad, and digital APU behavior is shared with the evidence-backed DMG-B path. The CGB-E path retains automatic compatibility palettes for monochrome cartridges. SGB2 retains the normal DMG clock, model-specific boot handoff, and HLE command, multiplayer, palette, border, and presentation behavior; original SGB hardware is no longer a public or internal model.
+`Emulator.Config(HardwareModel)` requires the selection up front. Undefined enum values fail with explicit validation errors before cartridge compatibility, firmware validation, or resource lookup. Automatic host selection remains DMG-B for DMG-only cartridges and CGB-E otherwise; MGB, SGB2, and AGB-A are explicit-only selections. CGB-only cartridges are rejected on DMG-B, MGB, and SGB2. MGB uses the late monochrome hardware path with its distinct `A=$FF` startup identity; ordinary CPU, timer, serial, PPU, joypad, and digital APU behavior is shared with the evidence-backed DMG-B path. The CGB-E path retains automatic compatibility palettes for monochrome cartridges. AGB-A uses later color-family hardware behavior with cartridge-specific native-color or DMG-compatibility handoffs; its DMG compatibility path latches KEY0/OPRI policy at boot unmap while retaining color-family timing and I/O internally. SGB2 retains the normal DMG clock, model-specific boot handoff, and HLE command, multiplayer, palette, border, and presentation behavior; original SGB hardware is no longer a public or internal model.
 
 `BootRomConfig` independently selects the firmware source:
 
@@ -381,7 +381,7 @@ Timer-capable MBC3 cartridges append a BGB-compatible 48-byte RTC trailer after 
 
 External firmware must match the selected model's exact image size; a 256-byte file is not inferred as DMG-B, MGB, or SGB2 by length. `BootRomSource` reports `BuiltIn`, `External`, or `Skip` for host diagnostics. Save-state identity instead distinguishes firmware execution from skip-boot and hashes the active image so byte-identical built-in and external firmware remain compatible.
 
-Maintained source for all four built-in images lives under [`GBZEmuLibrary/BootROMs/`](GBZEmuLibrary/BootROMs/) and is licensed under the Expat/MIT license in that directory. The project-authored DMG-B and MGB images share the authentic monochrome GBZEmu logo-scroll and two-note-chime presentation; their generated images differ only in the documented final handoff accumulator (`A=$01` for DMG-B, `A=$FF` for MGB). CGB-E retains its distinct color-era presentation and compatibility-palette behavior. Normal .NET builds use checked-in generated resources and do not require RGBDS. To rebuild into an isolated temporary directory, validate exact mapped sizes, and byte-compare the results with the embedded images, install RGBDS 1.0.1 and run:
+Maintained source for all five built-in images—DMG-B, MGB, CGB-E, AGB-A, and SGB2—lives under [`GBZEmuLibrary/BootROMs/`](GBZEmuLibrary/BootROMs/) and is licensed under the Expat/MIT license in that directory. The project-authored DMG-B and MGB images share the authentic monochrome GBZEmu logo-scroll and two-note-chime presentation; their generated images differ only in the documented final handoff accumulator (`A=$01` for DMG-B, `A=$FF` for MGB). CGB-E retains its distinct color-era presentation and compatibility-palette behavior. AGB-A shares that project-authored color-family presentation with an AGB-inspired terminal blue and model-specific handoff. Normal .NET builds use checked-in generated resources and do not require RGBDS. To rebuild into an isolated temporary directory, validate exact mapped sizes, and byte-compare the results with the embedded images, install RGBDS 1.0.1 and run:
 
 ```sh
 GBZEmuLibrary/BootROMs/verify.sh

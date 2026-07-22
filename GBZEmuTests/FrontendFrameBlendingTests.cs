@@ -109,6 +109,9 @@ public sealed class FrontendFrameBlendingTests
     [InlineData(HardwareModel.Mgb, CartridgeCompatibility.CgbCompatible, false, false)]
     [InlineData(HardwareModel.CgbE, CartridgeCompatibility.DmgOnly, false, false)]
     [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, true, false)]
+    [InlineData(HardwareModel.AgbA, CartridgeCompatibility.DmgOnly, false, false)]
+    [InlineData(HardwareModel.AgbA, CartridgeCompatibility.CgbCompatible, false, false)]
+    [InlineData(HardwareModel.AgbA, CartridgeCompatibility.CgbOnly, false, false)]
     public void CgbCorrectionRequiresNativeCgbPresentation(
         HardwareModel hardwareModel,
         CartridgeCompatibility compatibility,
@@ -126,6 +129,7 @@ public sealed class FrontendFrameBlendingTests
     [InlineData(HardwareModel.Mgb, false)]
     [InlineData(HardwareModel.CgbE, true)]
     [InlineData(HardwareModel.Sgb2, false)]
+    [InlineData(HardwareModel.AgbA, true)]
     public void AudioFilterPolicyIsExplicitForImplementedModels(HardwareModel model, bool expectedCgbFilter)
     {
         Assert.Equal(expectedCgbFilter, Frontend.ShouldUseCgbAudioFilter(model));

@@ -152,22 +152,30 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Resets CPU registers, execution state, and startup values for the selected hardware mode.
         /// </summary>
-        public void Reset(bool usingBootROM, HardwareModel hardwareModel, GBCMode gbcMode)
+        public void Reset(
+            bool usingBootROM,
+            HardwareModel hardwareModel,
+            GBCMode gbcMode,
+            HardwareStartupProfile startupProfile = null)
         {
             _gbcMode = gbcMode;
             _pendingInterruptEnabled = -1;
             _haltWakeFetchElapsed = false;
             _memoryCyclePending = false;
+            _pendingSpeedSwitch = false;
+            _doubleSpeed = false;
             _instructionCount = 0;
 
             if (usingBootROM)
             {
                 _registers.A = (byte)(_gbcMode != GBCMode.NoGBC ? 0x11 : 0x01);
             }
+            else if (startupProfile != null)
+            {
+                ApplyStartupProfile(startupProfile);
+            }
             else
             {
-                _mmu.WriteByte(0, MemorySchema.BOOT_ROM_DISABLE_REGISTER);
-
                 switch (hardwareModel)
                 {
                     case HardwareModel.DmgB:
@@ -202,8 +210,16 @@ namespace GBZEmuLibrary
                 _sp.SP = 0xFFFE;
                 _pc = 0x100;
             }
+        }
 
-            _mmu.Reset(usingBootROM);
+        private void ApplyStartupProfile(HardwareStartupProfile profile)
+        {
+            _registers.AF = profile.AF;
+            _registers.BC = profile.BC;
+            _registers.DE = profile.DE;
+            _registers.HL = profile.HL;
+            _sp.SP = profile.SP;
+            _pc = profile.PC;
         }
 
         /// <summary>

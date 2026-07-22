@@ -12,6 +12,7 @@ namespace GBZEmuLibrary
         public Action<byte> OnPendingSpeedSwitch;
 
         public bool InBootROM => _mainMemory.InBootROM;
+        internal CompatibilityModeRegisters CompatibilityModeRegisters => _compatibilityModeRegisters;
 
         private readonly Dictionary<int, IMemoryUnit> _memoryUnitLookup = new Dictionary<int, IMemoryUnit>();
 
@@ -21,6 +22,7 @@ namespace GBZEmuLibrary
         private readonly GPU _gpu;
         private readonly SerialRegisters _serialRegisters;
         private readonly DMAController _dmaController;
+        private readonly CompatibilityModeRegisters _compatibilityModeRegisters = new CompatibilityModeRegisters();
         [SaveStateIgnore]
         private readonly CheatCollection _cheats;
 
@@ -42,7 +44,8 @@ namespace GBZEmuLibrary
 
             var memoryUnits = new List<IMemoryUnit>
             {
-                cart, gpu, _workRAM, joypad, serialRegisters, divideRegister, timer, apu, _dmaController, new UnmappedIO()
+                cart, gpu, _workRAM, joypad, serialRegisters, divideRegister, timer, apu, _dmaController,
+                _compatibilityModeRegisters, new UnmappedIO()
             };
 
             messageBus.OnReadByte = ReadByte;
@@ -77,6 +80,9 @@ namespace GBZEmuLibrary
             _hardwareModel = hardwareModel;
             _dmaController.Init(mode);
             _workRAM.Init(mode);
+            _compatibilityModeRegisters.Init(
+                hardwareModel,
+                hardwareModel == HardwareModel.CgbE && mode == GBCMode.GBCCompatibility);
             // APU hardware must be selected before Emulator.Start applies its post-boot reset profile.
             _apu.Init(mode, hardwareModel);
             _serialRegisters.Init(mode);
@@ -87,14 +93,6 @@ namespace GBZEmuLibrary
         /// </summary>
         public byte ReadByte(int address)
         {
-            // CGB-only I/O registers are inaccessible in DMG mode and expose the unused-register pull-up value.
-            if (_mode == GBCMode.NoGBC &&
-                address >= MemorySchema.CGB_IO_REGISTERS_START &&
-                address < MemorySchema.CGB_IO_REGISTERS_END)
-            {
-                return 0xFF;
-            }
-
             if (address < MemorySchema.ROM_END)
             {
                 if (_mainMemory.InBootROM)
@@ -136,7 +134,7 @@ namespace GBZEmuLibrary
         {
             if (!IsCpuAccessBlockedByOamDma(address))
             {
-                return ReadByte(address);
+                return ReadByteForCpuWithoutOamDma(address);
             }
 
             return address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
@@ -146,10 +144,23 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Reads a CPU-visible value without resampling OAM-DMA ownership.
+        /// </summary>
+        internal byte ReadByteForCpuWithoutOamDma(int address)
+        {
+            return IsCgbIoReadBlocked(address) ? (byte)0xFF : ReadByte(address);
+        }
+
+        /// <summary>
         /// Writes a CPU bus cycle unless DMG OAM DMA owns the target bus. HRAM and FF46 remain accessible.
         /// </summary>
         internal void WriteByteForCpu(byte data, int address)
         {
+            if (IsCgbIoWriteBlocked(address))
+            {
+                return;
+            }
+
             if (!IsCpuAccessBlockedByOamDma(address))
             {
                 if ((address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END) ||
@@ -305,15 +316,6 @@ namespace GBZEmuLibrary
         /// </summary>
         public void WriteByte(byte data, int address)
         {
-            // DMG hardware ignores writes to the CGB-only I/O window; FF50 remains the shared boot-ROM disable latch.
-            if (_mode == GBCMode.NoGBC &&
-                address >= MemorySchema.CGB_IO_REGISTERS_START &&
-                address < MemorySchema.CGB_IO_REGISTERS_END &&
-                address != MemorySchema.BOOT_ROM_DISABLE_REGISTER)
-            {
-                return;
-            }
-
             if (address == MemorySchema.CPU_SPEED_SWITCH_REGISTER)
             {
                 OnPendingSpeedSwitch?.Invoke(data);
@@ -330,15 +332,59 @@ namespace GBZEmuLibrary
             {
                 _memoryUnitLookup[address].WriteByte(data, address);
 
-                if (address == MemorySchema.BOOT_ROM_DISABLE_REGISTER && _mode == GBCMode.GBCCompatibility)
+                if (address == MemorySchema.BOOT_ROM_DISABLE_REGISTER)
                 {
-                    _gpu.EnterDmgCompatibilityMode();
+                    _compatibilityModeRegisters.Lock();
+                    if (_hardwareModel == HardwareModel.CgbE || _hardwareModel == HardwareModel.AgbA)
+                    {
+                        _gpu.SetDmgObjectPriority(_compatibilityModeRegisters.UsesDmgObjectPriority);
+                    }
+
+                    if (_mode == GBCMode.GBCCompatibility)
+                    {
+                        _gpu.EnterDmgCompatibilityMode();
+                    }
                 }
 
                 return;
             }
 
             throw new IndexOutOfRangeException();
+        }
+
+        /// <summary>
+        /// Applies the resolved AGB-A skip-boot register handoff before cartridge execution begins.
+        /// </summary>
+        public void ApplyStartupProfile(HardwareStartupProfile profile)
+        {
+            _compatibilityModeRegisters.ApplyStartupProfile(profile);
+            _gpu.SetDmgObjectPriority(_compatibilityModeRegisters.UsesDmgObjectPriority);
+        }
+
+        private bool IsCgbIoReadBlocked(int address)
+        {
+            return IsCgbIoWindowBlocked(address) &&
+                   address != MemorySchema.CPU_MODE_SELECT_REGISTER &&
+                   address != MemorySchema.OBJECT_PRIORITY_REGISTER;
+        }
+
+        private bool IsCgbIoWriteBlocked(int address)
+        {
+            return IsCgbIoWindowBlocked(address) &&
+                   address != MemorySchema.BOOT_ROM_DISABLE_REGISTER &&
+                   address != MemorySchema.CPU_MODE_SELECT_REGISTER &&
+                   address != MemorySchema.OBJECT_PRIORITY_REGISTER;
+        }
+
+        private bool IsCgbIoWindowBlocked(int address)
+        {
+            if (address < MemorySchema.CGB_IO_REGISTERS_START || address >= MemorySchema.CGB_IO_REGISTERS_END)
+            {
+                return false;
+            }
+
+            return _mode == GBCMode.NoGBC ||
+                   _mode == GBCMode.GBCCompatibility && !_mainMemory.InBootROM;
         }
 
         /// <summary>
@@ -353,6 +399,8 @@ namespace GBZEmuLibrary
             {
                 return;
             }
+
+            WriteByte(0, MemorySchema.BOOT_ROM_DISABLE_REGISTER);
 
             // SGB2 starts with both joypad selection lines inactive; handheld profiles start with neither selected.
             WriteByte(_hardwareModel == HardwareModel.Sgb2 ? (byte)0x30 : (byte)0x00, MemorySchema.JOYPAD_REGISTER);

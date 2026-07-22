@@ -12,7 +12,7 @@ This directory contains maintained source for the open startup firmware embedded
 | AGB-A          | `agb_boot.asm`  | `agb_boot.bin`  | 2,304 bytes |
 | SGB2           | `sgb2_boot.asm` | `sgb2_boot.bin` |   256 bytes |
 
-Firmware availability and public model capability are validated separately. The AGB-A image and firmware slot are present for focused implementation testing, while `HardwareModelMetadata.ImplementedModels` continues to exclude AGB-A until its runtime, APU, state, and host paths pass the activation gates. Original SGB firmware is intentionally unsupported.
+Firmware availability and public model capability are validated separately. AGB-A is activated in `HardwareModelMetadata.ImplementedModels` with bounded runtime, APU-policy, save-state, host, firmware, and conformance coverage. Original SGB firmware is intentionally unsupported.
 
 ## Behavior
 

@@ -166,6 +166,43 @@ public sealed class HeadlessRunnerTests
     }
 
     /// <summary>
+    /// Verifies explicit AGB-A selection reaches the core and is recorded in deterministic output.
+    /// </summary>
+    [Fact]
+    public void RunnerReportsAgbSkipBoot()
+    {
+        using var rom = TestRom.Create(0x00, 0x18, 0xFD);
+        var output = Path.Combine(Path.GetTempPath(), $"gbzemu-headless-agb-{Guid.NewGuid():N}");
+
+        try
+        {
+            var options = HeadlessOptions.Parse([
+                rom.Path,
+                "--frames", "1",
+                "--output", output,
+                "--skip-bootrom",
+                "--model", "AgbA"
+            ]);
+
+            Assert.Equal(HardwareModel.AgbA, options.HardwareModel);
+            var reportPath = new HeadlessRunner().Run(options);
+            var report = JsonSerializer.Deserialize<HeadlessReport>(File.ReadAllText(reportPath));
+
+            Assert.NotNull(report);
+            Assert.Equal(nameof(HardwareModel.AgbA), report.HardwareModel);
+            Assert.Equal(nameof(BootRomSource.Skip), report.BootRomSource);
+            Assert.Equal(1, report.FramesExecuted);
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies that invalid capture and input frames fail before emulation starts.
     /// </summary>
     [Theory]

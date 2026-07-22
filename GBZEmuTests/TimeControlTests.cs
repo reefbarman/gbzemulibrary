@@ -139,6 +139,53 @@ public sealed class TimeControlTests
     }
 
     [Fact]
+    public void AgbSaveStateRestoresCompatibilityRegistersAndReplay()
+    {
+        using var rom = CreateCounterRom();
+        var emulator = Start(rom, HardwareModel.AgbA, BootRomConfig.Skip());
+        emulator.Update();
+        var state = emulator.CaptureState();
+        var savedCpu = emulator.Debug.GetCpuState();
+        var savedCounter = emulator.Debug.PeekByte(0xC000);
+
+        emulator.Debug.PokeByte(0x00, MemorySchema.OBJECT_PRIORITY_REGISTER);
+        Assert.Equal(0xFE, emulator.Debug.PeekByte(MemorySchema.OBJECT_PRIORITY_REGISTER));
+        emulator.Update();
+
+        emulator.RestoreState(state);
+
+        Assert.Equal(0x04, emulator.Debug.PeekByte(MemorySchema.CPU_MODE_SELECT_REGISTER));
+        Assert.Equal(0xFF, emulator.Debug.PeekByte(MemorySchema.OBJECT_PRIORITY_REGISTER));
+        AssertCpuEqual(savedCpu, emulator.Debug.GetCpuState());
+        Assert.Equal(savedCounter, emulator.Debug.PeekByte(0xC000));
+
+        emulator.Update();
+        var replayCpu = emulator.Debug.GetCpuState();
+        var replayCounter = emulator.Debug.PeekByte(0xC000);
+        emulator.RestoreState(state);
+        emulator.Update();
+
+        AssertCpuEqual(replayCpu, emulator.Debug.GetCpuState());
+        Assert.Equal(replayCounter, emulator.Debug.PeekByte(0xC000));
+        emulator.Terminate();
+    }
+
+    [Fact]
+    public void SaveStateIdentitySeparatesCgbEAndAgbA()
+    {
+        using var rom = CreateCounterRom();
+        var cgb = Start(rom, HardwareModel.CgbE, BootRomConfig.Skip());
+        var agb = Start(rom, HardwareModel.AgbA, BootRomConfig.Skip());
+        var cgbState = cgb.CaptureState();
+        var agbState = agb.CaptureState();
+
+        Assert.Throws<InvalidOperationException>(() => agb.RestoreState(cgbState));
+        Assert.Throws<InvalidOperationException>(() => cgb.RestoreState(agbState));
+        cgb.Terminate();
+        agb.Terminate();
+    }
+
+    [Fact]
     public void SaveStateIdentitySeparatesSkipAndFirmwareBoot()
     {
         using var rom = CreateCounterRom();
@@ -154,6 +201,7 @@ public sealed class TimeControlTests
     [Theory]
     [InlineData(HardwareModel.DmgB, "dmg_boot.bin")]
     [InlineData(HardwareModel.Mgb, "mgb_boot.bin")]
+    [InlineData(HardwareModel.AgbA, "agb_boot.bin")]
     public void SaveStateIdentityMatchesByteIdenticalBuiltInAndExternalFirmware(
         HardwareModel model,
         string resourceName)

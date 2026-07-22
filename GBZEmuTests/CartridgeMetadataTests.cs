@@ -51,11 +51,11 @@ public sealed class CartridgeMetadataTests
     public void HardwareModelMetadata_ReportsImplementedModelsInStableOrder()
     {
         Assert.Equal(
-            new[] { HardwareModel.DmgB, HardwareModel.Mgb, HardwareModel.CgbE, HardwareModel.Sgb2 },
+            new[] { HardwareModel.DmgB, HardwareModel.Mgb, HardwareModel.CgbE, HardwareModel.Sgb2, HardwareModel.AgbA },
             HardwareModelMetadata.ImplementedModels);
         Assert.True(HardwareModelMetadata.IsImplemented(HardwareModel.DmgB));
         Assert.True(HardwareModelMetadata.IsImplemented(HardwareModel.Mgb));
-        Assert.False(HardwareModelMetadata.IsImplemented(HardwareModel.AgbA));
+        Assert.True(HardwareModelMetadata.IsImplemented(HardwareModel.AgbA));
         Assert.False(HardwareModelMetadata.IsImplemented((HardwareModel)999));
     }
 
