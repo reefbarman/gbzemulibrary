@@ -74,13 +74,13 @@ namespace GBZEmuLibrary
 
         internal static CartridgeCompatibility ClassifyCgbFlag(byte cgbFlag)
         {
-            if (cgbFlag == CgbCompatibleFlag)
+            if (cgbFlag == CgbOnlyFlag)
             {
-                return CartridgeCompatibility.CgbCompatible;
+                return CartridgeCompatibility.CgbOnly;
             }
 
-            return cgbFlag == CgbOnlyFlag
-                ? CartridgeCompatibility.CgbOnly
+            return (cgbFlag & CgbCompatibleFlag) != 0
+                ? CartridgeCompatibility.CgbCompatible
                 : CartridgeCompatibility.DmgOnly;
         }
     }

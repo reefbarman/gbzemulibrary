@@ -6,10 +6,12 @@ public sealed class CartridgeMetadataTests
 {
     [Theory]
     [InlineData(0x00, CartridgeCompatibility.DmgOnly)]
+    [InlineData(0x7F, CartridgeCompatibility.DmgOnly)]
     [InlineData(0x80, CartridgeCompatibility.CgbCompatible)]
+    [InlineData(0x81, CartridgeCompatibility.CgbCompatible)]
     [InlineData(0xC0, CartridgeCompatibility.CgbOnly)]
-    [InlineData(0xFF, CartridgeCompatibility.DmgOnly)]
-    public void Read_ClassifiesDefinedCgbHeaderValues(int flag, CartridgeCompatibility expected)
+    [InlineData(0xFF, CartridgeCompatibility.CgbCompatible)]
+    public void Read_ClassifiesCgbHeaderBitSeven(int flag, CartridgeCompatibility expected)
     {
         var rom = new byte[0x144];
         rom[0x143] = (byte)flag;

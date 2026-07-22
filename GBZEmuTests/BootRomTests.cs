@@ -28,8 +28,8 @@ public sealed class BootRomTests
 
         Assert.Equal(0x100, dmg.Bytes.Length);
         Assert.Equal(0x100, mgb.Bytes.Length);
-        Assert.False(dmg.IsGBCSelected);
-        Assert.False(mgb.IsGBCSelected);
+        Assert.False(dmg.IsColorFamilySelected);
+        Assert.False(mgb.IsColorFamilySelected);
 
         var differences = Enumerable.Range(0, dmg.Bytes.Length)
             .Where(index => dmg.Bytes[index] != mgb.Bytes[index])
@@ -37,6 +37,54 @@ public sealed class BootRomTests
         Assert.Equal(new[] { 0x8C }, differences);
         Assert.Equal(0x01, dmg.Bytes[0x8C]);
         Assert.Equal(0xFF, mgb.Bytes[0x8C]);
+    }
+
+    [Fact]
+    public void BuiltInAgbFirmwareUsesDistinctColorFamilyImage()
+    {
+        var cgb = new BootROM();
+        var agb = new BootROM();
+
+        cgb.Load(HardwareModel.CgbE, BootRomConfig.BuiltIn());
+        agb.Load(HardwareModel.AgbA, BootRomConfig.BuiltIn());
+
+        Assert.Equal(0x900, cgb.Bytes.Length);
+        Assert.Equal(0x900, agb.Bytes.Length);
+        Assert.True(cgb.IsColorFamilySelected);
+        Assert.True(agb.IsColorFamilySelected);
+        Assert.NotEqual(cgb.Bytes, agb.Bytes);
+        Assert.Equal(new byte[] { 0x3E, 0x11, 0xB7, 0xC3, 0xFE, 0x00 }, agb.Bytes[0x6C1..0x6C7]);
+        Assert.Equal(0xE0, agb.Bytes[0xFE]);
+        Assert.Equal(0x50, agb.Bytes[0xFF]);
+    }
+
+    [Fact]
+    public void AgbExternalByteArrayIsPrivatelyOwnedByColorFamilySlot()
+    {
+        var image = new byte[0x900];
+        image[0] = 0xA5;
+        image[0x200] = 0xC3;
+        var config = BootRomConfig.ExternalBytes(image);
+        image[0] = 0x5A;
+        image[0x200] = 0x3C;
+        var agb = new BootROM();
+
+        agb.Load(HardwareModel.AgbA, config);
+
+        Assert.True(agb.IsColorFamilySelected);
+        Assert.Equal(0xA5, agb.Bytes[0]);
+        Assert.Equal(0xC3, agb.Bytes[0x200]);
+    }
+
+    [Fact]
+    public void AgbFirmwareSlotRejectsWrongExternalSize()
+    {
+        var agb = new BootROM();
+
+        var error = Assert.Throws<ArgumentException>(() =>
+            agb.Load(HardwareModel.AgbA, BootRomConfig.ExternalBytes(new byte[0x100])));
+
+        Assert.Contains("2304", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

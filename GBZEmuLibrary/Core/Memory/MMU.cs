@@ -99,7 +99,7 @@ namespace GBZEmuLibrary
             {
                 if (_mainMemory.InBootROM)
                 {
-                    if (address < MemorySchema.BOOT_ROM_SECTION_1_END || _bootROM.IsGBCSelected && address >= MemorySchema.BOOT_ROM_SECTION_2_START && address < MemorySchema.BOOT_ROM_SECTION_2_END)
+                    if (address < MemorySchema.BOOT_ROM_SECTION_1_END || _bootROM.IsColorFamilySelected && address >= MemorySchema.BOOT_ROM_SECTION_2_START && address < MemorySchema.BOOT_ROM_SECTION_2_END)
                     {
                         return _bootROM.Bytes[address];
                     }

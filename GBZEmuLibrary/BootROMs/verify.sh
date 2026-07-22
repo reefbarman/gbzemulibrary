@@ -2,6 +2,7 @@
 set -eu
 
 EXPECTED_RGBDS_VERSION="rgbasm v1.0.1"
+EXPECTED_CGB_SHA256="7b6b723d3d8f8df62e1987279da5825408d74dee8aea0fe0e0ef915a16ed7495"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 RESOURCE_DIR="$SCRIPT_DIR/../Resources"
 
@@ -47,10 +48,16 @@ build_and_verify() {
     fi
 
     digest=$(shasum -a 256 "$generated" | awk '{print $1}')
+    if [ "$name" = "cgb_boot" ] && [ "$digest" != "$EXPECTED_CGB_SHA256" ]; then
+        echo "error: generated cgb_boot.bin digest changed: $digest" >&2
+        exit 1
+    fi
+
     echo "verified $name.bin ($expected_size bytes, sha256 $digest)"
 }
 
 build_and_verify dmg_boot 256
 build_and_verify mgb_boot 256
 build_and_verify cgb_boot 2304
+build_and_verify agb_boot 2304
 build_and_verify sgb2_boot 256

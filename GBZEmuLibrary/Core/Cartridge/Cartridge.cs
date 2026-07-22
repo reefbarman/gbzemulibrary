@@ -16,6 +16,7 @@ namespace GBZEmuLibrary
 
         public GBCMode GBCMode => _header.GBCMode;
         public bool CustomPalette => _header.CustomPalette;
+        internal CartridgeHeader Header => _header;
         internal byte[] ROMBytes => _cartMemory;
         /// <summary>
         /// Gets whether the loaded cartridge declares an MBC5 rumble motor.

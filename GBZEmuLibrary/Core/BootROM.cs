@@ -15,11 +15,11 @@ namespace GBZEmuLibrary
         [field: SaveStateIgnore]
         public byte[] Bytes { get; private set; } = Empty;
 
-        public byte[] GBCBootROM => IsGBCSelected ? Bytes : null;
+        public byte[] ColorBootROM => IsColorFamilySelected ? Bytes : null;
 
-        public bool HasGBCBootROM => IsGBCSelected && Bytes.Length != 0;
+        public bool HasColorBootROM => IsColorFamilySelected && Bytes.Length != 0;
 
-        public bool IsGBCSelected { get; private set; }
+        public bool IsColorFamilySelected { get; private set; }
 
         /// <summary>
         /// Clears the active firmware image and overlay mapping.
@@ -27,7 +27,7 @@ namespace GBZEmuLibrary
         public void Clear()
         {
             Bytes = Empty;
-            IsGBCSelected = false;
+            IsColorFamilySelected = false;
         }
 
         /// <summary>
@@ -68,7 +68,7 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Loads and privately owns the firmware image selected for a concrete implemented model.
+        /// Loads and privately owns the firmware image selected for a concrete model with a prepared firmware slot.
         /// </summary>
         public void Load(HardwareModel model, BootRomConfig config)
         {
@@ -100,7 +100,7 @@ namespace GBZEmuLibrary
             }
 
             Bytes = (byte[])image.Clone();
-            IsGBCSelected = model == HardwareModel.CgbE;
+            IsColorFamilySelected = model == HardwareModel.CgbE || model == HardwareModel.AgbA;
         }
 
         private static byte[] LoadBuiltIn(HardwareModel model)
@@ -127,6 +127,7 @@ namespace GBZEmuLibrary
                 case HardwareModel.Sgb2:
                     return 0x100;
                 case HardwareModel.CgbE:
+                case HardwareModel.AgbA:
                     return 0x900;
                 default:
                     throw new InvalidOperationException($"Hardware model {model} does not have an implemented boot-ROM slot.");
@@ -143,6 +144,8 @@ namespace GBZEmuLibrary
                     return "mgb_boot.bin";
                 case HardwareModel.CgbE:
                     return "cgb_boot.bin";
+                case HardwareModel.AgbA:
+                    return "agb_boot.bin";
                 case HardwareModel.Sgb2:
                     return "sgb2_boot.bin";
                 default:
