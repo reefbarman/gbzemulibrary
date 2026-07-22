@@ -218,6 +218,8 @@ namespace GBZEmuLibrary
         {
             var previousHighBits = previousData & 0x07;
             var newHighBits = data & 0x07;
+            // SameSuite distinguishes AGB-A from the modeled CGB-E revision in this countdown window:
+            // AGB-A retains the older parity-dependent pulse phase instead of replaying the prior step.
             if (hardwareRevision == ApuHardwareRevision.CgbE &&
                 (data & 0x80) == 0 && Status && previousHighBits == 0x07 && newHighBits != 0x07 &&
                 _didTick && !_justReloaded)

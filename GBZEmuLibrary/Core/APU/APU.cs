@@ -65,6 +65,9 @@ namespace GBZEmuLibrary
                 case HardwareModel.CgbE:
                     _hardwareRevision = ApuHardwareRevision.CgbE;
                     break;
+                case HardwareModel.AgbA:
+                    _hardwareRevision = ApuHardwareRevision.AgbA;
+                    break;
                 default:
                     throw new InvalidOperationException(
                         $"Hardware model {hardwareModel} does not have an implemented APU revision.");

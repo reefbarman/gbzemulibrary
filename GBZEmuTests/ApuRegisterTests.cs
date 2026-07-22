@@ -451,7 +451,7 @@ public sealed class ApuRegisterTests
     [Fact]
     public void CgbFrequencyHighWriteCorrectsPulseStepInsideCountdownWindow()
     {
-        var channel = CreateFrequencyWritePulse();
+        var channel = CreateFrequencyWritePulse(ApuHardwareRevision.CgbE);
         channel.Update(powered: true, cycles: 104);
         channel.Update(powered: true, cycles: 2);
 
@@ -462,12 +462,33 @@ public sealed class ApuRegisterTests
     }
 
     /// <summary>
+    /// Verifies the AGB-A model selects the parity-dependent pulse phase measured by SameSuite rather than CGB-E timing.
+    /// </summary>
+    [Fact]
+    public void AgbModelUsesParityDependentFrequencyHighWriteTiming()
+    {
+        var apu = new APU();
+        apu.Init(GBCMode.GBCSupport, HardwareModel.AgbA);
+        apu.WriteByte(0x80, APUSchema.SOUND_ENABLED);
+        apu.WriteByte(0x00, APUSchema.SQUARE_1_DUTY_LENGTH_LOAD);
+        apu.WriteByte(0xF0, APUSchema.SQUARE_1_VOLUME_ENVELOPE);
+        WriteChannel1Frequency(apu, 0x7FC, trigger: true);
+        apu.Update(104);
+        apu.Update(2);
+
+        apu.WriteByte(0x00, APUSchema.SQUARE_1_FREQUENCY_MSB);
+        apu.Update(14);
+
+        Assert.Equal(0x0F, apu.ReadByte(APUSchema.PCM_12));
+    }
+
+    /// <summary>
     /// Verifies a frequency-high write coincident with a pulse reload does not replay the prior step.
     /// </summary>
     [Fact]
     public void CgbFrequencyHighWriteDoesNotCorrectCoincidentReload()
     {
-        var channel = CreateFrequencyWritePulse();
+        var channel = CreateFrequencyWritePulse(ApuHardwareRevision.CgbE);
         channel.Update(powered: true, cycles: 120);
 
         channel.SetFrequencyHigh(0x0FC, 0x87, 0x00, ApuHardwareRevision.CgbE);
@@ -783,12 +804,13 @@ public sealed class ApuRegisterTests
         return apu;
     }
 
-    private static SquareWaveGenerator CreateFrequencyWritePulse()
+    private static SquareWaveGenerator CreateFrequencyWritePulse(ApuHardwareRevision hardwareRevision)
     {
         var channel = new SquareWaveGenerator();
+        channel.SetHardwareRevision(hardwareRevision);
         channel.Init();
         channel.SetDutyCycle(0x00);
-        channel.SetEnvelope(0xF0, ApuHardwareRevision.CgbE);
+        channel.SetEnvelope(0xF0, hardwareRevision);
         channel.ToggleDAC(true);
         channel.SetFrequency(0x7FC);
         channel.HandleTrigger();

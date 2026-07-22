@@ -156,7 +156,8 @@
     internal enum ApuHardwareRevision
     {
         DmgB,
-        CgbE
+        CgbE,
+        AgbA
     }
 
     internal class CartridgeSchema
