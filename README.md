@@ -43,6 +43,8 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | `FastForward(...)`                  | Execute multiple hardware frames immediately while draining their core audio.                                                                                                |
 | `Terminate()`                       | Flush and close file-backed cartridge RAM. Safe to call repeatedly or before `Start()`.                                                                                      |
 
+`LibraryVersion.Current` exposes the assembly's semantic `MAJOR.MINOR.PATCH` version to hosts, including Unity adapters.
+
 Public constants and data types include:
 
 - `Display.HORIZONTAL_RESOLUTION`: `160`
