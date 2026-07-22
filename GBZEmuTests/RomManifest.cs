@@ -12,6 +12,11 @@ internal sealed class RomManifest
         "mooneye/acceptance/boot_regs-mgb"
     };
 
+    private static readonly HashSet<string> AgbOnlyExecutionIds = new(StringComparer.Ordinal)
+    {
+        "samesuite/apu/channel_1/channel_1_freq_change_timing-A"
+    };
+
     private static readonly HashSet<string> DmgAndMgbExecutionIds = new(StringComparer.Ordinal)
     {
         "mooneye/acceptance/boot_div-dmgABCmgb",
@@ -102,7 +107,7 @@ internal sealed class RomManifest
         var executions = new List<RomExecutionCase>();
         foreach (var fixture in fixtures)
         {
-            if (!MgbOnlyExecutionIds.Contains(fixture.Id))
+            if (!MgbOnlyExecutionIds.Contains(fixture.Id) && !AgbOnlyExecutionIds.Contains(fixture.Id))
             {
                 executions.Add(new RomExecutionCase(fixture.Id, fixture, fixture.HardwareModel));
             }
@@ -110,6 +115,11 @@ internal sealed class RomManifest
             if (MgbOnlyExecutionIds.Contains(fixture.Id) || DmgAndMgbExecutionIds.Contains(fixture.Id))
             {
                 executions.Add(new RomExecutionCase($"{fixture.Id}@Mgb", fixture, EmulatedHardwareModel.Mgb));
+            }
+
+            if (AgbOnlyExecutionIds.Contains(fixture.Id))
+            {
+                executions.Add(new RomExecutionCase($"{fixture.Id}@AgbA", fixture, EmulatedHardwareModel.AgbA));
             }
         }
 

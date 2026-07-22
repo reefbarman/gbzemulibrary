@@ -129,23 +129,28 @@ public sealed class FixtureIntegrityTests
     }
 
     /// <summary>
-    /// Keeps revision-specific SameSuite exclusions explicit while retaining CGB-D/E coverage for the selected CGB-E target.
+    /// Keeps revision-specific SameSuite exclusions explicit while activating only the reviewed AGB-A timing execution.
     /// </summary>
     [Fact]
-    public void SameSuiteApuRevisionSkipsMatchDmgBAndCgbETargets()
+    public void SameSuiteApuRevisionExecutionsMatchSelectedTargets()
     {
-        var tests = RomManifest.Load().Tests
+        const string agbFixtureId = "samesuite/apu/channel_1/channel_1_freq_change_timing-A";
+        const string agbExecutionId = agbFixtureId + "@AgbA";
+        var fixtures = RomManifest.Load().Tests;
+        var tests = fixtures
             .Where(test => test.Id.StartsWith("samesuite/apu/", StringComparison.Ordinal))
             .ToDictionary(test => test.Id, StringComparer.Ordinal);
-        var skipped = tests.Values
-            .Where(test => test.SkipReason != null)
-            .Select(test => test.Id)
+        var executions = RomManifest.CreateExecutionCases(fixtures)
+            .ToDictionary(execution => execution.ExecutionId, StringComparer.Ordinal);
+        var skipped = executions.Values
+            .Where(execution => execution.Fixture.Id.StartsWith("samesuite/apu/", StringComparison.Ordinal) &&
+                                execution.SkipReason != null)
+            .Select(execution => execution.ExecutionId)
             .OrderBy(id => id, StringComparer.Ordinal)
             .ToArray();
         var expected = new[]
         {
             "samesuite/apu/channel_1/channel_1_extra_length_clocking-cgb0B",
-            "samesuite/apu/channel_1/channel_1_freq_change_timing-A",
             "samesuite/apu/channel_1/channel_1_freq_change_timing-cgb0BC",
             "samesuite/apu/channel_2/channel_2_extra_length_clocking-cgb0B",
             "samesuite/apu/channel_3/channel_3_extra_length_clocking-cgb0",
@@ -154,8 +159,12 @@ public sealed class FixtureIntegrityTests
         };
 
         Assert.Equal(expected, skipped);
-        Assert.Null(tests["samesuite/apu/channel_1/channel_1_freq_change_timing-cgbDE"].SkipReason);
-        Assert.All(skipped, id => Assert.Contains("GBZEmu targets CPU CGB-E", tests[id].SkipReason, StringComparison.Ordinal));
+        Assert.DoesNotContain(agbFixtureId, executions.Keys);
+        Assert.Equal(HardwareRevisionRequirement.AgbA, tests[agbFixtureId].RevisionRequirement);
+        Assert.Equal(HardwareModel.AgbA, executions[agbExecutionId].HardwareModel);
+        Assert.Null(executions[agbExecutionId].SkipReason);
+        Assert.Null(executions["samesuite/apu/channel_1/channel_1_freq_change_timing-cgbDE"].SkipReason);
+        Assert.All(skipped, id => Assert.Contains("GBZEmu targets CPU CGB-E", executions[id].SkipReason, StringComparison.Ordinal));
     }
 
     /// <summary>

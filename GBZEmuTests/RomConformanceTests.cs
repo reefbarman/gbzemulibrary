@@ -77,8 +77,14 @@ internal static class RomConformanceTestCases
     private static string GetDisplayName(string executionId)
     {
         const string mgbSuffix = "@Mgb";
-        return executionId.EndsWith(mgbSuffix, StringComparison.Ordinal)
-            ? $"@Mgb {executionId[..^mgbSuffix.Length]}"
+        const string agbSuffix = "@AgbA";
+        if (executionId.EndsWith(mgbSuffix, StringComparison.Ordinal))
+        {
+            return $"@Mgb {executionId[..^mgbSuffix.Length]}";
+        }
+
+        return executionId.EndsWith(agbSuffix, StringComparison.Ordinal)
+            ? $"@AgbA {executionId[..^agbSuffix.Length]}"
             : executionId;
     }
 }
