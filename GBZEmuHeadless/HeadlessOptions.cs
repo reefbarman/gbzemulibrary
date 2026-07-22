@@ -155,7 +155,7 @@ public sealed class HeadlessOptions
         "  --output <path>               Capture/report directory; defaults to ./headless-output\n" +
         "  --save-dir <path>             Save directory; defaults to <output>/saves\n" +
         "  --audio-out <path>            Write exact interleaved float32 core amplitudes for every frame\n" +
-        "  --model <model>               Hardware model: DmgB, CgbE, Sgb2, Mgb, or AgbA\n" +
+        "  --model <model>               Hardware model: DmgB, Mgb, CgbE, Sgb2, or AgbA\n" +
         "                                Defaults to DmgB for DMG-only ROMs and CgbE otherwise\n" +
         "  --bootrom <path>              External boot ROM for the resolved hardware model\n" +
         "                                The built-in boot ROM is used when omitted\n" +
@@ -173,7 +173,7 @@ public sealed class HeadlessOptions
             !string.Equals(value, model.ToString(), StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException(
-                $"Unknown hardware model: {value}. Expected DmgB, CgbE, Sgb2, Mgb, or AgbA.");
+                $"Unknown hardware model: {value}. Expected DmgB, Mgb, CgbE, Sgb2, or AgbA.");
         }
 
         return model;

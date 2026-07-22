@@ -17,9 +17,53 @@ public sealed class BootRomTests
         0xFF10, 0xFF11, 0xFF12, 0xFF14, 0xFF24, 0xFF25, 0xFF26
     };
 
+    [Fact]
+    public void BuiltInMgbFirmwareRetainsDmgPresentationWithModelHandoff()
+    {
+        var dmg = new BootROM();
+        var mgb = new BootROM();
+
+        dmg.Load(HardwareModel.DmgB, BootRomConfig.BuiltIn());
+        mgb.Load(HardwareModel.Mgb, BootRomConfig.BuiltIn());
+
+        Assert.Equal(0x100, dmg.Bytes.Length);
+        Assert.Equal(0x100, mgb.Bytes.Length);
+        Assert.False(dmg.IsGBCSelected);
+        Assert.False(mgb.IsGBCSelected);
+
+        var differences = Enumerable.Range(0, dmg.Bytes.Length)
+            .Where(index => dmg.Bytes[index] != mgb.Bytes[index])
+            .ToArray();
+        Assert.Equal(new[] { 0x8C }, differences);
+        Assert.Equal(0x01, dmg.Bytes[0x8C]);
+        Assert.Equal(0xFF, mgb.Bytes[0x8C]);
+    }
+
+    [Fact]
+    public void MgbSkipBootUsesLateDmgStateWithPocketAccumulator()
+    {
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
+        var emulator = Start(rom, HardwareModel.Mgb, BootRomConfig.Skip());
+        var cpu = emulator.Debug.GetCpuState();
+
+        Assert.Equal(0xFFB0, cpu.AF);
+        Assert.Equal(0x0013, cpu.BC);
+        Assert.Equal(0x00D8, cpu.DE);
+        Assert.Equal(0x014D, cpu.HL);
+        Assert.Equal(0xFFFE, cpu.SP);
+        Assert.Equal(CartridgeEntryPoint, cpu.PC);
+        Assert.Equal(0xAB, emulator.Debug.PeekByte(MemorySchema.DIVIDE_REGISTER));
+        Assert.Equal(0x7E, emulator.Debug.PeekByte(MemorySchema.SERIAL_CONTROL_REGISTER));
+        Assert.Equal(0xCF, emulator.Debug.PeekByte(MemorySchema.JOYPAD_REGISTER));
+
+        emulator.Terminate();
+    }
+
     [Theory]
     [InlineData(HardwareModel.DmgB, CartridgeCompatibility.DmgOnly, false)]
     [InlineData(HardwareModel.DmgB, CartridgeCompatibility.DmgOnly, true)]
+    [InlineData(HardwareModel.Mgb, CartridgeCompatibility.DmgOnly, false)]
+    [InlineData(HardwareModel.Mgb, CartridgeCompatibility.DmgOnly, true)]
     [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, false)]
     [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, true)]
     [InlineData(HardwareModel.Sgb2, CartridgeCompatibility.DmgOnly, false)]
@@ -51,6 +95,7 @@ public sealed class BootRomTests
 
     [Theory]
     [InlineData(HardwareModel.DmgB, CartridgeCompatibility.DmgOnly)]
+    [InlineData(HardwareModel.Mgb, CartridgeCompatibility.DmgOnly)]
     [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible)]
     public void BuiltInBootRomMatchesModelSpecificSkipProfileAtHandoff(
         HardwareModel model,
@@ -209,6 +254,7 @@ public sealed class BootRomTests
 
     [Theory]
     [InlineData(HardwareModel.DmgB, 0x100)]
+    [InlineData(HardwareModel.Mgb, 0x100)]
     [InlineData(HardwareModel.CgbE, 0x900)]
     [InlineData(HardwareModel.Sgb2, 0x100)]
     public void ExternalByteArrayIsPrivatelyOwnedAndMappedForSelectedModel(HardwareModel model, int size)
@@ -236,6 +282,7 @@ public sealed class BootRomTests
 
     [Theory]
     [InlineData(HardwareModel.DmgB, 0x100)]
+    [InlineData(HardwareModel.Mgb, 0x100)]
     [InlineData(HardwareModel.CgbE, 0x900)]
     [InlineData(HardwareModel.Sgb2, 0x100)]
     public void ExternalFileLoadsExactModelSpecificImage(HardwareModel model, int size)
@@ -257,6 +304,7 @@ public sealed class BootRomTests
 
     [Theory]
     [InlineData(HardwareModel.DmgB, 0x900)]
+    [InlineData(HardwareModel.Mgb, 0x900)]
     [InlineData(HardwareModel.CgbE, 0x100)]
     [InlineData(HardwareModel.Sgb2, 0x900)]
     public void ExternalFirmwareRejectsWrongModelSpecificSize(HardwareModel model, int wrongSize)
@@ -313,7 +361,7 @@ public sealed class BootRomTests
 
         var unimplemented = new Emulator();
         var unimplementedError = Assert.Throws<NotSupportedException>(() => unimplemented.Start(
-            CreateConfig(dmgRom, HardwareModel.Mgb, BootRomConfig.ExternalFile(missing))));
+            CreateConfig(dmgRom, HardwareModel.AgbA, BootRomConfig.ExternalFile(missing))));
         Assert.Contains("not implemented", unimplementedError.Message);
 
         var incompatible = new Emulator();

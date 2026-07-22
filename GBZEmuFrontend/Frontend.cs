@@ -119,7 +119,7 @@ internal sealed class Frontend : IDisposable
                 $"Hardware model {hardwareModel} does not support {compatibility} cartridges.");
         }
 
-        var cgbHardware = hardwareModel == HardwareModel.CgbE;
+        var cgbAudioFilter = ShouldUseCgbAudioFilter(hardwareModel);
         _correctCgbColors = ShouldCorrectCgbColors(hardwareModel, compatibility, options.RawColors);
         var bootRom = options.SkipBootROM
             ? BootRomConfig.Skip()
@@ -167,7 +167,7 @@ internal sealed class Frontend : IDisposable
         _audioReady = Raylib.IsAudioDeviceReady();
         if (_audioReady)
         {
-            _audioQueue.SetHardwareModel(cgbHardware);
+            _audioQueue.SetHardwareModel(cgbAudioFilter);
             Raylib.SetAudioStreamBufferSizeDefault(AudioFramesPerBuffer);
             _audioStream = Raylib.LoadAudioStream(EmulatorSound.SAMPLE_RATE, 16, 2);
         }
@@ -252,6 +252,22 @@ internal sealed class Frontend : IDisposable
         return compatibility == CartridgeCompatibility.DmgOnly
             ? HardwareModel.DmgB
             : HardwareModel.CgbE;
+    }
+
+    /// <summary>
+    /// Selects the measured CGB filter or the retained DMG approximation for the concrete model.
+    /// </summary>
+    internal static bool ShouldUseCgbAudioFilter(HardwareModel hardwareModel)
+    {
+        return hardwareModel switch
+        {
+            HardwareModel.DmgB => false,
+            HardwareModel.Mgb => false,
+            HardwareModel.CgbE => true,
+            HardwareModel.Sgb2 => false,
+            _ => throw new NotSupportedException(
+                $"Hardware model {hardwareModel} does not have an implemented frontend audio profile.")
+        };
     }
 
     /// <summary>

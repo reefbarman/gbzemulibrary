@@ -17,7 +17,7 @@ These binaries are test software, not commercial game ROMs or boot firmware.
 - Author-built archive: [mts-20260714-0944-31510e1](https://gekkio.fi/files/mooneye-test-suite/mts-20260714-0944-31510e1/)
 - License: MIT; see `mooneye/LICENSE`.
 - Included: every ROM under `acceptance/` and `emulator-only/mbc1`, `mbc2`, and `mbc5`.
-- Variant suffixes identify hardware revisions. Unsupported SGB/revision-specific cases remain present; cases requiring a deliberately unsupported circumstance may be skipped only with a specific visible reason.
+- Variant suffixes identify hardware revisions. Physical fixture inventory remains unique, while the conformance harness runs a bounded set of shared DMG/MGB cases under both concrete models using model-specific execution IDs. Unsupported SGB/revision-specific cases remain present; cases requiring a deliberately unsupported circumstance may be skipped only with a specific visible reason.
 
 ## dmg-acid2
 

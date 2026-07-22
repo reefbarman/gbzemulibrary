@@ -106,6 +106,7 @@ public sealed class FrontendFrameBlendingTests
     [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, false, true)]
     [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbOnly, false, true)]
     [InlineData(HardwareModel.DmgB, CartridgeCompatibility.CgbCompatible, false, false)]
+    [InlineData(HardwareModel.Mgb, CartridgeCompatibility.CgbCompatible, false, false)]
     [InlineData(HardwareModel.CgbE, CartridgeCompatibility.DmgOnly, false, false)]
     [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, true, false)]
     public void CgbCorrectionRequiresNativeCgbPresentation(
@@ -115,6 +116,19 @@ public sealed class FrontendFrameBlendingTests
         bool expected)
     {
         Assert.Equal(expected, Frontend.ShouldCorrectCgbColors(hardwareModel, compatibility, rawColors));
+    }
+
+    /// <summary>
+    /// Verifies that MGB uses the retained DMG analog approximation until a measured Pocket coefficient is adopted.
+    /// </summary>
+    [Theory]
+    [InlineData(HardwareModel.DmgB, false)]
+    [InlineData(HardwareModel.Mgb, false)]
+    [InlineData(HardwareModel.CgbE, true)]
+    [InlineData(HardwareModel.Sgb2, false)]
+    public void AudioFilterPolicyIsExplicitForImplementedModels(HardwareModel model, bool expectedCgbFilter)
+    {
+        Assert.Equal(expectedCgbFilter, Frontend.ShouldUseCgbAudioFilter(model));
     }
 
     /// <summary>

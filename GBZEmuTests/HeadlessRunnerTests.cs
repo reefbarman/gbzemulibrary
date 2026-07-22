@@ -129,6 +129,43 @@ public sealed class HeadlessRunnerTests
     }
 
     /// <summary>
+    /// Verifies that explicit MGB selection reaches the core and is recorded in deterministic output.
+    /// </summary>
+    [Fact]
+    public void RunnerReportsMgbSkipBoot()
+    {
+        using var rom = TestRom.Create(0x00, 0x18, 0xFD);
+        var output = Path.Combine(Path.GetTempPath(), $"gbzemu-headless-mgb-{Guid.NewGuid():N}");
+
+        try
+        {
+            var options = HeadlessOptions.Parse([
+                rom.Path,
+                "--frames", "1",
+                "--output", output,
+                "--skip-bootrom",
+                "--model", "Mgb"
+            ]);
+
+            Assert.Equal(HardwareModel.Mgb, options.HardwareModel);
+            var reportPath = new HeadlessRunner().Run(options);
+            var report = JsonSerializer.Deserialize<HeadlessReport>(File.ReadAllText(reportPath));
+
+            Assert.NotNull(report);
+            Assert.Equal(nameof(HardwareModel.Mgb), report.HardwareModel);
+            Assert.Equal(nameof(BootRomSource.Skip), report.BootRomSource);
+            Assert.Equal(1, report.FramesExecuted);
+        }
+        finally
+        {
+            if (Directory.Exists(output))
+            {
+                Directory.Delete(output, true);
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies that invalid capture and input frames fail before emulation starts.
     /// </summary>
     [Theory]

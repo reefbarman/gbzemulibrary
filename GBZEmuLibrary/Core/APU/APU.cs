@@ -55,9 +55,21 @@ namespace GBZEmuLibrary
         {
             _gbcMode = mode != GBCMode.NoGBC;
             _sgbMode = hardwareModel == HardwareModel.Sgb2;
-            _hardwareRevision = hardwareModel == HardwareModel.CgbE
-                ? ApuHardwareRevision.CgbE
-                : ApuHardwareRevision.DmgB;
+            switch (hardwareModel)
+            {
+                case HardwareModel.DmgB:
+                case HardwareModel.Mgb:
+                case HardwareModel.Sgb2:
+                    _hardwareRevision = ApuHardwareRevision.DmgB;
+                    break;
+                case HardwareModel.CgbE:
+                    _hardwareRevision = ApuHardwareRevision.CgbE;
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"Hardware model {hardwareModel} does not have an implemented APU revision.");
+            }
+
             _channel1.SetHardwareRevision(_hardwareRevision);
             _channel2.SetHardwareRevision(_hardwareRevision);
             _channel4.SetHardwareRevision(_hardwareRevision);

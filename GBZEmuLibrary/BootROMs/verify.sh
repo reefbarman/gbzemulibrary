@@ -51,5 +51,6 @@ build_and_verify() {
 }
 
 build_and_verify dmg_boot 256
+build_and_verify mgb_boot 256
 build_and_verify cgb_boot 2304
 build_and_verify sgb2_boot 256

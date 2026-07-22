@@ -112,9 +112,9 @@ Treat these as compatibility-sensitive:
 
 ### Boot behavior
 
-`Emulator.Config(HardwareModel)` requires a concrete model and accepts one immutable `BootRomConfig`: built-in firmware, an external file, external bytes, or skip. `Core/BootROM.cs` validates exact model-specific images: 256 bytes for DMG-B and SGB2, and 2304 bytes for CGB-E. External byte-backed configuration and active firmware storage must remain privately owned. Built-in replacement firmware is maintained under `GBZEmuLibrary/BootROMs/`; official Nintendo firmware is never distributed.
+`Emulator.Config(HardwareModel)` requires a concrete model and accepts one immutable `BootRomConfig`: built-in firmware, an external file, external bytes, or skip. `Core/BootROM.cs` validates exact model-specific images: 256 bytes for DMG-B, MGB, and SGB2, and 2304 bytes for CGB-E. External byte-backed configuration and active firmware storage must remain privately owned. Built-in replacement firmware is maintained under `GBZEmuLibrary/BootROMs/`; official Nintendo firmware is never distributed.
 
-Any boot change must cover DMG-only, CGB-compatible, and CGB-only cartridge headers across implemented DMG-B, CGB-E, and SGB2 models and all four firmware choices where applicable. MGB and AGB-A must fail as defined but unimplemented models before firmware lookup. Preserve the DMG/SGB2 overlay at `0x0000–0x00FF`, the additional CGB-E overlay at `0x0200–0x08FF`, and fallback to cartridge ROM outside the selected image.
+Any boot change must cover DMG-only, CGB-compatible, and CGB-only cartridge headers across implemented DMG-B, MGB, CGB-E, and SGB2 models and all four firmware choices where applicable. AGB-A must fail as a defined but unimplemented model before firmware lookup. Preserve the DMG-B/MGB/SGB2 overlay at `0x0000–0x00FF`, the additional CGB-E overlay at `0x0200–0x08FF`, and fallback to cartridge ROM outside the selected image.
 
 ## Coding conventions
 

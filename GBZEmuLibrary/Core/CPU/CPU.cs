@@ -168,14 +168,36 @@ namespace GBZEmuLibrary
             {
                 _mmu.WriteByte(0, MemorySchema.BOOT_ROM_DISABLE_REGISTER);
 
-                var sgb2 = hardwareModel == HardwareModel.Sgb2;
-                var accumulator = hardwareModel == HardwareModel.CgbE ? 0x11
-                    : sgb2 ? 0xFF
-                    : 0x01;
-                _registers.AF = (ushort)((accumulator << 8) | (sgb2 ? 0x00 : 0xB0));
-                _registers.BC = (ushort)(sgb2 ? 0x0014 : 0x0013);
-                _registers.DE = (ushort)(sgb2 ? 0x0000 : 0x00D8);
-                _registers.HL = (ushort)(sgb2 ? 0xC060 : 0x014D);
+                switch (hardwareModel)
+                {
+                    case HardwareModel.DmgB:
+                        _registers.AF = 0x01B0;
+                        _registers.BC = 0x0013;
+                        _registers.DE = 0x00D8;
+                        _registers.HL = 0x014D;
+                        break;
+                    case HardwareModel.Mgb:
+                        _registers.AF = 0xFFB0;
+                        _registers.BC = 0x0013;
+                        _registers.DE = 0x00D8;
+                        _registers.HL = 0x014D;
+                        break;
+                    case HardwareModel.CgbE:
+                        _registers.AF = 0x11B0;
+                        _registers.BC = 0x0013;
+                        _registers.DE = 0x00D8;
+                        _registers.HL = 0x014D;
+                        break;
+                    case HardwareModel.Sgb2:
+                        _registers.AF = 0xFF00;
+                        _registers.BC = 0x0014;
+                        _registers.DE = 0x0000;
+                        _registers.HL = 0xC060;
+                        break;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Hardware model {hardwareModel} does not have an implemented skip-boot CPU profile.");
+                }
 
                 _sp.SP = 0xFFFE;
                 _pc = 0x100;

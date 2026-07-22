@@ -23,6 +23,7 @@ namespace GBZEmuLibrary
         private static readonly IReadOnlyList<HardwareModel> Implemented = Array.AsReadOnly(new[]
         {
             HardwareModel.DmgB,
+            HardwareModel.Mgb,
             HardwareModel.CgbE,
             HardwareModel.Sgb2
         });
@@ -40,6 +41,7 @@ namespace GBZEmuLibrary
             switch (model)
             {
                 case HardwareModel.DmgB:
+                case HardwareModel.Mgb:
                 case HardwareModel.CgbE:
                 case HardwareModel.Sgb2:
                     return true;

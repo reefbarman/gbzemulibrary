@@ -127,11 +127,14 @@ public sealed class TimeControlTests
     {
         using var rom = CreateCounterRom();
         var dmg = Start(rom, HardwareModel.DmgB, BootRomConfig.Skip());
+        var mgb = Start(rom, HardwareModel.Mgb, BootRomConfig.Skip());
         var sgb2 = Start(rom, HardwareModel.Sgb2, BootRomConfig.Skip());
         var state = dmg.CaptureState();
 
+        Assert.Throws<InvalidOperationException>(() => mgb.RestoreState(state));
         Assert.Throws<InvalidOperationException>(() => sgb2.RestoreState(state));
         dmg.Terminate();
+        mgb.Terminate();
         sgb2.Terminate();
     }
 
@@ -148,18 +151,35 @@ public sealed class TimeControlTests
         booted.Terminate();
     }
 
-    [Fact]
-    public void SaveStateIdentityMatchesByteIdenticalBuiltInAndExternalFirmware()
+    [Theory]
+    [InlineData(HardwareModel.DmgB, "dmg_boot.bin")]
+    [InlineData(HardwareModel.Mgb, "mgb_boot.bin")]
+    public void SaveStateIdentityMatchesByteIdenticalBuiltInAndExternalFirmware(
+        HardwareModel model,
+        string resourceName)
     {
         using var rom = CreateCounterRom();
-        var builtInBytes = ReadBuiltInFirmware("dmg_boot.bin");
-        var builtIn = Start(rom, HardwareModel.DmgB, BootRomConfig.BuiltIn());
-        var external = Start(rom, HardwareModel.DmgB, BootRomConfig.ExternalBytes(builtInBytes));
+        var builtInBytes = ReadBuiltInFirmware(resourceName);
+        var builtIn = Start(rom, model, BootRomConfig.BuiltIn());
+        var external = Start(rom, model, BootRomConfig.ExternalBytes(builtInBytes));
         var state = builtIn.CaptureState();
 
         external.RestoreState(state);
         builtIn.Terminate();
         external.Terminate();
+    }
+
+    [Fact]
+    public void MgbSaveStateIdentitySeparatesSkipAndFirmwareBoot()
+    {
+        using var rom = CreateCounterRom();
+        var skipped = Start(rom, HardwareModel.Mgb, BootRomConfig.Skip());
+        var booted = Start(rom, HardwareModel.Mgb, BootRomConfig.BuiltIn());
+        var state = skipped.CaptureState();
+
+        Assert.Throws<InvalidOperationException>(() => booted.RestoreState(state));
+        skipped.Terminate();
+        booted.Terminate();
     }
 
     [Fact]

@@ -7,11 +7,28 @@ namespace GBZEmuTests;
 
 internal sealed class RomManifest
 {
+    private static readonly HashSet<string> MgbOnlyExecutionIds = new(StringComparer.Ordinal)
+    {
+        "mooneye/acceptance/boot_regs-mgb"
+    };
+
+    private static readonly HashSet<string> DmgAndMgbExecutionIds = new(StringComparer.Ordinal)
+    {
+        "mooneye/acceptance/boot_div-dmgABCmgb",
+        "mooneye/acceptance/boot_hwio-dmgABCmgb",
+        "mooneye/acceptance/serial/boot_sclk_align-dmgABCmgb",
+        "mooneye/acceptance/bits/unused_hwio-GS",
+        "mooneye/acceptance/ppu/lcdon_timing-GS",
+        "mooneye/acceptance/ppu/lcdon_write_timing-GS",
+        "mooneye/acceptance/ppu/hblank_ly_scx_timing-GS"
+    };
+
     public List<RomTestCase> Tests { get; set; } = new();
 
     public static RomManifest Load()
     {
         var manifest = LoadOverrides();
+        EnsureUniqueIds(manifest.Tests, "ROM manifest overrides");
         manifest.Tests.RemoveAll(test => IsOriginalSgbOnlyId(test.Id));
         var discovered = DiscoverFixtures().ToList();
         EnsureUniqueIds(discovered, "discovered ROM fixtures");
@@ -75,6 +92,40 @@ internal sealed class RomManifest
         {
             throw new InvalidOperationException($"{source} contains duplicate normalized IDs: {string.Join(", ", duplicates)}");
         }
+    }
+
+    /// <summary>
+    /// Expands reviewed physical fixtures into the bounded concrete-model executions run by xUnit.
+    /// </summary>
+    internal static IReadOnlyList<RomExecutionCase> CreateExecutionCases(IEnumerable<RomTestCase> fixtures)
+    {
+        var executions = new List<RomExecutionCase>();
+        foreach (var fixture in fixtures)
+        {
+            if (!MgbOnlyExecutionIds.Contains(fixture.Id))
+            {
+                executions.Add(new RomExecutionCase(fixture.Id, fixture, fixture.HardwareModel));
+            }
+
+            if (MgbOnlyExecutionIds.Contains(fixture.Id) || DmgAndMgbExecutionIds.Contains(fixture.Id))
+            {
+                executions.Add(new RomExecutionCase($"{fixture.Id}@Mgb", fixture, EmulatedHardwareModel.Mgb));
+            }
+        }
+
+        var duplicates = executions
+            .GroupBy(execution => execution.ExecutionId, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        if (duplicates.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"ROM execution cases contain duplicate IDs: {string.Join(", ", duplicates)}");
+        }
+
+        return executions.OrderBy(execution => execution.ExecutionId, StringComparer.Ordinal).ToArray();
     }
 
     private static IEnumerable<RomTestCase> DiscoverFixtures()
@@ -236,29 +287,23 @@ internal sealed class RomTestCase
     /// <summary>
     /// Returns a visible reason only for fixtures requiring a deliberately unsupported hardware revision or boot path.
     /// </summary>
-    public string? SkipReason
+    public string? SkipReason => GetSkipReason(HardwareModel);
+
+    internal string? GetSkipReason(EmulatedHardwareModel executionModel)
     {
-        get
+        if (Id.EndsWith("-dmg0", StringComparison.Ordinal))
         {
-            if (Id.EndsWith("-dmg0", StringComparison.Ordinal))
-            {
-                return "Requires DMG-CPU-0 startup state; GBZEmu targets DMG-B.";
-            }
-
-            if (Id == "mooneye/acceptance/boot_regs-mgb")
-            {
-                return "Requires MGB startup state; GBZEmu does not model MGB hardware.";
-            }
-
-            if (Id == "mooneye/acceptance/boot_hwio-dmgABCmgb")
-            {
-                return "Requires the original DMG ABC/MGB boot-ROM I/O handoff phase; GBZEmu's redistributable replacement firmware and skip-boot profile do not reproduce proprietary firmware timing.";
-            }
-
-            return HardwareModel == EmulatedHardwareModel.CgbE && !RevisionRequirement.SupportsCgbE()
-                ? $"Requires {RevisionRequirement.DisplayName()}; GBZEmu targets CPU CGB-E."
-                : null;
+            return "Requires DMG-CPU-0 startup state; GBZEmu targets DMG-B.";
         }
+
+        if (Id == "mooneye/acceptance/boot_hwio-dmgABCmgb")
+        {
+            return "Requires the official DMG ABC/MGB firmware PPU handoff phase; GBZEmu's replacement firmware and synthetic skip-boot profile do not reproduce that phase.";
+        }
+
+        return executionModel == EmulatedHardwareModel.CgbE && !RevisionRequirement.SupportsCgbE()
+            ? $"Requires {RevisionRequirement.DisplayName()}; GBZEmu targets CPU CGB-E."
+            : null;
     }
 
 
@@ -266,6 +311,24 @@ internal sealed class RomTestCase
     {
         return Path.Combine(AppContext.BaseDirectory, "Fixtures", relativePath.Replace('/', Path.DirectorySeparatorChar));
     }
+}
+
+/// <summary>
+/// Binds one physical ROM fixture to a stable execution ID and concrete hardware model.
+/// </summary>
+internal sealed class RomExecutionCase
+{
+    public RomExecutionCase(string executionId, RomTestCase fixture, EmulatedHardwareModel hardwareModel)
+    {
+        ExecutionId = executionId;
+        Fixture = fixture;
+        HardwareModel = hardwareModel;
+    }
+
+    public string ExecutionId { get; }
+    public RomTestCase Fixture { get; }
+    public EmulatedHardwareModel HardwareModel { get; }
+    public string? SkipReason => Fixture.GetSkipReason(HardwareModel);
 }
 
 internal enum RomProtocol

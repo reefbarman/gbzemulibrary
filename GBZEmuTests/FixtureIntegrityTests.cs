@@ -74,9 +74,58 @@ public sealed class FixtureIntegrityTests
         Assert.DoesNotContain("mooneye/acceptance/boot_regs-sgb", tests.Keys);
         Assert.Equal(HardwareModel.Sgb2, tests["mooneye/acceptance/boot_regs-sgb2"].HardwareModel);
         Assert.Contains("DMG-CPU-0", tests["mooneye/acceptance/boot_regs-dmg0"].SkipReason);
-        Assert.Contains("MGB startup", tests["mooneye/acceptance/boot_regs-mgb"].SkipReason);
-        Assert.Contains("original DMG ABC/MGB boot-ROM I/O handoff phase", tests["mooneye/acceptance/boot_hwio-dmgABCmgb"].SkipReason);
+        Assert.Null(tests["mooneye/acceptance/boot_regs-mgb"].SkipReason);
+        Assert.Contains("official DMG ABC/MGB firmware PPU handoff phase", tests["mooneye/acceptance/boot_hwio-dmgABCmgb"].SkipReason);
+    }
 
+    /// <summary>
+    /// Keeps physical fixture inventory separate from the bounded model-specific execution matrix.
+    /// </summary>
+    [Fact]
+    public void MgbExecutionVariantsPreservePhysicalFixtureInventory()
+    {
+        var fixtures = RomManifest.Load().Tests;
+        var executions = RomManifest.CreateExecutionCases(fixtures);
+        var byExecutionId = executions.ToDictionary(execution => execution.ExecutionId, StringComparer.Ordinal);
+        var expectedMgbIds = new[]
+        {
+            "mooneye/acceptance/bits/unused_hwio-GS@Mgb",
+            "mooneye/acceptance/boot_div-dmgABCmgb@Mgb",
+            "mooneye/acceptance/boot_hwio-dmgABCmgb@Mgb",
+            "mooneye/acceptance/boot_regs-mgb@Mgb",
+            "mooneye/acceptance/ppu/hblank_ly_scx_timing-GS@Mgb",
+            "mooneye/acceptance/ppu/lcdon_timing-GS@Mgb",
+            "mooneye/acceptance/ppu/lcdon_write_timing-GS@Mgb",
+            "mooneye/acceptance/serial/boot_sclk_align-dmgABCmgb@Mgb"
+        };
+
+        Assert.Equal(fixtures.Count + expectedMgbIds.Length - 1, executions.Count);
+        Assert.Equal(expectedMgbIds, executions
+            .Where(execution => execution.ExecutionId.EndsWith("@Mgb", StringComparison.Ordinal))
+            .Select(execution => execution.ExecutionId));
+        Assert.DoesNotContain("mooneye/acceptance/boot_regs-mgb", byExecutionId.Keys);
+
+        foreach (var executionId in expectedMgbIds)
+        {
+            var execution = byExecutionId[executionId];
+            Assert.Equal(HardwareModel.Mgb, execution.HardwareModel);
+            Assert.Equal(executionId[..^"@Mgb".Length], execution.Fixture.Id);
+        }
+
+        foreach (var fixtureId in expectedMgbIds
+                     .Select(id => id[..^"@Mgb".Length])
+                     .Where(id => id != "mooneye/acceptance/boot_regs-mgb"))
+        {
+            Assert.Equal(HardwareModel.DmgB, byExecutionId[fixtureId].HardwareModel);
+        }
+
+        Assert.Null(byExecutionId["mooneye/acceptance/boot_regs-mgb@Mgb"].SkipReason);
+        Assert.Contains(
+            "official DMG ABC/MGB firmware PPU handoff phase",
+            byExecutionId["mooneye/acceptance/boot_hwio-dmgABCmgb"].SkipReason);
+        Assert.Contains(
+            "official DMG ABC/MGB firmware PPU handoff phase",
+            byExecutionId["mooneye/acceptance/boot_hwio-dmgABCmgb@Mgb"].SkipReason);
     }
 
     /// <summary>
@@ -126,6 +175,32 @@ public sealed class FixtureIntegrityTests
             () => RomManifest.EnsureUniqueIds(tests, "test fixtures"));
 
         Assert.Contains("suite/test_case", exception.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Rejects generated execution IDs that collide with a physical fixture ID.
+    /// </summary>
+    [Fact]
+    public void ExecutionExpansionRejectsGeneratedIdCollisions()
+    {
+        var fixtures = new[]
+        {
+            new RomTestCase
+            {
+                Id = "mooneye/acceptance/boot_regs-mgb",
+                HardwareModel = HardwareModel.DmgB
+            },
+            new RomTestCase
+            {
+                Id = "mooneye/acceptance/boot_regs-mgb@Mgb",
+                HardwareModel = HardwareModel.DmgB
+            }
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => RomManifest.CreateExecutionCases(fixtures));
+
+        Assert.Contains("boot_regs-mgb@Mgb", exception.Message, StringComparison.Ordinal);
     }
 
     private static void AssertNoDuplicates(string source, IEnumerable<string> ids)

@@ -138,7 +138,7 @@ internal sealed class FrontendOptions
         "\n" +
         "Options:\n" +
         "  --rom-dir <path>  Select a ROM from this directory\n" +
-        "  --model <model>   Hardware model: DmgB, CgbE, Sgb2, Mgb, or AgbA\n" +
+        "  --model <model>   Hardware model: DmgB, Mgb, CgbE, Sgb2, or AgbA\n" +
         "                    Defaults to DmgB for DMG-only ROMs and CgbE otherwise\n" +
         "  --bootrom <path>  External boot ROM for the selected hardware model\n" +
         "                    The built-in boot ROM is used when this option is omitted\n" +
@@ -177,7 +177,7 @@ internal sealed class FrontendOptions
             !string.Equals(value, model.ToString(), StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException(
-                $"Unknown hardware model: {value}. Expected DmgB, CgbE, Sgb2, Mgb, or AgbA.");
+                $"Unknown hardware model: {value}. Expected DmgB, Mgb, CgbE, Sgb2, or AgbA.");
         }
 
         return model;

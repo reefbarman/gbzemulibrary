@@ -7,11 +7,11 @@ internal static class RomConformanceTestCases
 {
     private const int ShardCount = 4;
 
-    private static readonly Lazy<IReadOnlyList<RomTestCase>> Cases =
-        new(() => RomManifest.Load().Tests);
+    private static readonly Lazy<IReadOnlyList<RomExecutionCase>> Cases =
+        new(() => RomManifest.CreateExecutionCases(RomManifest.Load().Tests));
 
-    private static readonly Lazy<IReadOnlyDictionary<string, RomTestCase>> CasesById =
-        new(() => Cases.Value.ToDictionary(test => test.Id, StringComparer.Ordinal));
+    private static readonly Lazy<IReadOnlyDictionary<string, RomExecutionCase>> CasesById =
+        new(() => Cases.Value.ToDictionary(test => test.ExecutionId, StringComparer.Ordinal));
 
     public static IEnumerable<TheoryDataRow<string>> Shard0() => GetShard(0);
     public static IEnumerable<TheoryDataRow<string>> Shard1() => GetShard(1);
@@ -21,11 +21,12 @@ internal static class RomConformanceTestCases
     /// <summary>
     /// Runs one discovered test ROM through its configured oracle.
     /// </summary>
-    public static void Run(string testId)
+    public static void Run(string executionId)
     {
-        var test = CasesById.Value[testId];
+        var execution = CasesById.Value[executionId];
+        var test = execution.Fixture;
         Assert.True(File.Exists(test.RomPath), $"Missing ROM fixture: {test.RomPath}");
-        using var runner = new RomTestRunner(test.RomPath, test.HardwareModel);
+        using var runner = new RomTestRunner(test.RomPath, execution.HardwareModel);
 
         switch (test.Protocol)
         {
@@ -49,7 +50,10 @@ internal static class RomConformanceTestCases
                 Assert.NotNull(test.ReferenceImagePath);
                 Assert.True(File.Exists(test.ReferenceImagePath), $"Missing reference image: {test.ReferenceImagePath}");
                 runner.RunToLoadBB(test.MaxFrames);
-                var difference = FramebufferComparer.Compare(runner.Emulator.GetScreenData(), test.ReferenceImagePath, test.HardwareModel);
+                var difference = FramebufferComparer.Compare(
+                    runner.Emulator.GetScreenData(),
+                    test.ReferenceImagePath,
+                    execution.HardwareModel);
                 if (difference != null)
                 {
                     throw new InvalidOperationException($"Framebuffer mismatch: {difference}");
@@ -65,7 +69,17 @@ internal static class RomConformanceTestCases
     {
         return Cases.Value
             .Where((_, index) => index % ShardCount == shard)
-            .Select(test => new TheoryDataRow<string>(test.Id).WithSkip(test.SkipReason));
+            .Select(test => new TheoryDataRow<string>(test.ExecutionId)
+                .WithTestDisplayName(GetDisplayName(test.ExecutionId))
+                .WithSkip(test.SkipReason));
+    }
+
+    private static string GetDisplayName(string executionId)
+    {
+        const string mgbSuffix = "@Mgb";
+        return executionId.EndsWith(mgbSuffix, StringComparison.Ordinal)
+            ? $"@Mgb {executionId[..^mgbSuffix.Length]}"
+            : executionId;
     }
 }
 

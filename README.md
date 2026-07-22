@@ -31,7 +31,7 @@ Most integrations only need `GBZEmuLibrary.Emulator`:
 | `GetSuperGameBoyScreenData()`       | Return the reusable 256×224 colorized SGB composite frame, including the active game-supplied or GBZEmu fallback border.                                                     |
 | `GetSoundSamples(out frameCount)`   | Swap and return reusable interleaved band-limited float amplitudes plus their valid stereo-frame count. Call once per emulation update.                                      |
 | `ButtonDown(...)` / `ButtonUp(...)` | Forward Game Boy button transitions to the joypad and interrupt logic.                                                                                                       |
-| `FrameRate` / `ClockRate`           | Report the selected model's host scheduling rate. DMG-B, CGB-E, and SGB2 currently use the normal Game Boy frame rate.                                                       |
+| `FrameRate` / `ClockRate`           | Report the selected model's host scheduling rate. DMG-B, MGB, CGB-E, and SGB2 currently use the normal Game Boy frame rate.                                                  |
 | `ToggleChannel(...)`                | Enable or mute one of the four emulated audio channels.                                                                                                                      |
 | `SupportsRumble` / `RumbleActive`   | Report whether the loaded cartridge has rumble hardware and its current raw motor-enable latch.                                                                              |
 | `RumbleChanged`                     | Notify compatibility consumers synchronously whenever the raw MBC5 motor-enable latch changes.                                                                               |
@@ -87,7 +87,7 @@ dotnet test GBZEmuTests/GBZEmuTests.csproj -c Release
 
 The harness discovers every `.gb`/`.gbc` file under `GBZEmuTests/Fixtures/`, including suites from Blargg, Mooneye, dmg-acid2/cgb-acid2, SameSuite, and mealybug-tearoom-tests. It supports serial text, Blargg's `$A000` memory protocol, the Fibonacci register fingerprint used by Mooneye/SameSuite, and exact framebuffer comparison. ROM cases are interleaved across four xUnit classes so separate emulator instances can run in parallel while each shard remains serial.
 
-Each applicable ROM is a normal test case: passing ROMs are green and failing ROMs are red in Test Explorer and `dotnet test` output. The APU deliberately targets DMG-B for DMG execution and CPU CGB-E for CGB execution. SameSuite ROMs whose names and upstream sources explicitly require another silicon revision remain visible as skipped tests with that revision in the reason; ordinary correctness failures on DMG-B or CGB-E remain red. The complete suite therefore remains failing while conformance gaps exist; use test filters or Test Explorer selections for focused iteration. `GBZEmuTests/ExpectedRomIds.txt` locks the reviewed fixture inventory so missing, duplicate, or silently added ROMs fail the suite. Phase 1 intentionally removes six original-SGB-only fixture IDs rather than relabeling them as SGB2 coverage; `mooneye/acceptance/boot_regs-sgb2` remains. Current test output is the authoritative source for pass/failure results. Fixture provenance, pins, licenses, and Blargg's explicit licensing ambiguity are documented in `GBZEmuTests/Fixtures/README.md`.
+Each applicable ROM is a normal test case: passing ROMs are green and failing ROMs are red in Test Explorer and `dotnet test` output. `GBZEmuTests/ExpectedRomIds.txt` locks the physical fixture inventory; a bounded execution layer also runs MGB-specific startup cases and selected shared DMG/MGB timing cases under both concrete models without duplicating ROM files. The digital APU deliberately uses the DMG-B revision for DMG-B, MGB, and SGB2 execution and CPU CGB-E behavior for CGB-E execution. SameSuite ROMs whose names and upstream sources explicitly require another silicon revision remain visible as skipped tests with that revision in the reason. `boot_hwio-dmgABCmgb` is visibly skipped for both DMG-B and MGB because the synthetic skip profile does not reproduce official firmware PPU handoff phase; ordinary correctness failures on implemented targets remain red. The complete suite therefore remains failing while conformance gaps exist; use test filters or Test Explorer selections for focused iteration. Phase 1 intentionally removes six original-SGB-only fixture IDs rather than relabeling them as SGB2 coverage; `mooneye/acceptance/boot_regs-sgb2` remains. Current test output is the authoritative source for pass/failure results. Fixture provenance, pins, licenses, and Blargg's explicit licensing ambiguity are documented in `GBZEmuTests/Fixtures/README.md`.
 
 ## Debugging API
 
@@ -193,7 +193,7 @@ SGB2 expands the frontend to 256×224, colorizes the Game Boy image, and display
 Options:
 
 - `--rom-dir <path>`: show an in-window picker containing `.gb` and `.gbc` files from the directory instead of supplying a ROM path.
-- `--model <DmgB|CgbE|Sgb2|Mgb|AgbA>`: select a concrete hardware model. DMG-B, CGB-E, and SGB2 are implemented; MGB and AGB-A are named for forward-compatible host configuration but currently fail with a clear not-implemented error.
+- `--model <DmgB|Mgb|CgbE|Sgb2|AgbA>`: select a concrete hardware model. DMG-B, MGB, CGB-E, and SGB2 are implemented; AGB-A is named for forward-compatible host configuration but currently fails with a clear not-implemented error. Automatic selection remains DMG-B for DMG-only cartridges and CGB-E otherwise; MGB is deliberate selection.
 - `--bootrom <path>`: use external firmware for the selected model instead of its built-in image.
 - `--skip-bootrom`: skip firmware execution and apply the model-specific deterministic handoff state; mutually exclusive with `--bootrom`.
 - `--save-dir <path>`: save directory; defaults to the ROM directory and is created by the frontend.
@@ -362,15 +362,15 @@ Timer-capable MBC3 cartridges append a BGB-compatible 48-byte RTC trailer after 
 
 `HardwareModel` identifies a concrete physical model rather than combining hardware selection with firmware policy:
 
-| Model  | Phase 1 status | Cartridge compatibility            | Built-in image size |
-| ------ | -------------- | ---------------------------------- | ------------------- |
-| `DmgB` | Implemented    | DMG-only, CGB-compatible           | 256 bytes           |
-| `Mgb`  | Planned        | DMG-only, CGB-compatible           | Not yet provided    |
-| `CgbE` | Implemented    | DMG-only, CGB-compatible, CGB-only | 2,304 bytes         |
-| `Sgb2` | Implemented    | DMG-only, CGB-compatible           | 256 bytes           |
-| `AgbA` | Planned        | DMG-only, CGB-compatible, CGB-only | Not yet provided    |
+| Model  | Status      | Cartridge compatibility            | Built-in image size |
+| ------ | ----------- | ---------------------------------- | ------------------- |
+| `DmgB` | Implemented | DMG-only, CGB-compatible           | 256 bytes           |
+| `Mgb`  | Implemented | DMG-only, CGB-compatible           | 256 bytes           |
+| `CgbE` | Implemented | DMG-only, CGB-compatible, CGB-only | 2,304 bytes         |
+| `Sgb2` | Implemented | DMG-only, CGB-compatible           | 256 bytes           |
+| `AgbA` | Planned     | DMG-only, CGB-compatible, CGB-only | Not yet provided    |
 
-`Emulator.Config(HardwareModel)` requires the selection up front. Undefined enum values and planned models fail with explicit validation errors before cartridge compatibility, firmware validation, or resource lookup. CGB-only cartridges are rejected on DMG-B, MGB, and SGB2. The CGB-E path retains automatic compatibility palettes for monochrome cartridges. SGB2 retains the normal DMG clock, model-specific boot handoff, and HLE command, multiplayer, palette, border, and presentation behavior; original SGB hardware is no longer a public or internal model.
+`Emulator.Config(HardwareModel)` requires the selection up front. Undefined enum values and planned models fail with explicit validation errors before cartridge compatibility, firmware validation, or resource lookup. CGB-only cartridges are rejected on DMG-B, MGB, and SGB2. MGB uses the late monochrome hardware path with its distinct `A=$FF` startup identity; ordinary CPU, timer, serial, PPU, joypad, and digital APU behavior is shared with the evidence-backed DMG-B path. The CGB-E path retains automatic compatibility palettes for monochrome cartridges. SGB2 retains the normal DMG clock, model-specific boot handoff, and HLE command, multiplayer, palette, border, and presentation behavior; original SGB hardware is no longer a public or internal model.
 
 `BootRomConfig` independently selects the firmware source:
 
@@ -379,9 +379,9 @@ Timer-capable MBC3 cartridges append a BGB-compatible 48-byte RTC trailer after 
 - `ExternalBytes(bytes)` takes a private copy of a model-specific image.
 - `Skip()` executes no firmware and applies deterministic model- and cartridge-specific handoff state.
 
-External firmware must match the selected model's exact image size; a 256-byte file is not inferred as DMG-B or SGB2 by length. `BootRomSource` reports `BuiltIn`, `External`, or `Skip` for host diagnostics. Save-state identity instead distinguishes firmware execution from skip-boot and hashes the active image so byte-identical built-in and external firmware remain compatible.
+External firmware must match the selected model's exact image size; a 256-byte file is not inferred as DMG-B, MGB, or SGB2 by length. `BootRomSource` reports `BuiltIn`, `External`, or `Skip` for host diagnostics. Save-state identity instead distinguishes firmware execution from skip-boot and hashes the active image so byte-identical built-in and external firmware remain compatible.
 
-Maintained source for all three built-in images lives under [`GBZEmuLibrary/BootROMs/`](GBZEmuLibrary/BootROMs/) and is licensed under the Expat/MIT license in that directory. Normal .NET builds use checked-in generated resources and do not require RGBDS. To rebuild into an isolated temporary directory, validate exact mapped sizes, and byte-compare the results with the embedded images, install RGBDS 1.0.1 and run:
+Maintained source for all four built-in images lives under [`GBZEmuLibrary/BootROMs/`](GBZEmuLibrary/BootROMs/) and is licensed under the Expat/MIT license in that directory. The project-authored DMG-B and MGB images share the authentic monochrome GBZEmu logo-scroll and two-note-chime presentation; their generated images differ only in the documented final handoff accumulator (`A=$01` for DMG-B, `A=$FF` for MGB). CGB-E retains its distinct color-era presentation and compatibility-palette behavior. Normal .NET builds use checked-in generated resources and do not require RGBDS. To rebuild into an isolated temporary directory, validate exact mapped sizes, and byte-compare the results with the embedded images, install RGBDS 1.0.1 and run:
 
 ```sh
 GBZEmuLibrary/BootROMs/verify.sh
@@ -463,7 +463,7 @@ GBZEmuTests/                    xUnit debug and ROM-conformance harness
 
 - The conformance suite still has failures, primarily in cycle/dot-accurate PPU, DMA, interrupt, and hardware-revision behavior. All SameSuite APU cases applicable to the selected DMG-B and CGB-E targets pass; seven fixtures for other revisions remain explicit skips. `mooneye/acceptance/halt_ime0_nointr_timing` is currently deferred: resolving its remaining one-cycle discrepancy requires coordinated HALT wake, interrupt-polling, and VBlank phase modeling rather than another local timing adjustment. It remains a visible failing test instead of being suppressed. The core remains experimental while these failures remain.
 - Audio output now uses band-limited float reconstruction, but it does not yet model per-channel analog DAC attack/discharge, model-specific speaker/headphone response, electrical interference, cartridge VIN input, or adaptive host/device clock matching. Those are refinement work rather than known DMG-B/CGB-E register/timer conformance failures.
-- Open replacement boot-ROM data is included for DMG-B, CGB-E, and SGB2; official Nintendo firmware remains user-supplied. DMG-B skip-boot restores deterministic DMG ABC P1, interrupt-request, and powered-APU state, but it does not yet reproduce the firmware-exit PPU phase; `mooneye/acceptance/boot_hwio-dmgABCmgb` therefore remains visibly red at its STAT check. MGB and AGB-A are defined for stable host configuration but are not implemented and have no built-in firmware.
+- Open replacement boot-ROM data is included for DMG-B, MGB, CGB-E, and SGB2; official Nintendo firmware remains user-supplied. DMG-B and MGB skip boot restore deterministic late-monochrome CPU, DIV, serial, P1, interrupt-request, and powered-APU state. They do not yet reproduce the official firmware-exit PPU phase, so both `boot_hwio-dmgABCmgb` execution rows remain visibly skipped for that explicit boot circumstance. AGB-A is defined for stable host configuration but is not implemented and has no built-in firmware.
 - SGB2 support is high-level, like SameBoy's default SGB path: it does not execute the proprietary SNES-side SGB system ROM. Border/color/attribute/mask/multiplayer commands are implemented; SNES sound program transfer, system menus, built-in Nintendo borders, and low-level SNES CPU/PPU behavior are outside this core. Original SGB hardware is intentionally unsupported.
 - Cartridge behavior remains partially verified: MBC3 RTC timing and BGB-compatible persistence pass the committed Mealybug and synthetic tests, but broader game compatibility is unverified.
 - Separate `Emulator` instances can run concurrently; their interrupt, MMU/DMA, HBlank, and boot-ROM state is instance-scoped.

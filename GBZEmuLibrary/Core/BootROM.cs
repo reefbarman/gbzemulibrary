@@ -123,6 +123,7 @@ namespace GBZEmuLibrary
             switch (model)
             {
                 case HardwareModel.DmgB:
+                case HardwareModel.Mgb:
                 case HardwareModel.Sgb2:
                     return 0x100;
                 case HardwareModel.CgbE:
@@ -138,6 +139,8 @@ namespace GBZEmuLibrary
             {
                 case HardwareModel.DmgB:
                     return "dmg_boot.bin";
+                case HardwareModel.Mgb:
+                    return "mgb_boot.bin";
                 case HardwareModel.CgbE:
                     return "cgb_boot.bin";
                 case HardwareModel.Sgb2:
