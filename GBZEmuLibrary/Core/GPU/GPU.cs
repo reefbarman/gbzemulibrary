@@ -312,6 +312,17 @@ namespace GBZEmuLibrary
         /// </summary>
         public void Update(int cycles)
         {
+            for (var dot = 0; dot < cycles; dot++)
+            {
+                AdvanceDot();
+            }
+        }
+
+        /// <summary>
+        /// Advances exactly one PPU dot and drains every zero-time transition reachable at that boundary.
+        /// </summary>
+        private void AdvanceDot()
+        {
             if (!IsLCDEnabled())
             {
                 _cycleCounter = 0;
@@ -321,7 +332,7 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            _cycleCounter += cycles;
+            _cycleCounter++;
 
             while (IsLCDEnabled() && ProcessCurrentMode())
             {
