@@ -7,27 +7,6 @@ namespace GBZEmuTests;
 
 internal sealed class RomManifest
 {
-    private static readonly HashSet<string> MgbOnlyExecutionIds = new(StringComparer.Ordinal)
-    {
-        "mooneye/acceptance/boot_regs-mgb"
-    };
-
-    private static readonly HashSet<string> AgbOnlyExecutionIds = new(StringComparer.Ordinal)
-    {
-        "samesuite/apu/channel_1/channel_1_freq_change_timing-A"
-    };
-
-    private static readonly HashSet<string> DmgAndMgbExecutionIds = new(StringComparer.Ordinal)
-    {
-        "mooneye/acceptance/boot_div-dmgABCmgb",
-        "mooneye/acceptance/boot_hwio-dmgABCmgb",
-        "mooneye/acceptance/serial/boot_sclk_align-dmgABCmgb",
-        "mooneye/acceptance/bits/unused_hwio-GS",
-        "mooneye/acceptance/ppu/lcdon_timing-GS",
-        "mooneye/acceptance/ppu/lcdon_write_timing-GS",
-        "mooneye/acceptance/ppu/hblank_ly_scx_timing-GS"
-    };
-
     public List<RomTestCase> Tests { get; set; } = new();
 
     public static RomManifest Load()
@@ -78,9 +57,6 @@ internal sealed class RomManifest
     internal static bool IsOriginalSgbOnlyId(string id)
     {
         return id.StartsWith("samesuite/sgb/", StringComparison.Ordinal) ||
-               id == "mooneye/acceptance/boot_div-S" ||
-               id == "mooneye/acceptance/boot_div2-S" ||
-               id == "mooneye/acceptance/boot_hwio-S" ||
                id == "mooneye/acceptance/boot_regs-sgb";
     }
 
@@ -104,38 +80,7 @@ internal sealed class RomManifest
     /// </summary>
     internal static IReadOnlyList<RomExecutionCase> CreateExecutionCases(IEnumerable<RomTestCase> fixtures)
     {
-        var executions = new List<RomExecutionCase>();
-        foreach (var fixture in fixtures)
-        {
-            if (!MgbOnlyExecutionIds.Contains(fixture.Id) && !AgbOnlyExecutionIds.Contains(fixture.Id))
-            {
-                executions.Add(new RomExecutionCase(fixture.Id, fixture, fixture.HardwareModel));
-            }
-
-            if (MgbOnlyExecutionIds.Contains(fixture.Id) || DmgAndMgbExecutionIds.Contains(fixture.Id))
-            {
-                executions.Add(new RomExecutionCase($"{fixture.Id}@Mgb", fixture, EmulatedHardwareModel.Mgb));
-            }
-
-            if (AgbOnlyExecutionIds.Contains(fixture.Id))
-            {
-                executions.Add(new RomExecutionCase($"{fixture.Id}@AgbA", fixture, EmulatedHardwareModel.AgbA));
-            }
-        }
-
-        var duplicates = executions
-            .GroupBy(execution => execution.ExecutionId, StringComparer.Ordinal)
-            .Where(group => group.Count() > 1)
-            .Select(group => group.Key)
-            .OrderBy(id => id, StringComparer.Ordinal)
-            .ToArray();
-        if (duplicates.Length > 0)
-        {
-            throw new InvalidOperationException(
-                $"ROM execution cases contain duplicate IDs: {string.Join(", ", duplicates)}");
-        }
-
-        return executions.OrderBy(execution => execution.ExecutionId, StringComparer.Ordinal).ToArray();
+        return RomApplicability.CreateExecutionCases(fixtures);
     }
 
     private static IEnumerable<RomTestCase> DiscoverFixtures()
@@ -184,7 +129,7 @@ internal sealed class RomManifest
             Protocol = RomProtocol.Fibonacci
         };
 
-        test.RevisionRequirement = GetRevisionRequirement(test.Id);
+        test.RevisionRequirement = RomApplicability.GetRevisionRequirement(test.Id);
 
         if (relativePath.StartsWith("blargg/", StringComparison.Ordinal))
         {
@@ -240,45 +185,6 @@ internal sealed class RomManifest
         return test;
     }
 
-    private static HardwareRevisionRequirement GetRevisionRequirement(string testId)
-    {
-        if (!testId.StartsWith("samesuite/apu/", StringComparison.Ordinal))
-        {
-            return HardwareRevisionRequirement.Any;
-        }
-
-        if (testId.EndsWith("-cgb0BC", StringComparison.Ordinal))
-        {
-            return HardwareRevisionRequirement.Cgb0ThroughC;
-        }
-
-        if (testId.EndsWith("-cgb0B", StringComparison.Ordinal))
-        {
-            return HardwareRevisionRequirement.Cgb0ThroughB;
-        }
-
-        if (testId.EndsWith("-cgbDE", StringComparison.Ordinal))
-        {
-            return HardwareRevisionRequirement.CgbDThroughE;
-        }
-
-        if (testId.EndsWith("freq_change_timing-A", StringComparison.Ordinal))
-        {
-            return HardwareRevisionRequirement.AgbA;
-        }
-
-        if (testId.EndsWith("-cgb0", StringComparison.Ordinal))
-        {
-            return HardwareRevisionRequirement.Cgb0;
-        }
-
-        if (testId.EndsWith("-cgbB", StringComparison.Ordinal))
-        {
-            return HardwareRevisionRequirement.CgbB;
-        }
-
-        return HardwareRevisionRequirement.Any;
-    }
 }
 
 internal sealed class RomTestCase
@@ -301,19 +207,7 @@ internal sealed class RomTestCase
 
     internal string? GetSkipReason(EmulatedHardwareModel executionModel)
     {
-        if (Id.EndsWith("-dmg0", StringComparison.Ordinal))
-        {
-            return "Requires DMG-CPU-0 startup state; GBZEmu targets DMG-B.";
-        }
-
-        if (Id == "mooneye/acceptance/boot_hwio-dmgABCmgb")
-        {
-            return "Requires the official DMG ABC/MGB firmware PPU handoff phase; GBZEmu's replacement firmware and synthetic skip-boot profile do not reproduce that phase.";
-        }
-
-        return executionModel == EmulatedHardwareModel.CgbE && !RevisionRequirement.SupportsCgbE()
-            ? $"Requires {RevisionRequirement.DisplayName()}; GBZEmu targets CPU CGB-E."
-            : null;
+        return RomApplicability.GetSkipReason(this, executionModel);
     }
 
 
@@ -328,17 +222,41 @@ internal sealed class RomTestCase
 /// </summary>
 internal sealed class RomExecutionCase
 {
-    public RomExecutionCase(string executionId, RomTestCase fixture, EmulatedHardwareModel hardwareModel)
+    public RomExecutionCase(
+        string executionId,
+        RomTestCase fixture,
+        EmulatedHardwareModel hardwareModel)
+        : this(
+            executionId,
+            fixture,
+            hardwareModel,
+            ConformanceStartupCircumstance.SyntheticSkipBoot,
+            fixture.ReferenceImage == null
+                ? OracleHardwareRevision.RevisionIndependent
+                : OracleHardwareRevision.Unreviewed)
+    {
+    }
+
+    public RomExecutionCase(
+        string executionId,
+        RomTestCase fixture,
+        EmulatedHardwareModel hardwareModel,
+        ConformanceStartupCircumstance startupCircumstance,
+        OracleHardwareRevision oracleRevision)
     {
         ExecutionId = executionId;
         Fixture = fixture;
         HardwareModel = hardwareModel;
+        StartupCircumstance = startupCircumstance;
+        OracleRevision = oracleRevision;
     }
 
     public string ExecutionId { get; }
     public RomTestCase Fixture { get; }
     public EmulatedHardwareModel HardwareModel { get; }
-    public string? SkipReason => Fixture.GetSkipReason(HardwareModel);
+    public ConformanceStartupCircumstance StartupCircumstance { get; }
+    public OracleHardwareRevision OracleRevision { get; }
+    public string? SkipReason => RomApplicability.GetSkipReason(this);
 }
 
 internal enum RomProtocol
@@ -347,39 +265,4 @@ internal enum RomProtocol
     BlarggMemory,
     Fibonacci,
     Framebuffer
-}
-
-
-internal enum HardwareRevisionRequirement
-{
-    Any,
-    Cgb0,
-    CgbB,
-    Cgb0ThroughB,
-    Cgb0ThroughC,
-    CgbDThroughE,
-    AgbA
-}
-
-internal static class HardwareRevisionRequirementExtensions
-{
-    public static bool SupportsCgbE(this HardwareRevisionRequirement requirement)
-    {
-        return requirement == HardwareRevisionRequirement.Any ||
-               requirement == HardwareRevisionRequirement.CgbDThroughE;
-    }
-
-    public static string DisplayName(this HardwareRevisionRequirement requirement)
-    {
-        return requirement switch
-        {
-            HardwareRevisionRequirement.Cgb0 => "CPU CGB-0",
-            HardwareRevisionRequirement.CgbB => "CPU CGB-B",
-            HardwareRevisionRequirement.Cgb0ThroughB => "CPU CGB-0/B",
-            HardwareRevisionRequirement.Cgb0ThroughC => "CPU CGB-0/A/B/C",
-            HardwareRevisionRequirement.CgbDThroughE => "CPU CGB-D/E",
-            HardwareRevisionRequirement.AgbA => "CPU AGB-A",
-            _ => "any supported revision"
-        };
-    }
 }

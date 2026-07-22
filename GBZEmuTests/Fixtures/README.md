@@ -1,6 +1,6 @@
 # Test ROM fixture provenance
 
-These binaries are test software, not commercial game ROMs or boot firmware.
+These binaries are test software, not commercial game ROMs or boot firmware. The canonical model execution, startup-circumstance, and oracle policy is documented in [APPLICABILITY.md](APPLICABILITY.md).
 
 ## Blargg Game Boy tests
 
@@ -17,7 +17,7 @@ These binaries are test software, not commercial game ROMs or boot firmware.
 - Author-built archive: [mts-20260714-0944-31510e1](https://gekkio.fi/files/mooneye-test-suite/mts-20260714-0944-31510e1/)
 - License: MIT; see `mooneye/LICENSE`.
 - Included: every ROM under `acceptance/` and `emulator-only/mbc1`, `mbc2`, and `mbc5`.
-- Variant suffixes identify hardware revisions. Physical fixture inventory remains unique, while the conformance harness runs a bounded set of shared DMG/MGB cases under both concrete models using model-specific execution IDs. Unsupported SGB/revision-specific cases remain present; cases requiring a deliberately unsupported circumstance may be skipped only with a specific visible reason.
+- Variant suffixes identify exact hardware revisions or model groups. Physical fixture inventory remains unique while the reviewed applicability policy expands fixtures into concrete canonical-model executions: exact suffix restrictions are preserved, `S`/`GS` cases include applicable SGB2 rows, and untagged acceptance fixtures run on DMG-B, MGB, CGB-E, SGB2, and AGB-A. Exact original-SGB fixtures remain excluded rather than being relabeled as SGB2; mapper fixtures remain single-run.
 
 ## dmg-acid2
 

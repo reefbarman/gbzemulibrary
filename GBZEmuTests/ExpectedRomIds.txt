@@ -99,8 +99,11 @@ mooneye/acceptance/bits/reg_f
 mooneye/acceptance/bits/unused_hwio-GS
 mooneye/acceptance/boot_div-dmg0
 mooneye/acceptance/boot_div-dmgABCmgb
+mooneye/acceptance/boot_div-S
+mooneye/acceptance/boot_div2-S
 mooneye/acceptance/boot_hwio-dmg0
 mooneye/acceptance/boot_hwio-dmgABCmgb
+mooneye/acceptance/boot_hwio-S
 mooneye/acceptance/boot_regs-dmg0
 mooneye/acceptance/boot_regs-dmgABC
 mooneye/acceptance/boot_regs-mgb

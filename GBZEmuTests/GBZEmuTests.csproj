@@ -23,5 +23,8 @@
 
         <None Update="RomManifest.json" CopyToOutputDirectory="PreserveNewest" />
         <None Update="ExpectedRomIds.txt" CopyToOutputDirectory="PreserveNewest" />
+        <None Update="ExpectedRomExecutionIds.txt" CopyToOutputDirectory="PreserveNewest" />
+        <None Update="ExpectedRomExcludedIds.txt" CopyToOutputDirectory="PreserveNewest" />
+        <None Update="ExpectedRomUnresolvedIds.txt" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 </Project>
