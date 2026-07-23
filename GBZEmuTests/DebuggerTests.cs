@@ -50,6 +50,24 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
+    /// Verifies debugger memory ports retain mapped side effects without advancing emulated CPU time.
+    /// </summary>
+    [Fact]
+    public void DebugMemoryAccessIsUntimedMappedAccess()
+    {
+        using var rom = TestRom.Create(0x00);
+        var emulator = EmulatorFactory.Start(rom);
+        var clocksBefore = emulator.Debug.GetCpuState().TotalClockCycles;
+
+        emulator.Debug.PokeByte(0xFF, MemorySchema.INTERRUPT_REQUEST_REGISTER);
+        var interruptFlags = emulator.Debug.PeekByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
+
+        Assert.Equal(clocksBefore, emulator.Debug.GetCpuState().TotalClockCycles);
+        Assert.Equal(0xFF, interruptFlags);
+        emulator.Terminate();
+    }
+
+    /// <summary>
     /// Rejects addresses outside the 16-bit Game Boy address space before they reach MMU lookup code.
     /// Explicit validation gives debugger clients stable argument errors instead of internal routing failures.
     /// </summary>
@@ -97,44 +115,6 @@ public sealed class DebuggerTests
         emulator.Terminate();
     }
 
-    /// <summary>
-    /// Verifies that STAT, HDMA5, PPU-memory reads, and PPU-memory writes use end-of-M-cycle boundary sampling.
-    /// </summary>
-    [Fact]
-    public void PpuBoundaryReadsUseEndOfCycleSampling()
-    {
-        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(0xFF41));
-        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
-        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.VIDEO_RAM_START));
-        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.VIDEO_RAM_END - 1));
-        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START));
-        Assert.True(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - 1));
-
-        Assert.False(CPU.SamplesPpuStateAtEndOfReadCycle(0xFF44));
-        Assert.False(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.VIDEO_RAM_START - 1));
-        Assert.False(CPU.SamplesPpuStateAtEndOfReadCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_END));
-
-        Assert.True(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.VIDEO_RAM_START));
-        Assert.True(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.VIDEO_RAM_END - 1));
-        Assert.True(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START));
-        Assert.True(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - 1));
-        Assert.False(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.VIDEO_RAM_START - 1));
-        Assert.False(CPU.WritesPpuMemoryAtEndOfCycle(MemorySchema.SPRITE_ATTRIBUTE_TABLE_END));
-    }
-
-    /// <summary>
-    /// Verifies only SCY and SCX use end-of-write-cycle visibility; neighboring LCD registers retain normal ordering.
-    /// </summary>
-    [Fact]
-    public void PpuScrollWritesUseEndOfCycleVisibility()
-    {
-        Assert.True(CPU.WritesPpuScrollAtEndOfCycle(0xFF42));
-        Assert.True(CPU.WritesPpuScrollAtEndOfCycle(0xFF43));
-
-        Assert.False(CPU.WritesPpuScrollAtEndOfCycle(0xFF41));
-        Assert.False(CPU.WritesPpuScrollAtEndOfCycle(0xFF44));
-        Assert.False(CPU.WritesPpuScrollAtEndOfCycle(0xFF45));
-    }
 
     /// <summary>
     /// Starts an internal-clock serial transfer and verifies completion occurs during emulated CPU time rather than
@@ -161,6 +141,36 @@ public sealed class DebuggerTests
         Assert.Equal(0x7F, emulator.Debug.PeekByte(0xFF02));
         Assert.Equal(0xFF, emulator.Debug.PeekByte(0xFF01));
         Assert.NotEqual(0, emulator.Debug.PeekByte(0xFF0F) & (1 << (int)Interrupts.Serial));
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Rejects save-state operations from synchronous hardware callbacks until the active CPU operation fully returns.
+    /// </summary>
+    [Fact]
+    public void StateOperationsRejectSynchronousSerialCallbackBoundary()
+    {
+        using var rom = TestRom.Create(0x18, 0xFE);
+        var emulator = EmulatorFactory.Start(rom);
+        var restorable = emulator.CaptureState();
+        Exception? captureError = null;
+        Exception? restoreError = null;
+        emulator.Debug.SerialByteTransferred += _ =>
+        {
+            captureError = Record.Exception(() => emulator.CaptureState());
+            restoreError = Record.Exception(() => emulator.RestoreState(restorable));
+        };
+        emulator.Debug.PokeByte(0x5A, 0xFF01);
+        emulator.Debug.PokeByte(0x81, 0xFF02);
+
+        emulator.Update();
+
+        var captureBoundaryError = Assert.IsType<InvalidOperationException>(captureError);
+        var restoreBoundaryError = Assert.IsType<InvalidOperationException>(restoreError);
+        Assert.Equal("Save states can only be captured or restored between CPU operations.", captureBoundaryError.Message);
+        Assert.Equal(captureBoundaryError.Message, restoreBoundaryError.Message);
+        Assert.Equal(EmulatorState.CurrentFormatVersion, emulator.CaptureState().FormatVersion);
+        emulator.RestoreState(restorable);
         emulator.Terminate();
     }
 
@@ -327,6 +337,36 @@ public sealed class DebuggerTests
     }
 
     /// <summary>
+    /// Verifies RETI enables IME at retirement so a pending interrupt dispatches before the restored target opcode.
+    /// </summary>
+    [Fact]
+    public void ReturnFromInterruptEnablesImmediateRedispatch()
+    {
+        using var rom = TestRom.Create(
+            0x31, 0xFE, 0xCF, // LD SP,CFFE
+            0xD9,             // RETI
+            0x04,             // INC B: must not execute before dispatch
+            0x40);
+        var emulator = EmulatorFactory.Start(rom);
+        emulator.Debug.PokeByte(0x04, 0xCFFE);
+        emulator.Debug.PokeByte(0x01, 0xCFFF);
+        var timerMask = (byte)(1 << (int)Interrupts.Timer);
+        emulator.Debug.PokeByte(timerMask, MemorySchema.INTERRUPT_ENABLE_REGISTER_START);
+        emulator.Debug.PokeByte(timerMask, MemorySchema.INTERRUPT_REQUEST_REGISTER);
+        emulator.Debug.PokeByte(0x40, 0x0050);
+
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0x0050, 1));
+
+        var state = emulator.Debug.GetCpuState();
+        Assert.Equal(0x00, state.BC >> 8);
+        Assert.Equal(0xCFFE, state.SP);
+        Assert.Equal(0x04, emulator.Debug.PeekByte(0xCFFE));
+        Assert.Equal(0x01, emulator.Debug.PeekByte(0xCFFF));
+        Assert.False(state.InterruptsEnabled);
+        emulator.Terminate();
+    }
+
+    /// <summary>
     /// Places a PC breakpoint after two NOPs and verifies execution stops before fetching the target opcode.
     /// Exact pre-fetch state is required for trustworthy traces and deterministic conformance-test inspection.
     /// </summary>
@@ -400,6 +440,42 @@ public sealed class DebuggerTests
         Assert.StartsWith("2:", entries[0], StringComparison.Ordinal);
         Assert.StartsWith("3:", entries[1], StringComparison.Ordinal);
         emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Verifies CGB DMA callbacks remain owned by their emulator after a second live instance is constructed.
+    /// </summary>
+    [Fact]
+    public void LiveEmulatorsKeepCgbDmaCallbacksIsolated()
+    {
+        using var rom = TestRom.Create(0x00);
+        var bytes = File.ReadAllBytes(rom.Path);
+        bytes[CartridgeSchema.GBC_MODE_LOC] = 0xC0;
+        File.WriteAllBytes(rom.Path, bytes);
+        var first = new Emulator();
+        var second = new Emulator();
+        var config = new Emulator.Config(HardwareModel.CgbE)
+        {
+            ROMPath = rom.Path,
+            SaveLocation = Path.GetTempPath(),
+            BootRom = BootRomConfig.Skip()
+        };
+        Assert.True(first.Start(config));
+        Assert.True(second.Start(config));
+
+        first.Debug.PokeByte(0x5A, 0xC000);
+        second.Debug.PokeByte(0xA5, 0xC000);
+        first.Debug.PokeByte(0xC0, MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER);
+        first.Debug.PokeByte(0x00, MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER);
+        first.Debug.PokeByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
+        first.Debug.PokeByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
+        first.Debug.PokeByte(0x00, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+
+        Assert.Equal(0x5A, first.Debug.PeekByte(MemorySchema.VIDEO_RAM_START));
+        Assert.Equal(0x00, second.Debug.PeekByte(MemorySchema.VIDEO_RAM_START));
+        Assert.Equal(0xA5, second.Debug.PeekByte(0xC000));
+        first.Terminate();
+        second.Terminate();
     }
 
     /// <summary>

@@ -45,6 +45,32 @@ public sealed class DmaTests
     }
 
     /// <summary>
+    /// Verifies OAM DMA advances only on T1 while T2 through T4 preserve its startup and transfer state.
+    /// </summary>
+    [Fact]
+    public void OamDmaAdvancesOncePerFourRawClocks()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var fixture = new DmaFixture(memory);
+        memory[0xC000] = 0x5A;
+        fixture.Controller.WriteByte(0xC0, MemorySchema.DMA_REGISTER);
+
+        fixture.AdvanceRawClock();
+        Assert.False(fixture.Controller.IsOamDmaActive);
+        fixture.AdvanceRawClock(3);
+        Assert.False(fixture.Controller.IsOamDmaActive);
+
+        fixture.AdvanceRawClock();
+        Assert.True(fixture.Controller.IsOamDmaActive);
+        Assert.Equal(0x00, memory[MemorySchema.SPRITE_ATTRIBUTE_TABLE_START]);
+        fixture.AdvanceRawClock(3);
+        Assert.Equal(0x00, memory[MemorySchema.SPRITE_ATTRIBUTE_TABLE_START]);
+
+        fixture.AdvanceRawClock();
+        Assert.Equal(0x5A, memory[MemorySchema.SPRITE_ATTRIBUTE_TABLE_START]);
+    }
+
+    /// <summary>
     /// Verifies restarting OAM DMA leaves the previous transfer active for both startup cycles before the new source
     /// begins again at OAM byte zero.
     /// </summary>
@@ -88,6 +114,66 @@ public sealed class DmaTests
         fixture.UpdateMachineCycle(3);
 
         Assert.Equal(0x5A, memory[0xFE00]);
+    }
+
+    /// <summary>
+    /// Verifies OAM and CGB DMA dispatch exclusively through their dedicated privileged memory ports.
+    /// </summary>
+    [Fact]
+    public void DmaEnginesUseDedicatedInitiatorPorts()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        memory[0xC000] = 0x5A;
+        var cgbReads = 0;
+        var cgbWrites = 0;
+        var oamReads = 0;
+        var oamWrites = 0;
+        var messageBus = new MessageBus
+        {
+            OnReadCgbDmaSourceByte = address =>
+            {
+                cgbReads++;
+                return memory[address];
+            },
+            OnWriteCgbDmaDestinationByte = (data, address) =>
+            {
+                cgbWrites++;
+                memory[address] = data;
+            },
+            OnReadOamDmaSourceByte = address =>
+            {
+                oamReads++;
+                return memory[address];
+            },
+            OnWriteOamDmaByte = (data, address) =>
+            {
+                oamWrites++;
+                memory[address] = data;
+            },
+            OnCanStartHBlankDmaImmediately = () => false,
+            OnIsCpuHalted = () => false,
+            OnGetCpuSpeedFactor = () => 1
+        };
+        var dma = new DMAController(messageBus);
+        dma.Init(GBCMode.GBCSupport);
+        dma.WriteByte(0xC0, MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
+        dma.WriteByte(0x00, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+
+        Assert.Equal(16, cgbReads);
+        Assert.Equal(16, cgbWrites);
+        Assert.Equal(0, oamReads);
+        Assert.Equal(0, oamWrites);
+
+        dma.WriteByte(0xC0, MemorySchema.DMA_REGISTER);
+        dma.Update(InstructionSchema.FOUR_CYCLES * 3);
+
+        Assert.Equal(16, cgbReads);
+        Assert.Equal(16, cgbWrites);
+        Assert.Equal(2, oamReads);
+        Assert.Equal(1, oamWrites);
     }
 
     /// <summary>
@@ -316,6 +402,62 @@ public sealed class DmaTests
     }
 
     /// <summary>
+    /// Verifies an immediate HBlank-DMA block completes after its exact forty-raw-clock reservation.
+    /// </summary>
+    [Fact]
+    public void ImmediateHBlankDmaCountsEveryRawClock()
+    {
+        var memory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var fixture = new DmaFixture(memory, startHBlankDmaImmediately: true);
+        memory[0xC000] = 0x6B;
+        fixture.Controller.WriteByte(0xC0, MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER);
+        fixture.Controller.WriteByte(0x00, MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER);
+        fixture.Controller.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
+        fixture.Controller.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
+        fixture.Controller.WriteByte(0x80, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+
+        fixture.AdvanceRawClock(39);
+        Assert.True(fixture.Controller.IsCpuStalledByHBlankDma);
+        Assert.Equal(0x00, memory[MemorySchema.VIDEO_RAM_START]);
+
+        fixture.AdvanceRawClock();
+        Assert.False(fixture.Controller.IsCpuStalledByHBlankDma);
+        Assert.Equal(0x6B, memory[MemorySchema.VIDEO_RAM_START]);
+    }
+
+    /// <summary>
+    /// Verifies partial OAM/HDMA raw-clock phase survives direct v4 machine-state serialization.
+    /// </summary>
+    [Fact]
+    public void PartialDmaRawClockPhaseRoundTripsThroughStateSerialization()
+    {
+        var originalMemory = new byte[MemorySchema.MAX_RAM_SIZE];
+        var restoredMemory = new byte[MemorySchema.MAX_RAM_SIZE];
+        originalMemory[0xC000] = 0x7C;
+        restoredMemory[0xC000] = 0x7C;
+        var original = new DmaFixture(originalMemory, startHBlankDmaImmediately: true);
+        var restored = new DmaFixture(restoredMemory, startHBlankDmaImmediately: true);
+        original.Controller.WriteByte(0xC0, MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER);
+        original.Controller.WriteByte(0x00, MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER);
+        original.Controller.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
+        original.Controller.WriteByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
+        original.Controller.WriteByte(0x80, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+        original.AdvanceRawClock(17);
+
+        var serialized = StateSerialization.Write(original.Controller);
+        StateSerialization.Read(serialized, restored.Controller);
+
+        original.AdvanceRawClock(22);
+        restored.AdvanceRawClock(22);
+        Assert.True(original.Controller.IsCpuStalledByHBlankDma);
+        Assert.True(restored.Controller.IsCpuStalledByHBlankDma);
+        original.AdvanceRawClock();
+        restored.AdvanceRawClock();
+        Assert.Equal(originalMemory[MemorySchema.VIDEO_RAM_START], restoredMemory[MemorySchema.VIDEO_RAM_START]);
+        Assert.Equal(0x7C, restoredMemory[MemorySchema.VIDEO_RAM_START]);
+    }
+
+    /// <summary>
     /// Verifies that HBlank blocks are skipped while HALT owns the CPU and begin at the next HBlank after wake.
     /// </summary>
     [Fact]
@@ -387,8 +529,8 @@ public sealed class DmaTests
             bool cpuHalted = false,
             int speedFactor = 1)
         {
-            _messageBus.OnReadByte = address => memory[address];
-            _messageBus.OnWriteByte = (data, address) => memory[address] = data;
+            _messageBus.OnReadCgbDmaSourceByte = address => memory[address];
+            _messageBus.OnWriteCgbDmaDestinationByte = (data, address) => memory[address] = data;
             _messageBus.OnReadOamDmaSourceByte = address => memory[address];
             _messageBus.OnWriteOamDmaByte = (data, address) => memory[address] = data;
             _messageBus.OnCanStartHBlankDmaImmediately = () => startHBlankDmaImmediately;
@@ -410,6 +552,14 @@ public sealed class DmaTests
         public void UpdateMachineCycle(int count = 1)
         {
             Controller.Update(InstructionSchema.FOUR_CYCLES * count);
+        }
+
+        public void AdvanceRawClock(int count = 1)
+        {
+            for (var clock = 0; clock < count; clock++)
+            {
+                Controller.AdvanceRawClock();
+            }
         }
     }
 }

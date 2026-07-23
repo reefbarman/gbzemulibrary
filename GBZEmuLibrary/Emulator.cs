@@ -99,9 +99,14 @@ namespace GBZEmuLibrary
         private HardwareModel _hardwareModel;
         private byte[] _stateIdentity;
         private int _clockRate = GameBoySchema.MAX_DMG_CLOCK_CYCLES;
-        private bool _apuSystemUpdateActive;
-        private int _apuSystemUpdateSpeedFactor = 1;
-        private int _apuClocksAdvancedThisSystemUpdate;
+        private readonly ClockCoordinator _clockCoordinator = new ClockCoordinator();
+        private bool _rawClockUpdateActive;
+        private bool _baseClockEmittedThisRawClock;
+        private bool _apuAdvancedThisRawClock;
+        [SaveStateIgnore]
+        private bool _cpuProcessActive;
+        [SaveStateIgnore]
+        private ITimingObserver _timingObserver;
 
         /// <summary>
         /// Gets the active hardware clock rate used for host scheduling and fixed-rate audio conversion.
@@ -139,6 +144,24 @@ namespace GBZEmuLibrary
             _cpu.OnSpeedSwitch += HandleSpeedSwitch;
             _cartridge.RumbleStrengthUpdated += strength => RumbleStrengthUpdated?.Invoke(strength);
             Debug = new EmulatorDebugger(_cpu, _mmu, _gpu, _serialRegisters, () => _running, Update);
+        }
+
+        /// <summary>
+        /// Installs an optional internal observer for current CPU and subsystem timing boundaries.
+        /// </summary>
+        internal void SetTimingObserver(ITimingObserver timingObserver)
+        {
+            _timingObserver = timingObserver;
+            _messageBus.SetTimingObserver(timingObserver);
+            _cpu.SetTimingObserver(timingObserver);
+        }
+
+        /// <summary>
+        /// Reports the fixed MMU owner for focused internal address-map characterization tests.
+        /// </summary>
+        internal MemoryAddressOwner GetAddressOwnerForTesting(int address)
+        {
+            return _mmu.GetAddressOwner(address);
         }
 
         /// <summary>
@@ -191,6 +214,10 @@ namespace GBZEmuLibrary
                 var useBootRom = config.BootRom.Source != BootRomSource.Skip;
 
                 _clockRate = GameBoySchema.MAX_DMG_CLOCK_CYCLES;
+                _clockCoordinator.Reset();
+                _rawClockUpdateActive = false;
+                _baseClockEmittedThisRawClock = false;
+                _apuAdvancedThisRawClock = false;
                 _mmu.Init(mode, _hardwareModel);
                 _apu.Reset();
                 _timerState.Reset(useBootRom, mode);
@@ -290,9 +317,12 @@ namespace GBZEmuLibrary
         {
             EnsureRunning();
 
+            EnsureStateOperationBoundary();
+
             var timing = new[] { _clocksThisUpdate, _clocksThisFrame };
             var payload = StateSerialization.Write(
                 timing,
+                _clockCoordinator,
                 _cartridge,
                 _bootROM,
                 _gpu,
@@ -302,6 +332,7 @@ namespace GBZEmuLibrary
                 _apu,
                 _serialRegisters,
                 _mmu,
+                _mmu.DmaController,
                 _mmu.CompatibilityModeRegisters,
                 _cpu);
             return StateEnvelope.Create(_stateIdentity, payload);
@@ -318,6 +349,7 @@ namespace GBZEmuLibrary
             }
 
             EnsureRunning();
+            EnsureStateOperationBoundary();
             var parsed = StateEnvelope.Parse(state.Data, _stateIdentity);
             var timing = new int[2];
             var previousRumbleState = _cartridge.RumbleActive;
@@ -325,6 +357,7 @@ namespace GBZEmuLibrary
             StateSerialization.Read(
                 parsed.Payload,
                 timing,
+                _clockCoordinator,
                 _cartridge,
                 _bootROM,
                 _gpu,
@@ -334,9 +367,13 @@ namespace GBZEmuLibrary
                 _apu,
                 _serialRegisters,
                 _mmu,
+                _mmu.DmaController,
                 _mmu.CompatibilityModeRegisters,
                 _cpu);
 
+            _rawClockUpdateActive = false;
+            _baseClockEmittedThisRawClock = false;
+            _apuAdvancedThisRawClock = false;
             _clocksThisUpdate = timing[0];
             _clocksThisFrame = timing[1];
             _cartridge.PublishRestoredRumbleState(previousRumbleState);
@@ -355,7 +392,16 @@ namespace GBZEmuLibrary
             do
             {
                 _clocksThisUpdate = 0;
-                _cpu.Process();
+                _cpuProcessActive = true;
+                try
+                {
+                    _cpu.Process();
+                }
+                finally
+                {
+                    _cpuProcessActive = false;
+                }
+
                 _clocksThisFrame += _clocksThisUpdate;
             } while (_clocksThisFrame < Display.CLOCK_CYCLES_PER_FRAME && !Debug.StopRequested);
 
@@ -438,54 +484,109 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Advances all hardware from a CPU machine cycle while preserving CGB double-speed clock domains.
+        /// Advances every hardware clock domain by one raw CPU clock in deterministic software precedence order.
         /// </summary>
         private void UpdateSystems(int cycles)
         {
-            // DIV, TIMA, and the serial clock are driven by the CPU clock and therefore run twice as fast in CGB
-            // double-speed mode. Their independent dividers advance across the same raw CPU-clock interval.
-            _apuSystemUpdateSpeedFactor = _cpu.SpeedFactor;
-            _apuClocksAdvancedThisSystemUpdate = 0;
-            _apuSystemUpdateActive = true;
+            if (cycles != 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(cycles));
+            }
+
+            var advance = _clockCoordinator.AdvanceRawClock(_cpu.SpeedFactor);
+            if (advance.TState == 1)
+            {
+                _timerState.BeginCpuMachineCycle();
+            }
+
+            ObserveTiming(new TimingEvent(
+                TimingEventKind.SystemUpdateStarted,
+                value: (byte)advance.TState,
+                clocks: 1));
+
+            // The per-clock APU flags are meaningful only while _rawClockUpdateActive is true.
+            _baseClockEmittedThisRawClock = advance.EmitsBaseClock;
+            _apuAdvancedThisRawClock = false;
+            _rawClockUpdateActive = true;
             try
             {
-                _timerState.Update(cycles);
+                _timerState.AdvanceRawClock();
             }
             finally
             {
-                _apuSystemUpdateActive = false;
+                _rawClockUpdateActive = false;
             }
-            _serialRegisters.Update(cycles);
-            _mmu.UpdateDma(cycles);
+            ObserveTiming(new TimingEvent(TimingEventKind.TimerUpdateCompleted, clocks: 1));
 
-            cycles /= _apuSystemUpdateSpeedFactor;
-            _clocksThisUpdate += cycles;
+            _serialRegisters.Update(1);
+            ObserveTiming(new TimingEvent(TimingEventKind.SerialUpdateCompleted, clocks: 1));
 
-            _cartridge.Update(cycles);
-            _gpu.Update(cycles);
-            _apu.Update(cycles - _apuClocksAdvancedThisSystemUpdate);
+            _mmu.AdvanceDmaRawClock();
+            ObserveTiming(new TimingEvent(TimingEventKind.DmaUpdateCompleted, clocks: 1));
+
+            if (advance.EmitsBaseClock)
+            {
+                AdvanceBaseClock();
+            }
+
+            ObserveTiming(new TimingEvent(
+                TimingEventKind.SystemUpdateCompleted,
+                value: (byte)advance.TState,
+                clocks: advance.EmitsBaseClock ? 1 : 0));
         }
 
         /// <summary>
-        /// Advances the APU to an exact DIV edge before clocking its frame sequencer.
+        /// Advances cartridge, PPU, APU, and frame accounting by one base-speed clock.
+        /// </summary>
+        private void AdvanceBaseClock()
+        {
+            _clocksThisUpdate++;
+
+            _cartridge.Update(1);
+            ObserveTiming(new TimingEvent(TimingEventKind.CartridgeUpdateCompleted, clocks: 1));
+
+            _gpu.Update(1);
+            ObserveTiming(new TimingEvent(TimingEventKind.GpuUpdateCompleted, clocks: 1));
+
+            if (!_apuAdvancedThisRawClock)
+            {
+                _apu.Update(1);
+                ObserveTiming(new TimingEvent(TimingEventKind.ApuUpdateCompleted, clocks: 1));
+            }
+        }
+
+        /// <summary>
+        /// Applies a DIV-APU edge at its exact raw-clock boundary without integer-offset truncation.
         /// </summary>
         private void HandleApuClock(int rawClockOffset)
         {
-            if (!_apuSystemUpdateActive)
+            if (_rawClockUpdateActive && _baseClockEmittedThisRawClock && !_apuAdvancedThisRawClock)
             {
-                _apu.ClockFrameSequencer();
-                return;
-            }
-
-            var apuClockOffset = rawClockOffset / _apuSystemUpdateSpeedFactor;
-            var clocksToEdge = apuClockOffset - _apuClocksAdvancedThisSystemUpdate;
-            if (clocksToEdge > 0)
-            {
-                _apu.Update(clocksToEdge);
-                _apuClocksAdvancedThisSystemUpdate = apuClockOffset;
+                _apu.Update(1);
+                _apuAdvancedThisRawClock = true;
+                ObserveTiming(new TimingEvent(TimingEventKind.ApuUpdateCompleted, clocks: 1));
             }
 
             _apu.ClockFrameSequencer();
+            ObserveTiming(new TimingEvent(
+                TimingEventKind.ApuFrameSequencerClocked,
+                clocks: rawClockOffset));
+        }
+
+        private void ObserveTiming(in TimingEvent timingEvent)
+        {
+            _timingObserver?.Observe(in timingEvent);
+        }
+
+        /// <summary>
+        /// Rejects capture or restore while a CPU instruction, HALT cycle, or interrupt sequence can still mutate state.
+        /// </summary>
+        private void EnsureStateOperationBoundary()
+        {
+            if (_cpuProcessActive || !_clockCoordinator.IsMachineCycleAligned)
+            {
+                throw new InvalidOperationException("Save states can only be captured or restored between CPU operations.");
+            }
         }
 
         /// <summary>

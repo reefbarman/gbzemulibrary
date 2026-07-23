@@ -67,10 +67,10 @@ public sealed class TimerTests
     }
 
     /// <summary>
-    /// Reports the falling edge's position inside the current CPU update so the APU can split channel advancement around it.
+    /// Reports a falling DIV-APU edge on the exact raw clock that produced it.
     /// </summary>
     [Fact]
-    public void DividerReportsApuEdgeOffsetWithinUpdate()
+    public void DividerReportsApuEdgeOnCurrentRawClock()
     {
         var timer = CreateTimer(GBCMode.GBCSupport);
         var edgeOffset = -1;
@@ -79,7 +79,35 @@ public sealed class TimerTests
         timer.Update(8190);
         timer.Update(4);
 
-        Assert.Equal(2, edgeOffset);
+        Assert.Equal(1, edgeOffset);
+    }
+
+    /// <summary>
+    /// Verifies an odd double-speed DIV-APU edge clocks the frame sequencer before that raw pair emits a base clock.
+    /// This preserves the pre-Phase-5 integer-truncation result while making the raw/base ordering explicit.
+    /// </summary>
+    [Fact]
+    public void OddDoubleSpeedApuEdgePrecedesPairedBaseClock()
+    {
+        var timer = CreateTimer(GBCMode.GBCSupport);
+        var coordinator = new ClockCoordinator();
+        timer.SetDoubleSpeed(true);
+        timer.Update(16383);
+        var edgeObserved = false;
+        var baseClockEmittedAtEdge = true;
+        timer.OnApuClock = _ => edgeObserved = true;
+
+        var oddAdvance = coordinator.AdvanceRawClock(2);
+        timer.BeginCpuMachineCycle();
+        timer.AdvanceRawClock();
+        if (edgeObserved)
+        {
+            baseClockEmittedAtEdge = oddAdvance.EmitsBaseClock;
+        }
+
+        Assert.True(edgeObserved);
+        Assert.False(baseClockEmittedAtEdge);
+        Assert.True(coordinator.AdvanceRawClock(2).EmitsBaseClock);
     }
 
     /// <summary>

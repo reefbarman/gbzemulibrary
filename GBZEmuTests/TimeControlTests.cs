@@ -52,6 +52,48 @@ public sealed class TimeControlTests
         emulator.Terminate();
     }
 
+    /// <summary>
+    /// Verifies a buffered IME-clear HALT-wake opcode survives state capture without being re-read on replay.
+    /// </summary>
+    [Fact]
+    public void SaveStateRoundTripsBufferedHaltWakeOpcode()
+    {
+        using var rom = TestRom.Create(0xC3, 0x80, 0xFF, 0x40); // JP FF80
+        var emulator = EmulatorFactory.Start(rom);
+        emulator.Debug.PokeByte(0x76, 0xFF80); // HALT
+        emulator.Debug.PokeByte(0x04, 0xFF81); // INC B
+        emulator.Debug.PokeByte(0x40, 0xFF82); // LD B,B debugger breakpoint
+        emulator.Debug.PokeByte(0x10, MemorySchema.JOYPAD_REGISTER);
+        emulator.Debug.PokeByte(1 << (int)Interrupts.Joypad, MemorySchema.INTERRUPT_ENABLE_REGISTER_START);
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0xFF80, 1));
+
+        var haltFetched = false;
+        var wakeRequested = false;
+        emulator.SetTimingObserver(new StopOnBufferedWakeObserver(emulator, () => haltFetched, () =>
+        {
+            wakeRequested = true;
+            emulator.ButtonDown(JoypadButtons.A);
+        }, () => haltFetched = true));
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0xFF82, 1));
+
+        Assert.True(wakeRequested);
+        Assert.True(emulator.Debug.IsStopped);
+        Assert.Equal(0xFF81, emulator.Debug.GetCpuState().PC);
+        var state = emulator.CaptureState();
+        emulator.Debug.PokeByte(0x05, 0xFF81); // DEC B if replay incorrectly re-reads memory.
+
+        emulator.Debug.Resume();
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0xFF82, 1));
+        Assert.Equal(0x01, emulator.Debug.GetCpuState().BC >> 8);
+
+        emulator.RestoreState(state);
+        emulator.Debug.PokeByte(0x05, 0xFF81);
+        emulator.Debug.Resume();
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0xFF82, 1));
+        Assert.Equal(0x01, emulator.Debug.GetCpuState().BC >> 8);
+        emulator.Terminate();
+    }
+
     [Fact]
     public void SaveStateRestoresIntoAnotherInstanceOfSameRom()
     {
@@ -247,13 +289,158 @@ public sealed class TimeControlTests
         second.Terminate();
     }
 
+    /// <summary>
+    /// Verifies public v4 states resume double-speed CPU clocks and base-speed PPU clocks deterministically.
+    /// </summary>
+    [Fact]
+    public void SaveStateRestoresDoubleSpeedClockDomainsDeterministically()
+    {
+        using var rom = TestRom.Create(
+            0x3E, 0x01,       // LD A,$01
+            0xE0, 0x4D,       // LDH (KEY1),A
+            0x10, 0x00,       // STOP; padding
+            0x00,             // loop: NOP
+            0x18, 0xFD);      // JR loop
+        var bytes = File.ReadAllBytes(rom.Path);
+        bytes[CartridgeSchema.GBC_MODE_LOC] = 0xC0;
+        File.WriteAllBytes(rom.Path, bytes);
+        var emulator = Start(rom, HardwareModel.CgbE, BootRomConfig.Skip());
+        Assert.True(emulator.Debug.RunUntilProgramCounter(0x0106, 1));
+        Assert.True(emulator.Debug.GetCpuState().DoubleSpeed);
+        var checkpoint = emulator.CaptureState();
+
+        var expected = ReplayMachineCycles(emulator, checkpoint, 12);
+        var actual = ReplayMachineCycles(emulator, checkpoint, 12);
+
+        Assert.Equal(expected, actual);
+        Assert.True(emulator.Debug.GetCpuState().DoubleSpeed);
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Verifies pending TIMA reload and the normal-speed DIV-APU phase survive the public v4 state envelope.
+    /// </summary>
+    [Fact]
+    public void SaveStateRestoresTimerReloadAndDivApuPhaseDeterministically()
+    {
+        using var rom = TestRom.Create();
+        var emulator = EmulatorFactory.Start(rom);
+        emulator.Debug.PokeByte(0x00, MemorySchema.DIVIDE_REGISTER);
+        emulator.Debug.PokeByte(0x42, MemorySchema.TMA);
+        emulator.Debug.PokeByte(0xFF, MemorySchema.TIMA);
+        emulator.Debug.PokeByte(0x05, MemorySchema.TMC);
+        RunMachineCycles(emulator, 4);
+        Assert.Equal(0x00, emulator.Debug.PeekByte(MemorySchema.TIMA));
+        var pendingReload = emulator.CaptureState();
+
+        var expectedReload = ReplayMachineCycles(emulator, pendingReload, 1);
+        var actualReload = ReplayMachineCycles(emulator, pendingReload, 1);
+
+        Assert.Equal(expectedReload, actualReload);
+        Assert.Equal(0x42, emulator.Debug.PeekByte(MemorySchema.TIMA));
+        Assert.NotEqual(0, emulator.Debug.PeekByte(MemorySchema.INTERRUPT_REQUEST_REGISTER) & (1 << (int)Interrupts.Timer));
+
+        emulator.Debug.PokeByte(0x00, MemorySchema.TMC);
+        emulator.Debug.PokeByte(0x00, MemorySchema.DIVIDE_REGISTER);
+        RunMachineCycles(emulator, 2047);
+        var pendingApuEdge = emulator.CaptureState();
+
+        var expectedApu = ReplayMachineCycles(emulator, pendingApuEdge, 1);
+        var actualApu = ReplayMachineCycles(emulator, pendingApuEdge, 1);
+
+        Assert.Equal(expectedApu, actualApu);
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Verifies OAM-DMA startup/transfer and an active HDMA countdown resume identically through public v4 states.
+    /// </summary>
+    [Fact]
+    public void SaveStateRestoresDmaPhasesDeterministically()
+    {
+        using var dmgRom = TestRom.Create(0xC3, 0x80, 0xFF); // JP FF80
+        var dmg = EmulatorFactory.Start(dmgRom);
+        for (var index = 0; index < 0x20; index++)
+        {
+            dmg.Debug.PokeByte(0x00, 0xFF80 + index);
+            dmg.Debug.PokeByte((byte)(0x60 + index), 0xC000 + index);
+        }
+
+        Assert.True(dmg.Debug.RunUntilProgramCounter(0xFF80, 1));
+        dmg.Debug.PokeByte(0xC0, MemorySchema.DMA_REGISTER);
+        var startup = dmg.CaptureState();
+        Assert.Equal(
+            ReplayMachineCycles(dmg, startup, 1),
+            ReplayMachineCycles(dmg, startup, 1));
+        Assert.Equal(0x00, dmg.Debug.PeekByte(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START));
+
+        RunMachineCycles(dmg, 1);
+        var transfer = dmg.CaptureState();
+        Assert.Equal(
+            ReplayMachineCycles(dmg, transfer, 3),
+            ReplayMachineCycles(dmg, transfer, 3));
+        Assert.Equal(0x62, dmg.Debug.PeekByte(MemorySchema.SPRITE_ATTRIBUTE_TABLE_START + 2));
+        dmg.Terminate();
+
+        using var cgbRom = TestRom.Create(0x00, 0x18, 0xFD);
+        var cgbBytes = File.ReadAllBytes(cgbRom.Path);
+        cgbBytes[CartridgeSchema.GBC_MODE_LOC] = 0xC0;
+        File.WriteAllBytes(cgbRom.Path, cgbBytes);
+        var cgb = Start(cgbRom, HardwareModel.CgbE, BootRomConfig.Skip());
+        cgb.Debug.PokeByte(0x00, MemorySchema.GPU_REGISTERS_START); // LCD off permits immediate HDMA.
+        cgb.Debug.PokeByte(0x7C, 0xC000);
+        cgb.Debug.PokeByte(0xC0, MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER);
+        cgb.Debug.PokeByte(0x00, MemorySchema.DMA_GBC_SOURCE_LOW_REGISTER);
+        cgb.Debug.PokeByte(0x00, MemorySchema.DMA_GBC_DESTINATION_HIGH_REGISTER);
+        cgb.Debug.PokeByte(0x00, MemorySchema.DMA_GBC_DESTINATION_LOW_REGISTER);
+        cgb.Debug.PokeByte(0x80, MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER);
+        RunMachineCycles(cgb, 4);
+        var countdown = cgb.CaptureState();
+
+        Assert.Equal(
+            ReplayMachineCycles(cgb, countdown, 6),
+            ReplayMachineCycles(cgb, countdown, 6));
+        Assert.Equal(0x7C, cgb.Debug.PeekByte(MemorySchema.VIDEO_RAM_START));
+        Assert.Equal(0xFF, cgb.Debug.PeekByte(MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER));
+        cgb.Terminate();
+    }
+
+    /// <summary>
+    /// Verifies representative synthetic Mode 3 fetch/render transaction state resumes exactly from a v4 state.
+    /// </summary>
+    [Fact]
+    public void SaveStateRestoresMode3TransactionBoundaryDeterministically()
+    {
+        using var rom = TestRom.Create(0x00, 0x18, 0xFD);
+        var emulator = EmulatorFactory.Start(rom);
+        emulator.Debug.PokeByte(0x00, MemorySchema.GPU_REGISTERS_START);
+        RunMachineCycles(emulator, 1);
+        emulator.Debug.PokeByte(0x91, MemorySchema.GPU_REGISTERS_START);
+        RunMachineCycles(emulator, 21);
+        var ppu = emulator.Debug.GetPpuState();
+
+        Assert.Equal(3, ppu.Mode);
+        var checkpoint = emulator.CaptureState();
+
+        Assert.Equal(
+            ReplayMachineCycles(emulator, checkpoint, 20),
+            ReplayMachineCycles(emulator, checkpoint, 20));
+        emulator.Terminate();
+    }
+
+    [Fact]
+    public void SaveStateFormatUsesClockPhaseVersionFour()
+    {
+        Assert.Equal(4, EmulatorState.CurrentFormatVersion);
+    }
+
     [Fact]
     public void OldSaveStateVersionIsRejectedWithoutMigration()
     {
         using var rom = CreateCounterRom();
         var emulator = EmulatorFactory.Start(rom);
         var bytes = emulator.CaptureState().ToArray();
-        BitConverter.GetBytes(EmulatorState.CurrentFormatVersion - 1).CopyTo(bytes, 8);
+        BitConverter.GetBytes(3).CopyTo(bytes, 8);
         using (var sha256 = SHA256.Create())
         {
             var checksum = sha256.ComputeHash(bytes, 0, bytes.Length - 32);
@@ -365,6 +552,33 @@ public sealed class TimeControlTests
         Assert.Throws<InvalidOperationException>(() => emulator.RestoreState(state));
     }
 
+    private static byte[] ReplayMachineCycles(Emulator emulator, EmulatorState checkpoint, int machineCycles)
+    {
+        emulator.RestoreState(checkpoint);
+        RunMachineCycles(emulator, machineCycles);
+        return emulator.CaptureState().ToArray();
+    }
+
+    private static void RunMachineCycles(Emulator emulator, int machineCycles)
+    {
+        var observer = new StopAfterMachineCyclesObserver(emulator, machineCycles);
+        emulator.SetTimingObserver(observer);
+        try
+        {
+            emulator.Debug.Trace.BreakProgramCounter = null;
+            emulator.Debug.Trace.BreakProgramCounters = null;
+            emulator.Debug.Resume();
+            emulator.Update();
+        }
+        finally
+        {
+            emulator.SetTimingObserver(null);
+        }
+
+        Assert.True(emulator.Debug.IsStopped);
+        Assert.True(observer.ObservedMachineCycles >= machineCycles);
+    }
+
     private static Emulator Start(TestRom rom, HardwareModel model, BootRomConfig bootRom)
     {
         var emulator = new Emulator();
@@ -402,6 +616,81 @@ public sealed class TimeControlTests
             0x21, 0x00, 0xC0, // LD HL, C000
             0x34,             // INC (HL)
             0x18, 0xFD);      // JR back to INC
+    }
+
+    private sealed class StopAfterMachineCyclesObserver : ITimingObserver
+    {
+        private readonly Emulator _emulator;
+        private readonly int _targetMachineCycles;
+
+        public StopAfterMachineCyclesObserver(Emulator emulator, int targetMachineCycles)
+        {
+            _emulator = emulator;
+            _targetMachineCycles = targetMachineCycles;
+        }
+
+        public int ObservedMachineCycles { get; private set; }
+
+        public void Observe(in TimingEvent timingEvent)
+        {
+            if (timingEvent.Kind != TimingEventKind.MachineCycleCompleted)
+            {
+                return;
+            }
+
+            ObservedMachineCycles++;
+            if (ObservedMachineCycles >= _targetMachineCycles)
+            {
+                _emulator.Debug.RequestStop();
+            }
+        }
+    }
+
+    private sealed class StopOnBufferedWakeObserver : ITimingObserver
+    {
+        private readonly Emulator _emulator;
+        private readonly Func<bool> _haltFetched;
+        private readonly Action _requestWake;
+        private readonly Action _markHaltFetched;
+        private bool _wakeRequested;
+
+        public StopOnBufferedWakeObserver(
+            Emulator emulator,
+            Func<bool> haltFetched,
+            Action requestWake,
+            Action markHaltFetched)
+        {
+            _emulator = emulator;
+            _haltFetched = haltFetched;
+            _requestWake = requestWake;
+            _markHaltFetched = markHaltFetched;
+        }
+
+        public void Observe(in TimingEvent timingEvent)
+        {
+            if (timingEvent.Kind == TimingEventKind.CpuReadObserved && timingEvent.Address == 0xFF80)
+            {
+                _markHaltFetched();
+                return;
+            }
+
+            if (!_wakeRequested &&
+                _haltFetched() &&
+                timingEvent.Kind == TimingEventKind.SystemUpdateStarted &&
+                timingEvent.Value == 1)
+            {
+                _wakeRequested = true;
+                _requestWake();
+                return;
+            }
+
+            if (_wakeRequested &&
+                timingEvent.Kind == TimingEventKind.CpuReadObserved &&
+                timingEvent.Address == 0xFF81)
+            {
+                _emulator.Debug.RequestStop();
+            }
+        }
     }
 
     private static void AssertCpuEqual(CpuDebugState expected, CpuDebugState actual)

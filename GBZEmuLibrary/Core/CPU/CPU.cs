@@ -33,10 +33,12 @@ namespace GBZEmuLibrary
         private Dictionary<byte, Action> _instructionsCB;
 
         private bool _haltSkip;
-        private bool _haltWakeFetchElapsed;
-        private bool _memoryCyclePending;
+        private bool _haltWakeOpcodePending;
+        private byte _haltWakeOpcode;
         private bool _pendingSpeedSwitch;
         private bool _doubleSpeed;
+        [SaveStateIgnore]
+        private ITimingObserver _timingObserver;
 
         private GBCMode _gbcMode = GBCMode.NoGBC;
 
@@ -62,91 +64,96 @@ namespace GBZEmuLibrary
         /// </summary>
         public bool Process()
         {
-            try
+            if (_mmu.IsCpuStalledByHBlankDma)
             {
-                if (_mmu.IsCpuStalledByHBlankDma)
-                {
-                    IncrementClock();
-                    return true;
-                }
+                IncrementClock();
+                return true;
+            }
 
+            if (_interruptHandler.Halted)
+            {
+                var wakeFetch = _mmu.BeginCpuRead(_pc, CpuMachineCycleKind.OpcodeFetch);
+                AdvanceMachineCycle();
                 if (_interruptHandler.Halted)
                 {
-                    IncrementClock();
-                    if (ServicePendingInterrupt(true))
-                    {
-                        return true;
-                    }
-
-                    // A newly requested interrupt with IME clear wakes HALT during this M-cycle. That cycle
-                    // doubles as the next opcode fetch instead of inserting an additional idle M-cycle.
-                    if (!_interruptHandler.Halted)
-                    {
-                        _haltWakeFetchElapsed = true;
-                    }
-
                     return true;
                 }
 
-                if (Debug())
+                var wakeOpcode = CompleteCpuReadAndObserve(in wakeFetch);
+                if (ServicePendingInterrupt(true))
                 {
-                    return false;
+                    return true;
                 }
 
+                // An IME-clear wake consumes this elapsed cycle as the next opcode fetch.
+                _haltWakeOpcode = wakeOpcode;
+                _haltWakeOpcodePending = true;
+                return true;
+            }
+
+            if (Debug())
+            {
+                return false;
+            }
+
+            var instructionAddress = _pc;
+            byte instruction;
+            if (_haltWakeOpcodePending)
+            {
+                instruction = _haltWakeOpcode;
+                _haltWakeOpcode = 0;
+                _haltWakeOpcodePending = false;
+                _pc++;
+            }
+            else
+            {
                 if (ServicePendingInterrupt(false))
                 {
                     return true;
                 }
 
-                var instructionAddress = _pc;
-                byte instruction;
-                if (_haltWakeFetchElapsed)
-                {
-                    instruction = _mmu.ReadByteForCpu(_pc++);
-                    _haltWakeFetchElapsed = false;
-                }
-                else
-                {
-                    instruction = ReadByte(_pc++);
-                }
+                instruction = ReadByte(_pc++, CpuMachineCycleKind.OpcodeFetch);
+            }
 
-                // An interrupt asserted during opcode fetch suppresses that instruction and uses the fetch as M1.
-                FlushPendingMemoryCycle();
-                if (_interruptHandler.InterruptsEnabled && _interruptHandler.HasPendingInterrupt())
-                {
-                    _pc = instructionAddress;
-                    ServicePendingInterrupt(true);
-                    return true;
-                }
-
-                if (_haltSkip)
-                {
-                    _pc = (ushort)(_pc - 1);
-                    _haltSkip = false;
-                }
-
-                if (_instructions.ContainsKey(instruction))
-                {
-                    _instructions[instruction]();
-                }
-                else
-                {
-                    throw new NotImplementedException($"Instruction not implemented: {instruction:X2} at {instructionAddress:X4}");
-                }
-
-                _instructionCount++;
-
-                if (_pendingInterruptEnabled >= 0 && _pendingInterruptEnabled-- == 0)
-                {
-                    _interruptHandler.InterruptsEnabled = true;
-                }
-
+            // An interrupt asserted during opcode fetch suppresses that instruction and uses the fetch as M1.
+            if (_interruptHandler.InterruptsEnabled && _interruptHandler.HasPendingInterrupt())
+            {
+                _pc = instructionAddress;
+                ServicePendingInterrupt(true);
                 return true;
             }
-            finally
+
+            if (_haltSkip)
             {
-                FlushPendingMemoryCycle();
+                _pc = (ushort)(_pc - 1);
+                _haltSkip = false;
             }
+
+            if (_instructions.ContainsKey(instruction))
+            {
+                _instructions[instruction]();
+            }
+            else
+            {
+                throw new NotImplementedException($"Instruction not implemented: {instruction:X2} at {instructionAddress:X4}");
+            }
+
+            _instructionCount++;
+
+            if (_pendingInterruptEnabled >= 0 && _pendingInterruptEnabled-- == 0)
+            {
+                _interruptHandler.InterruptsEnabled = true;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Installs an optional internal observer for current machine-cycle and bus-access boundaries.
+        /// </summary>
+        internal void SetTimingObserver(ITimingObserver timingObserver)
+        {
+            _timingObserver = timingObserver;
         }
 
         /// <summary>
@@ -160,8 +167,8 @@ namespace GBZEmuLibrary
         {
             _gbcMode = gbcMode;
             _pendingInterruptEnabled = -1;
-            _haltWakeFetchElapsed = false;
-            _memoryCyclePending = false;
+            _haltWakeOpcodePending = false;
+            _haltWakeOpcode = 0;
             _pendingSpeedSwitch = false;
             _doubleSpeed = false;
             _instructionCount = 0;
@@ -223,10 +230,10 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Services the highest-priority pending interrupt with hardware-ordered internal and stack cycles.
+        /// Services the highest-priority pending interrupt through five explicitly named machine cycles.
         /// </summary>
         /// <param name="firstCycleElapsed">
-        /// Whether the first dispatch M-cycle was already consumed by HALT or an opcode fetch.
+        /// Whether M1 was already consumed by HALT or a suppressed opcode fetch.
         /// </param>
         private bool ServicePendingInterrupt(bool firstCycleElapsed)
         {
@@ -245,30 +252,42 @@ namespace GBZEmuLibrary
 
             _interruptHandler.InterruptsEnabled = false;
             _interruptHandler.Halted = false;
+            var returnProgramCounter = _pc;
 
+            ObserveInterruptDispatchCycle(InterruptDispatchCycle.First);
             if (!firstCycleElapsed)
             {
                 IncrementClock();
             }
 
-            // Interrupt entry has one additional internal M-cycle before the two stack writes.
+            ObserveInterruptDispatchCycle(InterruptDispatchCycle.Internal);
             IncrementClock();
-            WriteByte((byte)(_pc >> 8), --_sp.SP);
+
+            ObserveInterruptDispatchCycle(InterruptDispatchCycle.HighStackWrite);
+            WriteByte((byte)(returnProgramCounter >> 8), --_sp.SP);
 
             // The upper-byte stack write can change IE, so priority and cancellation are resolved afterwards.
             var interrupt = _interruptHandler.GetHighestPriorityPendingInterrupt();
-            WriteByte((byte)_pc, --_sp.SP);
+            ObserveTiming(new TimingEvent(
+                TimingEventKind.InterruptSelected,
+                value: unchecked((byte)interrupt)));
 
-            if (interrupt < 0)
+            ushort serviceRoutine = 0;
+            if (interrupt >= 0)
             {
-                _pc = 0;
-            }
-            else
-            {
+                // Acknowledgement precedes the low-write transaction so requests raised during M4 survive.
                 _interruptHandler.ClearInterruptRequest(interrupt);
-                _pc = _interruptHandler.GetServiceRoutine(interrupt);
+                ObserveTiming(new TimingEvent(
+                    TimingEventKind.InterruptAcknowledged,
+                    value: (byte)interrupt));
+                serviceRoutine = _interruptHandler.GetServiceRoutine(interrupt);
             }
 
+            ObserveInterruptDispatchCycle(InterruptDispatchCycle.LowStackWrite);
+            WriteByte((byte)returnProgramCounter, --_sp.SP);
+
+            _pc = serviceRoutine;
+            ObserveInterruptDispatchCycle(InterruptDispatchCycle.Final);
             IncrementClock();
             return true;
         }
@@ -295,7 +314,7 @@ namespace GBZEmuLibrary
 
         private void ProcessExtended()
         {
-            var instruction = ReadByte(_pc++);
+            var instruction = ReadByte(_pc++, CpuMachineCycleKind.OpcodeFetch);
 
             if (_instructionsCB.ContainsKey(instruction))
             {

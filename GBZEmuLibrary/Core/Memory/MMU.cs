@@ -4,6 +4,25 @@ using System.Collections.Generic;
 namespace GBZEmuLibrary
 {
     /// <summary>
+    /// Identifies the device selected by the MMU's fixed address-routing table.
+    /// </summary>
+    internal enum MemoryAddressOwner
+    {
+        Cartridge,
+        Gpu,
+        WorkRam,
+        Joypad,
+        Serial,
+        Divider,
+        Timer,
+        Apu,
+        Dma,
+        Compatibility,
+        UnmappedIo,
+        MainMemory
+    }
+
+    /// <summary>
     /// Routes the Game Boy address space to cartridges, hardware devices, and fallback memory.
     /// </summary>
     internal class MMU
@@ -13,6 +32,7 @@ namespace GBZEmuLibrary
 
         public bool InBootROM => _mainMemory.InBootROM;
         internal CompatibilityModeRegisters CompatibilityModeRegisters => _compatibilityModeRegisters;
+        internal DMAController DmaController => _dmaController;
 
         private readonly Dictionary<int, IMemoryUnit> _memoryUnitLookup = new Dictionary<int, IMemoryUnit>();
 
@@ -48,8 +68,8 @@ namespace GBZEmuLibrary
                 _compatibilityModeRegisters, new UnmappedIO()
             };
 
-            messageBus.OnReadByte = ReadByte;
-            messageBus.OnWriteByte = WriteByte;
+            messageBus.OnReadCgbDmaSourceByte = ReadCgbDmaSourceByte;
+            messageBus.OnWriteCgbDmaDestinationByte = WriteCgbDmaDestinationByte;
             messageBus.OnReadOamDmaSourceByte = ReadOamDmaSourceByte;
             messageBus.OnVBlank = ApplyGameSharkWrites;
 
@@ -86,6 +106,26 @@ namespace GBZEmuLibrary
             // APU hardware must be selected before Emulator.Start applies its post-boot reset profile.
             _apu.Init(mode, hardwareModel);
             _serialRegisters.Init(mode);
+        }
+
+        /// <summary>
+        /// Reports the fixed routing-table owner for focused internal address-map tests.
+        /// </summary>
+        internal MemoryAddressOwner GetAddressOwner(int address)
+        {
+            var memoryUnit = _memoryUnitLookup[address];
+            if (memoryUnit is Cartridge) return MemoryAddressOwner.Cartridge;
+            if (memoryUnit is GPU) return MemoryAddressOwner.Gpu;
+            if (memoryUnit is WorkRAM) return MemoryAddressOwner.WorkRam;
+            if (memoryUnit is Joypad) return MemoryAddressOwner.Joypad;
+            if (memoryUnit is SerialRegisters) return MemoryAddressOwner.Serial;
+            if (memoryUnit is DivideRegister) return MemoryAddressOwner.Divider;
+            if (memoryUnit is Timer) return MemoryAddressOwner.Timer;
+            if (memoryUnit is APU) return MemoryAddressOwner.Apu;
+            if (memoryUnit is DMAController) return MemoryAddressOwner.Dma;
+            if (memoryUnit is CompatibilityModeRegisters) return MemoryAddressOwner.Compatibility;
+            if (memoryUnit is UnmappedIO) return MemoryAddressOwner.UnmappedIo;
+            return MemoryAddressOwner.MainMemory;
         }
 
         /// <summary>
@@ -128,60 +168,148 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Reads a CPU bus cycle, returning the DMA-driven value when OAM DMA owns the addressed bus.
+        /// Begins a CPU read and captures the OAM-DMA ownership and bus value visible at T1.
         /// </summary>
-        internal byte ReadByteForCpu(int address)
+        internal CpuBusTransaction BeginCpuRead(int address, CpuMachineCycleKind kind)
         {
-            if (!IsCpuAccessBlockedByOamDma(address))
+            var blockedByOamDma = IsCpuAccessBlockedByOamDma(address);
+            var readsAtCompletion = !blockedByOamDma && ReadsDeviceStateAtCompletion(address);
+            var readDataLatchedBeforeCompletion = !blockedByOamDma && !readsAtCompletion;
+            var readDataBeforeCompletion = readDataLatchedBeforeCompletion
+                ? IsCgbIoReadBlocked(address) ? (byte)0xFF : ReadByte(address)
+                : (byte)0;
+            return new CpuBusTransaction(
+                kind,
+                (ushort)address,
+                0,
+                blockedByOamDma,
+                blockedByOamDma ? ReadOamDmaBlockedCpuValue(address) : (byte)0,
+                readDataLatchedBeforeCompletion,
+                readDataBeforeCompletion);
+        }
+
+        /// <summary>
+        /// Begins a CPU write, captures T1 OAM-DMA ownership, and applies evidence-backed device-owner latches.
+        /// </summary>
+        internal CpuBusTransaction BeginCpuWrite(byte data, int address)
+        {
+            var blockedByOamDma = IsCpuAccessBlockedByOamDma(address);
+            var memoryUnit = _memoryUnitLookup[address];
+            var writeDataLatchedBeforeCompletion = !blockedByOamDma &&
+                                                   WritesDeviceDataBeforeCompletion(memoryUnit, address);
+            if (writeDataLatchedBeforeCompletion)
             {
-                return ReadByteForCpuWithoutOamDma(address);
+                WriteByte(data, address);
             }
 
-            return address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
-                   address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END
-                ? (byte)0xFF
-                : _dmaController.OamDmaBusValue;
+            return new CpuBusTransaction(
+                CpuMachineCycleKind.MemoryWrite,
+                (ushort)address,
+                data,
+                blockedByOamDma,
+                0,
+                writeDataLatchedBeforeCompletion: writeDataLatchedBeforeCompletion);
         }
 
         /// <summary>
-        /// Reads a CPU-visible value without resampling OAM-DMA ownership.
+        /// Returns whether a clocked device consumes CPU write data before the canonical transaction completion.
+        /// Timer, DIV, and APU behavior is sampled by the T4 hardware update; LCDC enable timing establishes the PPU
+        /// startup phase consumed by that update. Other GPU registers remain T4-entry writes.
         /// </summary>
-        internal byte ReadByteForCpuWithoutOamDma(int address)
+        private static bool WritesDeviceDataBeforeCompletion(IMemoryUnit memoryUnit, int address)
         {
-            return IsCgbIoReadBlocked(address) ? (byte)0xFF : ReadByte(address);
+            return memoryUnit is DivideRegister ||
+                   memoryUnit is Timer ||
+                   memoryUnit is APU ||
+                   memoryUnit is GPU && address == MemorySchema.GPU_REGISTERS_START;
         }
 
         /// <summary>
-        /// Writes a CPU bus cycle unless DMG OAM DMA owns the target bus. HRAM and FF46 remain accessible.
+        /// Completes a CPU read through the current compatibility policy without resampling OAM-DMA ownership.
         /// </summary>
-        internal void WriteByteForCpu(byte data, int address)
+        internal byte CompleteCpuRead(in CpuBusTransaction transaction)
         {
-            if (IsCgbIoWriteBlocked(address))
+            if (transaction.OamDmaBlockedAtT1)
+            {
+                return transaction.OamDmaBusValueAtT1;
+            }
+
+            if (IsCgbIoReadBlocked(transaction.Address))
+            {
+                return 0xFF;
+            }
+
+            return transaction.ReadDataLatchedBeforeCompletion
+                ? transaction.ReadDataBeforeCompletion
+                : ReadByte(transaction.Address);
+        }
+
+        /// <summary>
+        /// Returns whether the selected device drives CPU read data from its state at transaction completion.
+        /// </summary>
+        private bool ReadsDeviceStateAtCompletion(int address)
+        {
+            var memoryUnit = _memoryUnitLookup[address];
+            return memoryUnit is GPU && _gpu.ReadsCpuDataAtCompletion(address) ||
+                   memoryUnit is DMAController && _dmaController.ReadsCpuDataAtCompletion(address);
+        }
+
+        /// <summary>
+        /// Applies CPU writes whose devices consume data at T4 entry, before the fourth hardware clock advances.
+        /// </summary>
+        internal void LatchCpuWriteAtT4(in CpuBusTransaction transaction)
+        {
+            if (transaction.OamDmaBlockedAtT1 ||
+                transaction.WriteDataLatchedBeforeCompletion ||
+                IsCgbIoWriteBlocked(transaction.Address) ||
+                WritesPpuMemoryAtCompletion(transaction.Address))
             {
                 return;
             }
 
-            if (!IsCpuAccessBlockedByOamDma(address))
+            var memoryUnit = _memoryUnitLookup[transaction.Address];
+            if (memoryUnit is DMAController)
             {
-                if ((address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END) ||
-                    (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
-                     address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END))
-                {
-                    _gpu.WriteByteForCpu(data, address);
-                }
-                else
-                {
-                    WriteByte(data, address);
-                }
+                _dmaController.WriteByteForCpuCompletion(transaction.WriteData, transaction.Address);
+                return;
             }
+
+            WriteByte(transaction.WriteData, transaction.Address);
         }
 
         /// <summary>
-        /// Writes CPU-visible PPU memory after the caller has sampled OAM-DMA bus ownership for the cycle.
+        /// Completes deferred PPU-memory writes after T4 without resampling T1 OAM-DMA ownership.
         /// </summary>
-        internal void WritePpuByteForCpu(byte data, int address)
+        internal void CompleteCpuWrite(in CpuBusTransaction transaction)
         {
-            _gpu.WriteByteForCpu(data, address);
+            if (transaction.OamDmaBlockedAtT1 ||
+                transaction.WriteDataLatchedBeforeCompletion ||
+                IsCgbIoWriteBlocked(transaction.Address) ||
+                !WritesPpuMemoryAtCompletion(transaction.Address))
+            {
+                return;
+            }
+
+            _gpu.WriteByteForCpu(transaction.WriteData, transaction.Address);
+        }
+
+        private bool WritesPpuMemoryAtCompletion(int address)
+        {
+            return _memoryUnitLookup[address] is GPU &&
+                   ((address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END) ||
+                    (address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
+                     address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END));
+        }
+
+        /// <summary>
+        /// Returns the value driven to a CPU read when OAM DMA owns the selected bus at T1.
+        /// </summary>
+        private byte ReadOamDmaBlockedCpuValue(int address)
+        {
+            return address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START &&
+                   address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END
+                ? (byte)0xFF
+                : _dmaController.OamDmaBusValue;
         }
 
         /// <summary>
@@ -233,17 +361,73 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Advances DMA engines from the raw CPU clock domain, including CGB double speed.
+        /// Advances DMA engines by one raw CPU clock, including CGB double speed.
         /// </summary>
-        internal void UpdateDma(int cycles)
+        internal void AdvanceDmaRawClock()
         {
-            _dmaController.Update(cycles);
+            _dmaController.AdvanceRawClock();
         }
 
         /// <summary>
         /// Gets whether an active CGB HBlank DMA block currently owns the CPU memory bus.
         /// </summary>
         internal bool IsCpuStalledByHBlankDma => _dmaController.IsCpuStalledByHBlankDma;
+
+        /// <summary>
+        /// Reads IF through the interrupt controller's untimed control-plane port.
+        /// </summary>
+        internal byte ReadInterruptRequestControl()
+        {
+            return ReadByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
+        }
+
+        /// <summary>
+        /// Writes IF through the interrupt controller's untimed control-plane port.
+        /// </summary>
+        internal void WriteInterruptRequestControl(byte data)
+        {
+            WriteByte(data, MemorySchema.INTERRUPT_REQUEST_REGISTER);
+        }
+
+        /// <summary>
+        /// Reads IE through the interrupt controller's untimed control-plane port.
+        /// </summary>
+        internal byte ReadInterruptEnableControl()
+        {
+            return ReadByte(MemorySchema.INTERRUPT_ENABLE_REGISTER_START);
+        }
+
+        /// <summary>
+        /// Reads an address through the debugger/internal untimed port.
+        /// </summary>
+        internal byte ReadByteUntimed(int address)
+        {
+            return ReadByte(address);
+        }
+
+        /// <summary>
+        /// Writes an address through the debugger/internal untimed port.
+        /// </summary>
+        internal void WriteByteUntimed(byte data, int address)
+        {
+            WriteByte(data, address);
+        }
+
+        /// <summary>
+        /// Reads a CGB DMA source through the mapped memory device without CPU bus restrictions.
+        /// </summary>
+        private byte ReadCgbDmaSourceByte(int address)
+        {
+            return ReadByte(address);
+        }
+
+        /// <summary>
+        /// Writes a CGB DMA destination through the mapped memory device without CPU bus restrictions.
+        /// </summary>
+        private void WriteCgbDmaDestinationByte(byte data, int address)
+        {
+            WriteByte(data, address);
+        }
 
         /// <summary>
         /// Reads an OAM DMA source through the mapped memory device without CPU-side DMA blocking.

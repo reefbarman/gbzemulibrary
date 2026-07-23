@@ -73,37 +73,52 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Advances the system counter and clocks TIMA from falling edges of the TAC-selected counter bit.
+        /// Starts one CPU machine cycle and resets timer-write visibility that is scoped to that cycle.
+        /// </summary>
+        internal void BeginCpuMachineCycle()
+        {
+            _reloadedThisMachineCycle = false;
+        }
+
+        /// <summary>
+        /// Advances the system counter, delayed reload, TIMA edge detector, and DIV-APU edge by one raw CPU clock.
+        /// </summary>
+        internal void AdvanceRawClock()
+        {
+            // TIMA stays at 0 for one M-cycle after overflow before TMA is loaded and IF is requested.
+            if (_overflowReloadClocks > 0 && --_overflowReloadClocks == 0)
+            {
+                _tima = _tma;
+                _reloadedThisMachineCycle = true;
+                _messageBus.RequestInterrupt(Interrupts.Timer);
+            }
+
+            var oldTimerSignal = TimerSignal(_systemCounter, _tac);
+            var oldApuSignal = ApuSignal(_systemCounter, _doubleSpeed);
+            _systemCounter++;
+            var newTimerSignal = TimerSignal(_systemCounter, _tac);
+            var newApuSignal = ApuSignal(_systemCounter, _doubleSpeed);
+
+            if (oldTimerSignal && !newTimerSignal)
+            {
+                IncrementTimer();
+            }
+
+            if (oldApuSignal && !newApuSignal)
+            {
+                OnApuClock?.Invoke(1);
+            }
+        }
+
+        /// <summary>
+        /// Advances complete CPU clocks while preserving the historical standalone timer test API.
         /// </summary>
         public void Update(int cycles)
         {
-            _reloadedThisMachineCycle = false;
-
+            BeginCpuMachineCycle();
             for (var i = 0; i < cycles; i++)
             {
-                // TIMA stays at 0 for one M-cycle after overflow before TMA is loaded and IF is requested.
-                if (_overflowReloadClocks > 0 && --_overflowReloadClocks == 0)
-                {
-                    _tima = _tma;
-                    _reloadedThisMachineCycle = true;
-                    _messageBus.RequestInterrupt(Interrupts.Timer);
-                }
-
-                var oldTimerSignal = TimerSignal(_systemCounter, _tac);
-                var oldApuSignal = ApuSignal(_systemCounter, _doubleSpeed);
-                _systemCounter++;
-                var newTimerSignal = TimerSignal(_systemCounter, _tac);
-                var newApuSignal = ApuSignal(_systemCounter, _doubleSpeed);
-
-                if (oldTimerSignal && !newTimerSignal)
-                {
-                    IncrementTimer();
-                }
-
-                if (oldApuSignal && !newApuSignal)
-                {
-                    OnApuClock?.Invoke(i + 1);
-                }
+                AdvanceRawClock();
             }
         }
 

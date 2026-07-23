@@ -43,8 +43,8 @@ namespace GBZEmuLibrary
         {
             UpdateRegister(interrupt, true);
 
-            var requested = _mmu.ReadByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
-            var enabled = _mmu.ReadByte(MemorySchema.INTERRUPT_ENABLE_REGISTER_START);
+            var requested = _mmu.ReadInterruptRequestControl();
+            var enabled = _mmu.ReadInterruptEnableControl();
 
             if (Helpers.TestBit(requested, (int)interrupt) &&
                 Helpers.TestBit(enabled, (int)interrupt) &&
@@ -114,9 +114,9 @@ namespace GBZEmuLibrary
         /// </summary>
         private void UpdateRegister(Interrupts interrupt, bool value)
         {
-            var register = _mmu.ReadByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
+            var register = _mmu.ReadInterruptRequestControl();
             Helpers.SetBit(ref register, (int)interrupt, value);
-            _mmu.WriteByte(register, MemorySchema.INTERRUPT_REQUEST_REGISTER);
+            _mmu.WriteInterruptRequestControl(register);
         }
 
         /// <summary>
@@ -124,8 +124,8 @@ namespace GBZEmuLibrary
         /// </summary>
         private byte PendingInterruptBits()
         {
-            var requested = _mmu.ReadByte(MemorySchema.INTERRUPT_REQUEST_REGISTER);
-            var enabled = _mmu.ReadByte(MemorySchema.INTERRUPT_ENABLE_REGISTER_START);
+            var requested = _mmu.ReadInterruptRequestControl();
+            var enabled = _mmu.ReadInterruptEnableControl();
             return (byte)(requested & enabled & INTERRUPT_MASK);
         }
     }

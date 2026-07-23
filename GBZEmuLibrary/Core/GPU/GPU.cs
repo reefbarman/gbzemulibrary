@@ -390,6 +390,18 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Returns whether CPU read data depends on PPU state at the transaction-completion boundary.
+        /// </summary>
+        internal bool ReadsCpuDataAtCompletion(int address)
+        {
+            return address == MemorySchema.GPU_REGISTERS_START + (int)Registers.LCDStatus ||
+                   address == MemorySchema.GPU_GBC_BG_PALETTE_DATA_REGISTER ||
+                   address == MemorySchema.GPU_GBC_SPRITE_PALETTE_DATA_REGISTER ||
+                   address >= MemorySchema.VIDEO_RAM_START && address < MemorySchema.VIDEO_RAM_END ||
+                   address >= MemorySchema.SPRITE_ATTRIBUTE_TABLE_START && address < MemorySchema.SPRITE_ATTRIBUTE_TABLE_END;
+        }
+
+        /// <summary>
         /// Reads CPU-visible VRAM, OAM, or LCD register state with active PPU access restrictions applied.
         /// </summary>
         public byte ReadByte(int address)

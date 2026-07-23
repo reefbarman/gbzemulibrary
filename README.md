@@ -91,7 +91,7 @@ The harness discovers every `.gb`/`.gbc` file under `GBZEmuTests/Fixtures/`, inc
 
 Each applicable ROM/model pair is a normal test case: passing rows are green and correctness failures remain red in Test Explorer and `dotnet test` output. Four reviewed inventories keep policy changes explicit: `ExpectedRomIds.txt` locks 273 active physical fixtures, `ExpectedRomExecutionIds.txt` locks 485 concrete model executions, `ExpectedRomExcludedIds.txt` locks three exact original-SGB exclusions, and `ExpectedRomUnresolvedIds.txt` locks 132 model/oracle decisions that lack enough evidence to execute. Unresolved decisions produce neither executions nor xUnit skips. The canonical applicability matrices, pinned evidence, startup circumstances, and framebuffer-oracle rules are documented in [`GBZEmuTests/Fixtures/APPLICABILITY.md`](GBZEmuTests/Fixtures/APPLICABILITY.md); fixture provenance, licenses, and Blargg's explicit licensing ambiguity remain in [`GBZEmuTests/Fixtures/README.md`](GBZEmuTests/Fixtures/README.md).
 
-The audited Phase 4 Release run completed with 939 tests: 914 passed, 11 failed, and 14 skipped. Relative to its 721-test baseline, no shared row changed outcome. Twenty failing Mealybug framebuffer assertions were removed because their committed CPU CGB-C images are not valid CPU CGB-E oracles; this is an oracle-policy correction, not an emulator fix. Canonical-model expansion exposed two applicable `mooneye/acceptance/timer/rapid_toggle` failures on CGB-E and AGB-A, and re-included three Mooneye `-S` rows as visible SGB2 matching-firmware skips. The complete suite therefore remains red while compatibility gaps exist; current test output is authoritative, and filters or Test Explorer selections should be used for focused iteration.
+The audited Phase 4 Release run completed with 939 tests: 914 passed, 11 failed, and 14 skipped. Relative to its 721-test baseline, no shared row changed outcome. Twenty failing Mealybug framebuffer assertions were removed because their committed CPU CGB-C images are not valid CPU CGB-E oracles; this is an oracle-policy correction, not an emulator fix. Canonical-model expansion exposed two applicable `mooneye/acceptance/timer/rapid_toggle` failures on CGB-E and AGB-A, and re-included three Mooneye `-S` rows as visible SGB2 matching-firmware skips. The final Phase 5 Release run completed with 1,087 tests: 1,062 passed, the same 11 execution IDs failed, and the same 14 execution IDs skipped. The T-cycle migration changed no previously shared applicable outcome, fixture, oracle, applicability decision, or skip classification. The complete suite therefore remains red while compatibility gaps exist; current test output is authoritative, and filters or Test Explorer selections should be used for focused iteration.
 
 ## Debugging API
 
@@ -158,12 +158,14 @@ rewind.TryRewind(emulator);
 int completedFrames = emulator.FastForward(10);
 ```
 
-Save-state format version 3 captures CPU, interrupts, MMU/main/work RAM, cartridge banking and RAM, MBC3 RTC phase,
-timer/divider, serial, joypad, DMA, PPU/framebuffers, APU channels, compatibility-mode KEY0/OPRI state, and core audio buffers. A SHA-256 checksum rejects
-corrupt data. State identity binds the exact ROM bytes, concrete `HardwareModel`, a firmware-vs-skip boot-kind marker,
-and the active firmware hash without embedding the firmware. Built-in and byte-identical external firmware intentionally
-share identity; skipped startup never shares identity with firmware startup. Restoring into another running instance is
-supported only when that complete identity matches. Other format versions and mismatched identities are rejected explicitly.
+Save-state format version 4 captures CPU, interrupts, MMU/main/work RAM, cartridge banking and RAM, MBC3 RTC phase,
+timer/divider, serial, joypad, DMA, PPU/framebuffers, APU channels, compatibility-mode KEY0/OPRI state, core audio buffers,
+the raw/base clock-divider phase, DMA sub-cycle state, and the buffered HALT-wake fetch. The v4 clock-phase fields are
+required by the four-T-state machine-cycle architecture. A SHA-256 checksum rejects corrupt data. State identity binds
+the exact ROM bytes, concrete `HardwareModel`, a firmware-vs-skip boot-kind marker, and the active firmware hash without
+embedding the firmware. Built-in and byte-identical external firmware intentionally share identity; skipped startup never
+shares identity with firmware startup. Restoring into another running instance is supported only when that complete
+identity matches. Version 3 and every other format version are rejected explicitly; there is no migration reader.
 
 `RewindBuffer` is bound to one emulator instance until cleared and bounded by checkpoint count. Its duration
 and memory cost therefore depend on the host's capture cadence and each state's `SerializedLength`.
@@ -250,6 +252,11 @@ Options:
 - `--input <frame:button:down|up>`: deterministic joypad transition for `Right`, `Left`, `Up`, `Down`, `A`, `B`, `Select`, or `Start`.
 
 Each binary PPM capture is named `frame-NNNNNN.ppm`. Report format version 2 records `HardwareModel` and `BootRomSource` alongside the ROM SHA-256, capture settings, input events, frame number, framebuffer/top-row/right-column RGB hashes, CGB BG/OBJ palette RAM hashes, hashes of the first 4,048 tile-data bytes in both VRAM banks, unique RGB count, the 16 most common colors and their pixel counts, CPU registers/counters, PPU state, and `SCX`, `SCY`, `LYC`, `WX`, and `WY`. When `--audio-out` is present it also records the exact format, SHA-256, amplitude range, first non-zero sample, total sample frames, and each emulator frame's sample count. Capture paths in the report are relative to the output directory so the directory can be moved or compared as one artifact.
+
+For a regression check, run identical options into two isolated output directories and compare `report.json`, PPM captures,
+and optional raw-audio files byte for byte. Matching artifacts establish deterministic behavior for that library build.
+Hardware correctness must still come from the configured xUnit protocol, revision-matched framebuffer oracle, or documented
+hardware evidence; a self-consistent headless hash is not an oracle.
 
 ## Basic integration
 
@@ -429,9 +436,31 @@ Emulator facade
     +-- framebuffer / audio / input API
 ```
 
-The CPU is the timing source. Instruction and memory operations emit clock ticks, and `Emulator.UpdateSystems()` advances the divider, timer, GPU, and APU by the corresponding cycle count. `Update()` continues processing instructions until it reaches the nominal per-frame clock budget.
+The CPU remains the only source of emulated time. Every LR35902 machine cycle executes synchronously as four ordered raw
+CPU clocks, T1 through T4. A CPU bus transaction drives its address and samples cycle-start OAM-DMA ownership at T1,
+advances the machine one raw clock per T-state, and completes the guest-visible read or write at the canonical internal T4
+boundary. T4 read completion is a uniform implementation convention, not a claim that every physical device latches data
+on one universal pin edge; any target-model exception must be evidence-backed and implemented below the CPU transaction
+layer. Instruction dispatch and the public host API remain instruction/frame-grained rather than exposing single-T-state
+stepping.
 
-The MMU precomputes an address-to-device map for cartridge space, VRAM/OAM and graphics registers, work RAM, joypad, divider/timer, audio, DMA, and fallback main memory. Each emulator owns an internal `MessageBus` that connects its interrupt requests, DMA memory access, HBlank, and VBlank notifications without process-global callbacks.
+Timer, serial, and DMA advance in the raw CPU-clock domain. Cartridge, PPU, APU, rumble/frame accounting, and the
+70,224-clock frame budget advance in the base-speed domain. Normal speed emits one base clock per raw clock; CGB double
+speed emits one base clock every second raw clock while retaining the divider phase across calls and save states. Within
+each raw clock the deterministic software precedence is timer (including an exact DIV-APU edge), serial, DMA, then
+base-speed cartridge/PPU/APU work when a base clock is due. `Update()` continues processing complete CPU operations until
+it reaches the hardware-frame budget.
+
+The MMU precomputes an address-to-device map for cartridge space, VRAM/OAM and graphics registers, work RAM, joypad,
+divider/timer, audio, DMA, and fallback main memory. Each emulator owns an internal `MessageBus` that connects its
+interrupt requests, dedicated DMA memory ports, early HBlank-DMA acquisition, public HBlank, and VBlank notifications
+without process-global callbacks.
+
+Phase 5 is a structural timing migration, not a blanket compatibility claim. Focused tests establish four raw clocks per
+M-cycle, raw/base-domain preservation at both CGB speeds, T1 OAM-DMA ownership sampling, canonical T4 CPU access completion,
+interrupt/HALT ordering, allocation-free warmed execution, and deterministic v4 state restoration. Committed
+ROM-conformance rows and revision-matched framebuffer references remain the compatibility evidence. Repeatable headless
+hashes show build-to-build determinism only and are not hardware oracles.
 
 ## Repository layout
 
@@ -465,7 +494,10 @@ GBZEmuTests/                    xUnit debug and ROM-conformance harness
 
 ## Current limitations
 
-- The audited conformance matrix remains red. Its current 11 failures are eight existing Blargg interrupt/OAM timing rows, the active Mealybug `win_without_bg` embedded-result row, and the newly exposed CGB-E/AGB-A executions of Mooneye `timer/rapid_toggle`. The 14 visible skips are six exact non-CGB-E SameSuite revisions, three DMG-CPU-0 Mooneye fixtures, two DMG-B/MGB `boot_hwio-dmgABCmgb` startup-circumstance rows, and three SGB2 `-S` fixtures that require matching firmware state. The 31 committed Mealybug CPU CGB-C PNGs remain evidence but do not gate CPU CGB-E until compatible target-revision oracles are reviewed. The core remains experimental while these failures and unresolved decisions remain.
+- The audited Phase 4 baseline conformance matrix remains red. Its current 11 failures are eight existing Blargg interrupt/OAM timing rows, the active Mealybug `win_without_bg` embedded-result row, and the newly exposed CGB-E/AGB-A executions of Mooneye `timer/rapid_toggle`. The 14 visible skips are six exact non-CGB-E SameSuite revisions, three DMG-CPU-0 Mooneye fixtures, two DMG-B/MGB `boot_hwio-dmgABCmgb` startup-circumstance rows, and three SGB2 `-S` fixtures that require matching firmware state. The 31 committed Mealybug CPU CGB-C PNGs remain evidence but do not gate CPU CGB-E until compatible target-revision oracles are reviewed. The core remains experimental while these failures and unresolved decisions remain.
+- The PPU has one authoritative dot clock, but Mode 3 still uses the existing synthetic background, object, and window timing model. Real background fetch phases/FIFO behavior, object fetch and preemption, window restart, variable Mode 3 duration derived from fetch state, and target-model fetch differences remain Phase 6 work.
+- CPU transactions expose explicit T1-through-T4 boundaries, but bus ownership is not yet centrally arbitrated per dot. CPU/PPU/OAM-DMA/HDMA/GDMA grants, simultaneous-master/open-bus values, model-specific unused-I/O arbitration, and replacement of GPU-local access predicates remain Phase 7 work.
+- Two DMA timing approximations remain deliberately characterized rather than fixed in Phase 5: an HDMA request raised mid-instruction stalls the CPU only at the next `CPU.Process()` boundary, and GDMA copies synchronously at the HDMA5 write's T4 completion without elapsed emulated clocks or CPU blocking. HBlank-DMA acquisition policy also remains subject to target-hardware evidence in Phase 7.
 - Audio output now uses band-limited float reconstruction, but it does not yet model per-channel analog DAC attack/discharge, model-specific speaker/headphone response, electrical interference, cartridge VIN input, or adaptive host/device clock matching. Those are refinement work rather than known DMG-B/CGB-E register/timer conformance failures.
 - Open replacement boot-ROM data is included for DMG-B, MGB, CGB-E, AGB-A, and SGB2; official Nintendo firmware remains user-supplied. DMG-B and MGB skip boot restore deterministic late-monochrome CPU, DIV, serial, P1, interrupt-request, and powered-APU state. They do not yet reproduce the official firmware-exit PPU phase, so both `boot_hwio-dmgABCmgb` execution rows remain visibly skipped for that explicit boot circumstance. AGB-A activation has bounded built-in/skip/external firmware, handoff, compatibility-register, state, host, and one revision-specific SameSuite execution check rather than broad AGB game-compatibility evidence. The reference frontend provisionally uses its CGB-like audio filter for AGB-A but applies no AGB-specific LCD color correction.
 - SGB2 support is high-level, like SameBoy's default SGB path: it does not execute the proprietary SNES-side SGB system ROM. Border/color/attribute/mask/multiplayer commands are implemented; SNES sound program transfer, system menus, built-in Nintendo borders, and low-level SNES CPU/PPU behavior are outside this core. Original SGB hardware is intentionally unsupported.

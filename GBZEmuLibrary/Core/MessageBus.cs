@@ -9,8 +9,8 @@ namespace GBZEmuLibrary
     {
         public Action<Interrupts> OnRequestInterrupt;
 
-        public Func<int, byte> OnReadByte;
-        public Action<byte, int> OnWriteByte;
+        public Func<int, byte> OnReadCgbDmaSourceByte;
+        public Action<byte, int> OnWriteCgbDmaDestinationByte;
         public Func<int, byte> OnReadOamDmaSourceByte;
         public Action<byte, int> OnWriteOamDmaByte;
 
@@ -20,6 +20,24 @@ namespace GBZEmuLibrary
         public Func<bool> OnCanStartHBlankDmaImmediately;
         public Func<bool> OnIsCpuHalted;
         public Func<int> OnGetCpuSpeedFactor;
+        [SaveStateIgnore]
+        private ITimingObserver _timingObserver;
+
+        /// <summary>
+        /// Installs an optional internal observer for instance bus callback boundaries.
+        /// </summary>
+        internal void SetTimingObserver(ITimingObserver timingObserver)
+        {
+            _timingObserver = timingObserver;
+        }
+
+        /// <summary>
+        /// Emits one allocation-free timing event through this emulator instance.
+        /// </summary>
+        internal void ObserveTiming(in TimingEvent timingEvent)
+        {
+            _timingObserver?.Observe(in timingEvent);
+        }
 
         /// <summary>
         /// Routes an interrupt request to this emulator's CPU interrupt handler.
@@ -30,19 +48,19 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Reads through this emulator's MMU callback for DMA transfers.
+        /// Reads a CGB DMA source through its privileged mapped-memory port.
         /// </summary>
-        public byte ReadByte(int address)
+        public byte ReadCgbDmaSourceByte(int address)
         {
-            return (byte)OnReadByte?.Invoke(address);
+            return (byte)OnReadCgbDmaSourceByte?.Invoke(address);
         }
 
         /// <summary>
-        /// Writes through this emulator's MMU callback for DMA transfers.
+        /// Writes a CGB DMA byte through its privileged mapped-memory destination port.
         /// </summary>
-        public void WriteByte(byte data, int address)
+        public void WriteCgbDmaDestinationByte(byte data, int address)
         {
-            OnWriteByte?.Invoke(data, address);
+            OnWriteCgbDmaDestinationByte?.Invoke(data, address);
         }
 
         /// <summary>
@@ -66,6 +84,8 @@ namespace GBZEmuLibrary
         /// </summary>
         public void HBlankStarted()
         {
+            var timingEvent = new TimingEvent(TimingEventKind.HBlankStarted);
+            ObserveTiming(in timingEvent);
             OnHBlank?.Invoke();
         }
 
@@ -74,6 +94,8 @@ namespace GBZEmuLibrary
         /// </summary>
         public void HBlankDmaWindowOpened()
         {
+            var timingEvent = new TimingEvent(TimingEventKind.HBlankDmaWindowOpened);
+            ObserveTiming(in timingEvent);
             OnHBlankDmaWindow?.Invoke();
         }
 

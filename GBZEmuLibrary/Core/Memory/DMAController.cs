@@ -31,6 +31,7 @@ namespace GBZEmuLibrary
 
         private bool _transferring;
         private int _hblankDmaClocksRemaining;
+        private int _rawClockInMachineCycle;
 
         private readonly MessageBus _messageBus;
 
@@ -59,7 +60,7 @@ namespace GBZEmuLibrary
             switch (address)
             {
                 case MemorySchema.DMA_REGISTER:
-                    StartOamDma(data);
+                    StartOamDma(data, includeCurrentCpuCycle: true);
                     break;
 
                 case MemorySchema.DMA_GBC_SOURCE_HIGH_REGISTER:
@@ -79,17 +80,7 @@ namespace GBZEmuLibrary
                     break;
 
                 case MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER:
-
-                    if (_transferring && !Helpers.TestBit(data, 7))
-                    {
-                        StopTransfer(data);
-                    }
-                    else
-                    {
-                        _dmaLengthMode = data;
-                        StartTransfer();
-                    }
-
+                    WriteDmaControl(data, writeClocksRemaining: InstructionSchema.FOUR_CYCLES);
                     break;
 
             }
@@ -110,6 +101,15 @@ namespace GBZEmuLibrary
             return false;
         }
 
+        /// <summary>
+        /// Returns whether CPU read data depends on DMA state at the transaction-completion boundary.
+        /// </summary>
+        internal bool ReadsCpuDataAtCompletion(int address)
+        {
+            return address == MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER;
+        }
+
+
         public byte ReadByte(int address)
         {
             switch (address)
@@ -128,6 +128,26 @@ namespace GBZEmuLibrary
             }
 
             throw new IndexOutOfRangeException();
+        }
+
+        /// <summary>
+        /// Applies a CPU write after its T4 clocks have elapsed.
+        /// </summary>
+        internal void WriteByteForCpuCompletion(byte data, int address)
+        {
+            if (address == MemorySchema.DMA_REGISTER)
+            {
+                StartOamDma(data, includeCurrentCpuCycle: false);
+                return;
+            }
+
+            if (address == MemorySchema.DMA_GBC_LENGTH_MODE_START_REGISTER)
+            {
+                WriteDmaControl(data, writeClocksRemaining: 1);
+                return;
+            }
+
+            WriteByte(data, address);
         }
 
         /// <summary>
@@ -151,45 +171,70 @@ namespace GBZEmuLibrary
         public bool IsCpuStalledByHBlankDma => _hblankDmaClocksRemaining > 0;
 
         /// <summary>
-        /// Advances the OAM DMA startup pipeline and any active HBlank DMA bus reservation.
+        /// Advances DMA by one raw CPU clock. HDMA consumes every clock while OAM DMA steps only at T1.
+        /// </summary>
+        internal void AdvanceRawClock()
+        {
+            // Emulator advances this once per coordinator clock. Both phase counters start at zero and are restored
+            // together, so this free-running counter remains aligned with CPU T1.
+            _rawClockInMachineCycle++;
+            var startsMachineCycle = _rawClockInMachineCycle == 1;
+            if (_rawClockInMachineCycle == InstructionSchema.FOUR_CYCLES)
+            {
+                _rawClockInMachineCycle = 0;
+            }
+
+            if (_hblankDmaClocksRemaining > 0 && --_hblankDmaClocksRemaining == 0)
+            {
+                CopyActiveHBlankBlock();
+            }
+
+            if (!startsMachineCycle)
+            {
+                return;
+            }
+
+            AdvanceOamDmaMachineCycle();
+        }
+
+        /// <summary>
+        /// Advances complete raw clocks while preserving the historical component-test API.
         /// </summary>
         public void Update(int cycles)
         {
-            for (var elapsed = 0; elapsed < cycles; elapsed += InstructionSchema.FOUR_CYCLES)
+            for (var elapsed = 0; elapsed < cycles; elapsed++)
             {
-                if (_hblankDmaClocksRemaining > 0)
-                {
-                    _hblankDmaClocksRemaining -= InstructionSchema.FOUR_CYCLES;
-                    if (_hblankDmaClocksRemaining <= 0)
-                    {
-                        _hblankDmaClocksRemaining = 0;
-                        CopyActiveHBlankBlock();
-                    }
-                }
+                AdvanceRawClock();
+            }
+        }
 
-                if (_oamDmaStartDelay > 0)
-                {
-                    if (_oamDmaActive)
-                    {
-                        CopyOamDmaByte();
-                    }
-
-                    _oamDmaStartDelay--;
-                    if (_oamDmaStartDelay == 0)
-                    {
-                        _activeOamDmaSourceHigh = _oamDmaSourceHigh;
-                        _oamDmaIndex = 0;
-                        _oamDmaActive = true;
-                        LatchOamDmaBusValue();
-                    }
-
-                    continue;
-                }
-
+        /// <summary>
+        /// Advances the OAM DMA startup pipeline or copies one active byte for one CPU machine cycle.
+        /// </summary>
+        private void AdvanceOamDmaMachineCycle()
+        {
+            if (_oamDmaStartDelay > 0)
+            {
                 if (_oamDmaActive)
                 {
                     CopyOamDmaByte();
                 }
+
+                _oamDmaStartDelay--;
+                if (_oamDmaStartDelay == 0)
+                {
+                    _activeOamDmaSourceHigh = _oamDmaSourceHigh;
+                    _oamDmaIndex = 0;
+                    _oamDmaActive = true;
+                    LatchOamDmaBusValue();
+                }
+
+                return;
+            }
+
+            if (_oamDmaActive)
+            {
+                CopyOamDmaByte();
             }
         }
 
@@ -197,10 +242,10 @@ namespace GBZEmuLibrary
         /// Latches a new source and schedules it to take ownership after the two-cycle startup pipeline.
         /// An older transfer continues during that delay.
         /// </summary>
-        private void StartOamDma(byte data)
+        private void StartOamDma(byte data, bool includeCurrentCpuCycle)
         {
             _oamDmaSourceHigh = data;
-            _oamDmaStartDelay = OAM_DMA_START_DELAY_M_CYCLES;
+            _oamDmaStartDelay = OAM_DMA_START_DELAY_M_CYCLES - (includeCurrentCpuCycle ? 0 : 1);
         }
 
         /// <summary>
@@ -239,6 +284,21 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
+        /// Starts or cancels CGB DMA at the caller's write-visibility boundary.
+        /// </summary>
+        private void WriteDmaControl(byte data, int writeClocksRemaining)
+        {
+            if (_transferring && !Helpers.TestBit(data, 7))
+            {
+                StopTransfer(data);
+                return;
+            }
+
+            _dmaLengthMode = data;
+            StartTransfer(writeClocksRemaining);
+        }
+
+        /// <summary>
         /// Cancels an active HBlank transfer and exposes the cancellation write through inactive HDMA5 readback.
         /// </summary>
         private void StopTransfer(byte data)
@@ -252,7 +312,7 @@ namespace GBZEmuLibrary
         /// <summary>
         /// Starts clocked HDMA or completes the currently immediate GDMA implementation.
         /// </summary>
-        private void StartTransfer()
+        private void StartTransfer(int writeClocksRemaining)
         {
             var hBlankMode = Helpers.TestBit(_dmaLengthMode, 7);
             _dmaLengthMode &= 0x7F;
@@ -262,7 +322,7 @@ namespace GBZEmuLibrary
                 _transferring = true;
                 if (_messageBus.CanStartHBlankDmaImmediately())
                 {
-                    ScheduleHBlankBlock(includeCurrentCpuCycle: true);
+                    ScheduleHBlankBlock(writeClocksRemaining);
                 }
 
                 return;
@@ -272,6 +332,8 @@ namespace GBZEmuLibrary
             for (var block = 0; block < blockCount; block++)
             {
                 CopyBlock();
+                var timingEvent = new TimingEvent(TimingEventKind.GeneralPurposeDmaBlockCopied);
+                _messageBus.ObserveTiming(in timingEvent);
             }
 
             _dmaLengthMode = 0xFF;
@@ -302,8 +364,8 @@ namespace GBZEmuLibrary
             var destinationAddress = GetDestinationAddress();
             for (var index = 0; index < CGB_DMA_BLOCK_SIZE; index++)
             {
-                _messageBus.WriteByte(
-                    _messageBus.ReadByte(sourceAddress + index),
+                _messageBus.WriteCgbDmaDestinationByte(
+                    _messageBus.ReadCgbDmaSourceByte(sourceAddress + index),
                     destinationAddress + index);
             }
 
@@ -341,16 +403,16 @@ namespace GBZEmuLibrary
                 return;
             }
 
-            ScheduleHBlankBlock(includeCurrentCpuCycle: false);
+            ScheduleHBlankBlock(writeClocksRemaining: 0);
         }
 
         /// <summary>
         /// Reserves the CGB memory bus for one 16-byte block at the active CPU speed.
         /// </summary>
-        /// <param name="includeCurrentCpuCycle">
-        /// Whether the caller scheduled the block before the current write M-cycle has reached the DMA clock.
+        /// <param name="writeClocksRemaining">
+        /// Raw clocks in the current write cycle that will advance DMA after the control value becomes visible.
         /// </param>
-        private void ScheduleHBlankBlock(bool includeCurrentCpuCycle)
+        private void ScheduleHBlankBlock(int writeClocksRemaining)
         {
             if (_hblankDmaClocksRemaining > 0)
             {
@@ -358,11 +420,9 @@ namespace GBZEmuLibrary
             }
 
             _hblankDmaClocksRemaining =
-                CGB_DMA_BLOCK_CLOCKS * _messageBus.GetCpuSpeedFactor() + CGB_DMA_BLOCK_OVERHEAD_CLOCKS;
-            if (includeCurrentCpuCycle)
-            {
-                _hblankDmaClocksRemaining += InstructionSchema.FOUR_CYCLES;
-            }
+                CGB_DMA_BLOCK_CLOCKS * _messageBus.GetCpuSpeedFactor() +
+                CGB_DMA_BLOCK_OVERHEAD_CLOCKS +
+                writeClocksRemaining;
         }
 
         /// <summary>
@@ -371,6 +431,8 @@ namespace GBZEmuLibrary
         private void CopyActiveHBlankBlock()
         {
             CopyBlock();
+            var timingEvent = new TimingEvent(TimingEventKind.HBlankDmaBlockCopied);
+            _messageBus.ObserveTiming(in timingEvent);
 
             if (_dmaLengthMode == 0)
             {

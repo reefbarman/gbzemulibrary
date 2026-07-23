@@ -55,14 +55,14 @@ namespace GBZEmuLibrary
         {
             EnsureRunning();
             ValidateAddress(address);
-            return _mmu.ReadByte(address);
+            return _mmu.ReadByteUntimed(address);
         }
 
         public void PokeByte(byte value, int address)
         {
             EnsureRunning();
             ValidateAddress(address);
-            _mmu.WriteByte(value, address);
+            _mmu.WriteByteUntimed(value, address);
         }
 
         public void RequestStop()

@@ -144,6 +144,8 @@ namespace GBZEmuLibrary
         {
             _data = (byte)((_data << 1) | 0x01);
             _shiftedBits++;
+            var timingEvent = new TimingEvent(TimingEventKind.SerialBitShifted, value: (byte)_shiftedBits);
+            _messageBus.ObserveTiming(in timingEvent);
 
             if (_shiftedBits < TRANSFER_BITS)
             {

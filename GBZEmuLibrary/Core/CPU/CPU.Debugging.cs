@@ -34,7 +34,7 @@
 
         public override string ToString()
         {
-            return $"{_instructionCount}: TC: {_totalClocks} SL: {_mmu.ReadByte(0xFF44)} PC: {_pc:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.SP:X4}, Z: {Helpers.TestBit(_registers.F, InstructionSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InstructionSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InstructionSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InstructionSchema.FLAG_C)}";
+            return $"{_instructionCount}: TC: {_totalClocks} SL: {_mmu.ReadByteUntimed(0xFF44)} PC: {_pc:X4}, AF: {_registers.AF:X4}, BC: {_registers.BC:X4}, DE: {_registers.DE:X4}, HL: {_registers.HL:X4}, SP: {_sp.SP:X4}, Z: {Helpers.TestBit(_registers.F, InstructionSchema.FLAG_Z)}, N: {Helpers.TestBit(_registers.F, InstructionSchema.FLAG_N)}, H: {Helpers.TestBit(_registers.F, InstructionSchema.FLAG_H)}, C: {Helpers.TestBit(_registers.F, InstructionSchema.FLAG_C)}";
         }
 
         private bool Debug()
