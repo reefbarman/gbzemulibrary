@@ -17,9 +17,12 @@ public sealed class TimeControlTests
         var savedPpu = emulator.Debug.GetPpuState();
         var savedCounter = emulator.Debug.PeekByte(0xC000);
         var savedScreenHash = HashScreen(emulator.GetScreenData());
+        Assert.True(emulator.TryGetDmgShadeData(out var shades));
+        var savedShadeHash = HashShades(shades);
         var serialized = emulator.CaptureState().ToArray();
 
         emulator.AdvanceFrames(3);
+        shades[0, 0] = (byte)((shades[0, 0] + 1) & 0x03);
         Assert.NotEqual(savedCpu.ExecutedInstructionCount, emulator.Debug.GetCpuState().ExecutedInstructionCount);
 
         var state = EmulatorState.FromArray(serialized);
@@ -32,6 +35,9 @@ public sealed class TimeControlTests
         Assert.Equal(savedPpu.ModeClockCycles, emulator.Debug.GetPpuState().ModeClockCycles);
         Assert.Equal(savedCounter, emulator.Debug.PeekByte(0xC000));
         Assert.Equal(savedScreenHash, HashScreen(emulator.GetScreenData()));
+        Assert.True(emulator.TryGetDmgShadeData(out var restoredShades));
+        Assert.Same(shades, restoredShades);
+        Assert.Equal(savedShadeHash, HashShades(restoredShades));
 
         emulator.Update();
         var firstReplayCpu = emulator.Debug.GetCpuState();
@@ -723,6 +729,23 @@ public sealed class TimeControlTests
                 hash = (hash ^ color.R) * prime;
                 hash = (hash ^ color.G) * prime;
                 hash = (hash ^ color.B) * prime;
+            }
+        }
+
+        return hash;
+    }
+
+    private static ulong HashShades(byte[,] shades)
+    {
+        const ulong offsetBasis = 14695981039346656037;
+        const ulong prime = 1099511628211;
+        var hash = offsetBasis;
+
+        for (var y = 0; y < Display.VERTICAL_RESOLUTION; y++)
+        {
+            for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
+            {
+                hash = (hash ^ shades[x, y]) * prime;
             }
         }
 

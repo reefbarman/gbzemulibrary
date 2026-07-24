@@ -10,52 +10,58 @@ namespace GBZEmuTests;
 public sealed class FrontendFrameBlendingTests
 {
     /// <summary>
-    /// Verifies that the first frame is shown directly and the next frame averages adjacent raw frames.
+    /// Verifies exact Off, Subtle, and Classic persistence weights and away-from-zero midpoint rounding.
     /// </summary>
-    [Fact]
-    public void BlenderCombinesAdjacentFramesAfterFirstFrame()
+    [Theory]
+    [InlineData("off", 2, 1, 3)]
+    [InlineData("subtle", 2, 1, 2)]
+    [InlineData("classic", 1, 1, 2)]
+    public void PersistenceModesProduceExpectedOutput(
+        string persistenceId,
+        byte expectedRed,
+        byte expectedGreen,
+        byte expectedBlue)
     {
         var blender = new FrameBlender();
         var destination = CreateDestination();
-        var first = CreateFrame(16, 32, 48);
-        var second = CreateFrame(48, 65, 82);
+        blender.Process(CreateFrame(0, 0, 0), destination, "off");
 
-        blender.Process(first, destination, true);
-        Assert.Equal((16, 32, 48), GetRGB(destination[0]));
+        blender.Process(CreateFrame(2, 1, 3), destination, persistenceId);
 
-        blender.Process(second, destination, true);
-        Assert.Equal((32, 49, 65), GetRGB(destination[0]));
+        Assert.Equal((expectedRed, expectedGreen, expectedBlue), GetRGB(destination[0]));
     }
 
     /// <summary>
-    /// Verifies that raw mode bypasses blending while retaining the latest raw frame for a later blended frame.
+    /// Verifies that Off bypasses blending while retaining the latest raw frame for later persistence.
     /// </summary>
     [Fact]
-    public void RawModePassesThroughAndUpdatesHistory()
+    public void OffPassesThroughAndUpdatesHistory()
     {
         var blender = new FrameBlender();
         var destination = CreateDestination();
 
-        blender.Process(CreateFrame(20, 40, 60), destination, false);
-        blender.Process(CreateFrame(100, 120, 140), destination, false);
+        blender.Process(CreateFrame(20, 40, 60), destination, "off");
+        blender.Process(CreateFrame(100, 120, 140), destination, "off");
         Assert.Equal((100, 120, 140), GetRGB(destination[0]));
 
-        blender.Process(CreateFrame(140, 160, 180), destination, true);
+        blender.Process(CreateFrame(140, 160, 180), destination, "classic");
         Assert.Equal((120, 140, 160), GetRGB(destination[0]));
     }
 
     /// <summary>
-    /// Verifies that reset prevents pixels from a previous ROM or presentation run entering the next frame.
+    /// Verifies that reset makes the next frame seed history and present directly at every persistence strength.
     /// </summary>
-    [Fact]
-    public void ResetClearsPreviousFrameHistory()
+    [Theory]
+    [InlineData("subtle")]
+    [InlineData("classic")]
+    public void ResetSeedsTheNextFrameDirectly(string persistenceId)
     {
         var blender = new FrameBlender();
         var destination = CreateDestination();
-        blender.Process(CreateFrame(0, 0, 0), destination, true);
+        blender.Process(CreateFrame(0, 0, 0), destination, persistenceId);
 
         blender.Reset();
-        blender.Process(CreateFrame(200, 180, 160), destination, true);
+        blender.Process(CreateFrame(200, 180, 160), destination, persistenceId);
 
         Assert.Equal((200, 180, 160), GetRGB(destination[0]));
     }
@@ -79,13 +85,13 @@ public sealed class FrontendFrameBlendingTests
         var blender = new FrameBlender();
         var destination = CreateDestination();
 
-        blender.Process(CreateFrame(red, green, blue), destination, blend: false, correctCgbColors: true);
+        blender.Process(CreateFrame(red, green, blue), destination, "off", correctCgbColors: true);
 
         Assert.Equal((expectedRed, expectedGreen, expectedBlue), GetRGB(destination[0]));
     }
 
     /// <summary>
-    /// Verifies nonlinear CGB correction occurs before adjacent corrected frames are blended.
+    /// Verifies nonlinear CGB correction is applied independently before adjacent corrected frames are blended.
     /// </summary>
     [Fact]
     public void CgbCorrectionPrecedesFrameBlending()
@@ -93,10 +99,58 @@ public sealed class FrontendFrameBlendingTests
         var blender = new FrameBlender();
         var destination = CreateDestination();
 
-        blender.Process(CreateFrame(0, 0, 0), destination, blend: true, correctCgbColors: true);
-        blender.Process(CreateFrame(0, 0, 255), destination, blend: true, correctCgbColors: true);
+        blender.Process(CreateFrame(0, 0, 0), destination, "classic", correctCgbColors: true);
+        blender.Process(CreateFrame(0, 0, 255), destination, "classic", correctCgbColors: true);
 
         Assert.Equal((0, 54, 128), GetRGB(destination[0]));
+    }
+
+    /// <summary>
+    /// Verifies corrected presentation retains raw history across a correction toggle without double correction.
+    /// </summary>
+    [Fact]
+    public void RawHistorySurvivesCgbCorrectionToggleWithoutDoubleCorrection()
+    {
+        var blender = new FrameBlender();
+        var destination = CreateDestination();
+
+        blender.Process(CreateFrame(0, 0, 255), destination, "off", correctCgbColors: true);
+        Assert.Equal((0, 107, 255), GetRGB(destination[0]));
+
+        blender.Process(CreateFrame(0, 0, 0), destination, "classic", correctCgbColors: true);
+        Assert.Equal((0, 54, 128), GetRGB(destination[0]));
+
+        blender.Process(CreateFrame(0, 0, 255), destination, "classic", correctCgbColors: false);
+        Assert.Equal((0, 0, 128), GetRGB(destination[0]));
+    }
+
+    /// <summary>
+    /// Verifies that the destination must hold one complete display frame.
+    /// </summary>
+    [Fact]
+    public void ProcessRejectsUndersizedDestination()
+    {
+        var blender = new FrameBlender();
+        var destination = new Raylib_cs.Color[(Display.HORIZONTAL_RESOLUTION * Display.VERTICAL_RESOLUTION) - 1];
+
+        var exception = Assert.Throws<ArgumentException>(
+            () => blender.Process(CreateFrame(0, 0, 0), destination, "off"));
+
+        Assert.Equal("destination", exception.ParamName);
+    }
+
+    /// <summary>
+    /// Verifies that unknown persistence identifiers cannot silently select an unintended weight.
+    /// </summary>
+    [Fact]
+    public void ProcessRejectsUnknownPersistenceId()
+    {
+        var blender = new FrameBlender();
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => blender.Process(CreateFrame(0, 0, 0), CreateDestination(), "medium"));
+
+        Assert.Equal("persistenceId", exception.ParamName);
     }
 
     /// <summary>

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Text;
 
 namespace GBZEmuLibrary
@@ -29,7 +30,7 @@ namespace GBZEmuLibrary
         /// Parses cartridge metadata without an emulator-specific boot ROM for custom DMG palette lookup.
         /// </summary>
         public CartridgeHeader(byte[] cart)
-            : this(cart, null)
+            : this(cart, null, false)
         {
         }
 
@@ -37,7 +38,20 @@ namespace GBZEmuLibrary
         /// Parses cartridge metadata using the supplied instance boot ROM for custom DMG palette lookup.
         /// </summary>
         internal CartridgeHeader(byte[] cart, BootROM bootROM)
+            : this(cart, bootROM, false)
         {
+        }
+
+        /// <summary>
+        /// Parses cartridge metadata after optionally reusing a caller's completed structural inspection.
+        /// </summary>
+        internal CartridgeHeader(byte[] cart, BootROM bootROM, bool structureValidated)
+        {
+            if (!structureValidated)
+            {
+                CartridgeInspection.Inspect(cart);
+            }
+
             Length = cart.Length;
             ParseGBCMode(cart);
             ParseMBCMode(cart);
@@ -67,109 +81,142 @@ namespace GBZEmuLibrary
             var code = cart[CartridgeSchema.MBC_MODE_LOC];
             HasRTC = code == 0x0F || code == 0x10;
             HasRumble = code == 0x1C || code == 0x1D || code == 0x1E;
+            if (!TryGetBankingMode(code, out var bankingMode))
+            {
+                throw new NotSupportedException($"Unsupported cartridge type: 0x{code:X2}.");
+            }
 
+            BankingMode = bankingMode;
+        }
+
+        private void ParseROMBanks(byte[] cart)
+        {
+            if (!TryGetRomBanks(cart[CartridgeSchema.ROM_BANK_NUM_LOC], out var romBanks))
+            {
+                throw new InvalidDataException($"Unsupported ROM-size code: 0x{cart[CartridgeSchema.ROM_BANK_NUM_LOC]:X2}.");
+            }
+
+            ROMBanks = romBanks;
+        }
+
+        private void ParseRAMBanks(byte[] cart)
+        {
+            if (!TryGetRamBanks(cart[CartridgeSchema.RAM_BANK_NUM_LOC], out var ramBanks))
+            {
+                throw new InvalidDataException($"Unsupported RAM-size code: 0x{cart[CartridgeSchema.RAM_BANK_NUM_LOC]:X2}.");
+            }
+
+            RAMBanks = ramBanks;
+        }
+
+        internal static bool TryGetBankingMode(byte code, out CartridgeSchema.MBCMode bankingMode)
+        {
             switch (code)
             {
                 case 0x00:
-                    BankingMode = CartridgeSchema.MBCMode.NoMBC;
-                    break;
+                case 0x08:
+                case 0x09:
+                    bankingMode = CartridgeSchema.MBCMode.NoMBC;
+                    return true;
                 case 0x01:
                 case 0x02:
                 case 0x03:
-                    BankingMode = CartridgeSchema.MBCMode.MBC1;
-                    break;
+                    bankingMode = CartridgeSchema.MBCMode.MBC1;
+                    return true;
                 case 0x05:
                 case 0x06:
-                    BankingMode = CartridgeSchema.MBCMode.MBC2;
-                    break;
-                case 0x08:
-                case 0x09:
-                    BankingMode = CartridgeSchema.MBCMode.NoMBC;
-                    break;
+                    bankingMode = CartridgeSchema.MBCMode.MBC2;
+                    return true;
                 case 0x0F:
                 case 0x10:
                 case 0x11:
                 case 0x12:
                 case 0x13:
-                    BankingMode = CartridgeSchema.MBCMode.MBC3;
-                    break;
+                    bankingMode = CartridgeSchema.MBCMode.MBC3;
+                    return true;
                 case 0x19:
                 case 0x1A:
                 case 0x1B:
                 case 0x1C:
                 case 0x1D:
                 case 0x1E:
-                    BankingMode = CartridgeSchema.MBCMode.MBC5;
-                    break;
+                    bankingMode = CartridgeSchema.MBCMode.MBC5;
+                    return true;
                 default:
-                    throw new NotImplementedException($"Unsupported MBC Mode: {code}");
+                    bankingMode = CartridgeSchema.MBCMode.NoMBC;
+                    return false;
             }
         }
 
-        private void ParseROMBanks(byte[] cart)
+        internal static bool TryGetRomBanks(byte code, out int romBanks)
         {
-
-            switch (cart[CartridgeSchema.ROM_BANK_NUM_LOC])
+            switch (code)
             {
                 case 0x00:
-                    ROMBanks = 2;
-                    break;
+                    romBanks = 2;
+                    return true;
                 case 0x01:
-                    ROMBanks = 4;
-                    break;
+                    romBanks = 4;
+                    return true;
                 case 0x02:
-                    ROMBanks = 8;
-                    break;
+                    romBanks = 8;
+                    return true;
                 case 0x03:
-                    ROMBanks = 16;
-                    break;
+                    romBanks = 16;
+                    return true;
                 case 0x04:
-                    ROMBanks = 32;
-                    break;
+                    romBanks = 32;
+                    return true;
                 case 0x05:
-                    ROMBanks = 64;
-                    break;
+                    romBanks = 64;
+                    return true;
                 case 0x06:
-                    ROMBanks = 128;
-                    break;
+                    romBanks = 128;
+                    return true;
                 case 0x07:
-                    ROMBanks = 256;
-                    break;
+                    romBanks = 256;
+                    return true;
                 case 0x08:
-                    ROMBanks = 512;
-                    break;
+                    romBanks = 512;
+                    return true;
                 case 0x52:
-                    ROMBanks = 72;
-                    break;
+                    romBanks = 72;
+                    return true;
                 case 0x53:
-                    ROMBanks = 80;
-                    break;
+                    romBanks = 80;
+                    return true;
                 case 0x54:
-                    ROMBanks = 96;
-                    break;
+                    romBanks = 96;
+                    return true;
+                default:
+                    romBanks = 0;
+                    return false;
             }
         }
 
-        private void ParseRAMBanks(byte[] cart)
+        internal static bool TryGetRamBanks(byte code, out int ramBanks)
         {
-            switch (cart[CartridgeSchema.RAM_BANK_NUM_LOC])
+            switch (code)
             {
                 case 0x00:
-                    RAMBanks = 0;
-                    break;
+                    ramBanks = 0;
+                    return true;
                 case 0x01:
                 case 0x02:
-                    RAMBanks = 1;
-                    break;
+                    ramBanks = 1;
+                    return true;
                 case 0x03:
-                    RAMBanks = 4;
-                    break;
+                    ramBanks = 4;
+                    return true;
                 case 0x04:
-                    RAMBanks = 16;
-                    break;
+                    ramBanks = 16;
+                    return true;
                 case 0x05:
-                    RAMBanks = 8;
-                    break;
+                    ramBanks = 8;
+                    return true;
+                default:
+                    ramBanks = 0;
+                    return false;
             }
         }
 

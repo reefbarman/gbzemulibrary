@@ -13,7 +13,7 @@ public sealed class FrontendTimeControlTests
         using var rom = CreateCounterRom();
         var stateDirectory = Path.Combine(Path.GetTempPath(), $"gbzemu-frontend-state-{Guid.NewGuid():N}");
         var emulator = EmulatorFactory.Start(rom);
-        var store = new QuickSaveStateStore(stateDirectory, rom.Path);
+        var store = new QuickSaveStateStore(stateDirectory, Path.GetFileName(rom.Path));
 
         try
         {
@@ -44,6 +44,18 @@ public sealed class FrontendTimeControlTests
         Assert.False(store.TryLoad(emulator));
         Assert.Equal(expectedCounter, emulator.Debug.PeekByte(0xC000));
         emulator.Terminate();
+    }
+
+    [Theory]
+    [InlineData("nested/game.gb")]
+    [InlineData("nested\\game.gb")]
+    [InlineData("game?.gb")]
+    public void QuickSaveRejectsPathShapedPersistenceIdentity(string persistenceIdentity)
+    {
+        var error = Assert.Throws<ArgumentException>(() =>
+            new QuickSaveStateStore(Path.GetTempPath(), persistenceIdentity));
+
+        Assert.Contains("leaf filename", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

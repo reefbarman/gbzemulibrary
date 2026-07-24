@@ -22,8 +22,30 @@ namespace GBZEmuLibrary
                 HardwareModel = hardwareModel;
             }
 
+            /// <summary>
+            /// Optional path to the ROM image. Exactly one of <see cref="ROMPath"/> and <see cref="ROMBytes"/> is required.
+            /// </summary>
             public string ROMPath;
+
+            /// <summary>
+            /// Optional host-supplied ROM image. The emulator takes a private copy during startup.
+            /// </summary>
+            public byte[] ROMBytes;
+
+            /// <summary>
+            /// Logical leaf filename used for cartridge persistence. Byte-backed startup requires an explicit identity;
+            /// path-backed startup defaults to the ROM's full filename.
+            /// </summary>
+            public string ROMIdentity;
+
+            /// <summary>
+            /// Directory used for battery-backed cartridge persistence.
+            /// </summary>
             public string SaveLocation;
+
+            /// <summary>
+            /// Firmware source used for startup.
+            /// </summary>
             public BootRomConfig BootRom = BootRomConfig.BuiltIn();
 
             /// <summary>
@@ -181,30 +203,25 @@ namespace GBZEmuLibrary
 
             ValidateHardwareModel(config.HardwareModel);
 
-            if (!File.Exists(config.ROMPath))
+            if (!TryResolveRom(config, out var romBytes, out var romIdentity))
             {
                 return false;
             }
 
-            var compatibility = CartridgeMetadata.Read(config.ROMPath).Compatibility;
-            if (!HardwareModelMetadata.SupportsCartridge(config.HardwareModel, compatibility))
+            var inspection = CartridgeInspection.Inspect(romBytes);
+            if (!HardwareModelMetadata.SupportsCartridge(config.HardwareModel, inspection.Compatibility))
             {
                 throw new ArgumentException(
-                    $"Hardware model {config.HardwareModel} does not support {compatibility} cartridges.",
+                    $"Hardware model {config.HardwareModel} does not support {inspection.Compatibility} cartridges.",
                     nameof(config));
             }
 
             BootROM.ValidateConfig(config.BootRom);
             _bootROM.Load(config.HardwareModel, config.BootRom);
 
-            var success = _cartridge.LoadFile(config.ROMPath, config.SaveLocation);
-            if (!success)
-            {
-                return false;
-            }
-
             try
             {
+                _cartridge.LoadBytes(romBytes, romIdentity, config.SaveLocation, true);
                 _hardwareModel = config.HardwareModel;
                 var startupProfile = _hardwareModel == HardwareModel.AgbA
                     ? HardwareStartupProfile.ResolveAgbA(_cartridge.Header)
@@ -376,6 +393,7 @@ namespace GBZEmuLibrary
             _apuAdvancedThisRawClock = false;
             _clocksThisUpdate = timing[0];
             _clocksThisFrame = timing[1];
+            _gpu.RefreshDmgShadeData();
             _cartridge.PublishRestoredRumbleState(previousRumbleState);
         }
 
@@ -415,9 +433,31 @@ namespace GBZEmuLibrary
             return false;
         }
 
+        /// <summary>
+        /// Returns the reusable completed RGB framebuffer as <c>Color[x, y]</c>.
+        /// </summary>
         public Color[,] GetScreenData()
         {
             return _gpu.GetScreenData();
+        }
+
+        /// <summary>
+        /// Returns the reusable completed palette-mapped DMG shade framebuffer as <c>byte[x, y]</c> when available.
+        /// Values range from zero for the lightest shade through three for the darkest shade. Native CGB and CGB
+        /// compatibility output return <see langword="false"/> because their final colors cannot be represented by one
+        /// four-shade palette. The out parameter still references reusable storage when the method returns
+        /// <see langword="false"/>, but its contents are not valid presentation output.
+        /// </summary>
+        /// <remarks>
+        /// The returned array is owned and reused by the emulator. Hosts must not mutate it or consume it concurrently
+        /// with <see cref="Update"/>. The buffer is published at the same completed-frame boundary as
+        /// <see cref="GetScreenData"/>. On SGB2, it represents only the monochrome Game Boy viewport before SGB palette
+        /// and border composition; use <see cref="GetSuperGameBoyScreenData"/> for the colorized composite output.
+        /// </remarks>
+        public bool TryGetDmgShadeData(out byte[,] shadeData)
+        {
+            var available = _gpu.TryGetDmgShadeData(out shadeData);
+            return _running && available;
         }
 
         /// <summary>
@@ -598,6 +638,101 @@ namespace GBZEmuLibrary
             {
                 throw new InvalidOperationException("This operation requires a running emulator.");
             }
+        }
+
+        private static bool TryResolveRom(Config config, out byte[] romBytes, out string romIdentity)
+        {
+            var hasPath = config.ROMPath != null;
+            var hasBytes = config.ROMBytes != null;
+            if (hasPath == hasBytes)
+            {
+                throw new ArgumentException("Configure exactly one ROM source: ROMPath or ROMBytes.", nameof(config));
+            }
+
+            if (hasPath)
+            {
+                if (string.IsNullOrWhiteSpace(config.ROMPath))
+                {
+                    throw new ArgumentException("ROMPath cannot be empty or whitespace.", nameof(config));
+                }
+
+                if (!File.Exists(config.ROMPath))
+                {
+                    romBytes = null;
+                    romIdentity = null;
+                    return false;
+                }
+
+                var fileInfo = new FileInfo(config.ROMPath);
+                if (fileInfo.Length > CartridgeSchema.MAX_CART_SIZE)
+                {
+                    throw new InvalidDataException(
+                        $"The ROM exceeds the supported {CartridgeSchema.MAX_CART_SIZE / (1024 * 1024)} MiB cartridge limit.");
+                }
+
+                romBytes = File.ReadAllBytes(config.ROMPath);
+                romIdentity = string.IsNullOrWhiteSpace(config.ROMIdentity)
+                    ? Path.GetFileName(config.ROMPath)
+                    : config.ROMIdentity;
+            }
+            else
+            {
+                romBytes = (byte[])config.ROMBytes.Clone();
+                romIdentity = config.ROMIdentity;
+            }
+
+            ValidateRomIdentity(romIdentity, hasBytes);
+            return true;
+        }
+
+        private static void ValidateRomIdentity(string romIdentity, bool requiredExplicitly)
+        {
+            if (string.IsNullOrWhiteSpace(romIdentity))
+            {
+                var message = requiredExplicitly
+                    ? "ROMIdentity is required for byte-backed startup."
+                    : "The configured ROM path does not provide a valid persistence identity.";
+                throw new ArgumentException(message, nameof(romIdentity));
+            }
+
+            if (romIdentity.Length > 240 || romIdentity == "." || romIdentity == ".." ||
+                romIdentity.EndsWith(".", StringComparison.Ordinal) ||
+                romIdentity.EndsWith(" ", StringComparison.Ordinal) ||
+                Path.IsPathRooted(romIdentity) || Path.GetFileName(romIdentity) != romIdentity ||
+                IsReservedWindowsFileName(romIdentity))
+            {
+                throw new ArgumentException("ROMIdentity must be a portable leaf filename no longer than 240 characters.", nameof(romIdentity));
+            }
+
+            const string PortableInvalidCharacters = "<>:\"/\\|?*";
+            for (var index = 0; index < romIdentity.Length; index++)
+            {
+                if (romIdentity[index] < 0x20 || PortableInvalidCharacters.IndexOf(romIdentity[index]) >= 0)
+                {
+                    throw new ArgumentException("ROMIdentity contains a character that is not portable in a filename.", nameof(romIdentity));
+                }
+            }
+        }
+
+        private static bool IsReservedWindowsFileName(string romIdentity)
+        {
+            var baseName = Path.GetFileNameWithoutExtension(romIdentity);
+            if (string.Equals(baseName, "CON", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(baseName, "PRN", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(baseName, "AUX", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(baseName, "NUL", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (baseName.Length == 4 &&
+                (baseName.StartsWith("COM", StringComparison.OrdinalIgnoreCase) ||
+                 baseName.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)))
+            {
+                return baseName[3] >= '1' && baseName[3] <= '9';
+            }
+
+            return false;
         }
 
         private static void ValidateHardwareModel(HardwareModel model)

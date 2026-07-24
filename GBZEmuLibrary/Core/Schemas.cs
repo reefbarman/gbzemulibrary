@@ -173,8 +173,8 @@
             MBC5
         }
 
-        public const int MAX_CART_SIZE = 0x200000; //Max Cart Size of 2MB
-        public const int MAX_CART_RAM_SIZE = 0x8000;
+        public const int MAX_CART_SIZE = 0x800000;
+        public const int MAX_CART_RAM_SIZE = 0x20000;
 
         public const int ROM_BANK_SIZE = 0x4000;
         public const int ROM_BANK_ZERO_LOC = 0;

@@ -7,9 +7,10 @@ internal sealed class FrontendAudioQueue
 {
     private const float DmgDcBlockerFeedback = 0.9960133f;
     private const float CgbDcBlockerFeedback = 0.9043098f;
-    private const int OutputScale = 512;
+    private const float OutputScale = 1f / 64f;
 
-    private readonly short[] _samples;
+    private readonly object _sync = new();
+    private readonly float[] _samples;
     private readonly int _startupFrames;
     private int _readFrame;
     private int _writeFrame;
@@ -34,19 +35,52 @@ internal sealed class FrontendAudioQueue
             throw new ArgumentOutOfRangeException(nameof(startupFrames));
         }
 
-        _samples = new short[capacityFrames * 2];
+        _samples = new float[capacityFrames * 2];
         _startupFrames = startupFrames;
     }
 
     public int CapacityFrames => _samples.Length / 2;
-    public int QueuedFrames => _queuedFrames;
-    public int DroppedFrames => _droppedFrames;
-    public bool IsPrimed => _primed;
+
+    public int QueuedFrames
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _queuedFrames;
+            }
+        }
+    }
+
+    public int DroppedFrames
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _droppedFrames;
+            }
+        }
+    }
+
+    public bool IsPrimed
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _primed;
+            }
+        }
+    }
 
     public void SetHardwareModel(bool cgbHardware)
     {
-        _feedback = cgbHardware ? CgbDcBlockerFeedback : DmgDcBlockerFeedback;
-        Reset();
+        lock (_sync)
+        {
+            _feedback = cgbHardware ? CgbDcBlockerFeedback : DmgDcBlockerFeedback;
+            ResetCore();
+        }
     }
 
     public void Enqueue(float[] source, int frameCount)
@@ -57,66 +91,87 @@ internal sealed class FrontendAudioQueue
             throw new ArgumentOutOfRangeException(nameof(frameCount));
         }
 
-        var sourceFrame = Math.Max(0, frameCount - CapacityFrames);
-        if (sourceFrame > 0)
+        lock (_sync)
         {
-            _droppedFrames += sourceFrame;
-            frameCount = CapacityFrames;
-        }
+            var sourceFrame = Math.Max(0, frameCount - CapacityFrames);
+            if (sourceFrame > 0)
+            {
+                _droppedFrames += sourceFrame;
+                frameCount = CapacityFrames;
+            }
 
-        var overflow = Math.Max(0, frameCount - (CapacityFrames - _queuedFrames));
-        if (overflow > 0)
-        {
-            _readFrame = (_readFrame + overflow) % CapacityFrames;
-            _queuedFrames -= overflow;
-            _droppedFrames += overflow;
-        }
+            var overflow = Math.Max(0, frameCount - (CapacityFrames - _queuedFrames));
+            if (overflow > 0)
+            {
+                _readFrame = (_readFrame + overflow) % CapacityFrames;
+                _queuedFrames -= overflow;
+                _droppedFrames += overflow;
+            }
 
-        for (var i = 0; i < frameCount; i++)
-        {
-            var sourceIndex = (sourceFrame + i) * 2;
-            var destinationIndex = _writeFrame * 2;
-            _samples[destinationIndex] = FilterSample(
-                source[sourceIndex],
-                ref _leftPreviousInput,
-                ref _leftPreviousOutput);
-            _samples[destinationIndex + 1] = FilterSample(
-                source[sourceIndex + 1],
-                ref _rightPreviousInput,
-                ref _rightPreviousOutput);
-            _writeFrame = (_writeFrame + 1) % CapacityFrames;
-        }
+            for (var i = 0; i < frameCount; i++)
+            {
+                var sourceIndex = (sourceFrame + i) * 2;
+                var destinationIndex = _writeFrame * 2;
+                _samples[destinationIndex] = FilterSample(
+                    source[sourceIndex],
+                    ref _leftPreviousInput,
+                    ref _leftPreviousOutput);
+                _samples[destinationIndex + 1] = FilterSample(
+                    source[sourceIndex + 1],
+                    ref _rightPreviousInput,
+                    ref _rightPreviousOutput);
+                _writeFrame = (_writeFrame + 1) % CapacityFrames;
+            }
 
-        _queuedFrames += frameCount;
-        _primed |= _queuedFrames >= _startupFrames;
+            _queuedFrames += frameCount;
+            _primed |= _queuedFrames >= _startupFrames;
+        }
     }
 
-    public bool TryDequeue(short[] destination, int frameCount)
+    public bool TryDequeue(float[] destination, int frameCount)
     {
         ArgumentNullException.ThrowIfNull(destination);
+        return TryDequeue(destination.AsSpan(), frameCount);
+    }
+
+    public bool TryDequeue(Span<float> destination, int frameCount)
+    {
         if (frameCount < 0 || frameCount * 2 > destination.Length)
         {
             throw new ArgumentOutOfRangeException(nameof(frameCount));
         }
 
-        if (!_primed || _queuedFrames < frameCount)
+        lock (_sync)
         {
-            return false;
-        }
+            if (!_primed || _queuedFrames < frameCount)
+            {
+                _primed = false;
+                destination[..(frameCount * 2)].Clear();
+                return false;
+            }
 
-        for (var i = 0; i < frameCount; i++)
-        {
-            var sourceIndex = _readFrame * 2;
-            destination[i * 2] = _samples[sourceIndex];
-            destination[(i * 2) + 1] = _samples[sourceIndex + 1];
-            _readFrame = (_readFrame + 1) % CapacityFrames;
-        }
+            for (var i = 0; i < frameCount; i++)
+            {
+                var sourceIndex = _readFrame * 2;
+                destination[i * 2] = _samples[sourceIndex];
+                destination[(i * 2) + 1] = _samples[sourceIndex + 1];
+                _readFrame = (_readFrame + 1) % CapacityFrames;
+            }
 
-        _queuedFrames -= frameCount;
-        return true;
+            _queuedFrames -= frameCount;
+            return true;
+        }
     }
 
     public void Reset()
+    {
+        lock (_sync)
+        {
+            ResetCore();
+        }
+    }
+
+    private void ResetCore()
     {
         _readFrame = 0;
         _writeFrame = 0;
@@ -129,16 +184,11 @@ internal sealed class FrontendAudioQueue
         _primed = false;
     }
 
-    public void RequirePreroll()
-    {
-        _primed = false;
-    }
-
-    private short FilterSample(float sample, ref float previousInput, ref float previousOutput)
+    private float FilterSample(float sample, ref float previousInput, ref float previousOutput)
     {
         var output = sample - previousInput + (_feedback * previousOutput);
         previousInput = sample;
         previousOutput = output;
-        return (short)Math.Clamp(output * OutputScale, short.MinValue, short.MaxValue);
+        return Math.Clamp(output * OutputScale, -1f, 1f);
     }
 }

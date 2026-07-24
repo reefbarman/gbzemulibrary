@@ -4,7 +4,7 @@
     <LangVersion>7.3</LangVersion>
     <RootNamespace>GBZEmuLibrary</RootNamespace>
     <AssemblyName>GBZEmuLibrary</AssemblyName>
-    <Version>1.0.1</Version>
+    <Version>1.1.0</Version>
     <!-- Keep LibraryVersion.Current as an exact MAJOR.MINOR.PATCH string for host API
     compatibility. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>

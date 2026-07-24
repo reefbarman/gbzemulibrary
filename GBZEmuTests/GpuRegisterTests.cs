@@ -639,11 +639,35 @@ public sealed class GpuRegisterTests
 
         gpu.WriteByte(0xFC, 0xFF47);
         gpu.Update(80);
+        Assert.True(gpu.TryGetDmgShadeData(out var shades));
+        Assert.Equal(0, shades[40, 1]);
+        Assert.Equal(0, shades[120, 1]);
+
         AdvanceToVBlank(gpu);
 
         var screen = gpu.GetScreenData();
         Assert.Equal(Display.DefaultPalette[1].R, screen[40, 1].R);
         Assert.Equal(Display.DefaultPalette[3].R, screen[120, 1].R);
+        Assert.True(gpu.TryGetDmgShadeData(out var publishedShades));
+        Assert.Same(shades, publishedShades);
+        Assert.Equal(1, publishedShades[40, 1]);
+        Assert.Equal(3, publishedShades[120, 1]);
+    }
+
+    /// <summary>
+    /// Verifies color renderers do not claim a lossy four-shade output contract.
+    /// </summary>
+    [Theory]
+    [InlineData((int)GBCMode.GBCSupport)]
+    [InlineData((int)GBCMode.GBCCompatibility)]
+    public void ColorRenderingDoesNotExposeDmgShadeData(int mode)
+    {
+        var gpu = new GPU(new MessageBus());
+        gpu.Reset((GBCMode)mode, usingBootROM: false);
+
+        Assert.False(gpu.TryGetDmgShadeData(out var shades));
+        Assert.Equal(Display.HORIZONTAL_RESOLUTION, shades.GetLength(0));
+        Assert.Equal(Display.VERTICAL_RESOLUTION, shades.GetLength(1));
     }
 
     /// <summary>

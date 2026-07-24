@@ -6,21 +6,26 @@ using RaylibColor = Raylib_cs.Color;
 namespace GBZEmuFrontend;
 
 /// <summary>
-/// Applies one-frame LCD persistence to completed emulator frames without changing the core framebuffer.
+/// Applies presentation-only CGB correction and adjacent-frame LCD persistence to completed frames.
 /// </summary>
 internal sealed class FrameBlender
 {
-    private readonly EmulatorColor[] _previousFrame = new EmulatorColor[Display.HORIZONTAL_RESOLUTION * Display.VERTICAL_RESOLUTION];
+    private readonly EmulatorColor[] _previousRawFrame = new EmulatorColor[Display.HORIZONTAL_RESOLUTION * Display.VERTICAL_RESOLUTION];
     private bool _hasPreviousFrame;
 
     /// <summary>
-    /// Converts a raw core framebuffer to presentation pixels and retains it for the next frame.
+    /// Converts a raw core framebuffer to presentation pixels and retains raw history for the next frame.
     /// </summary>
-    public void Process(EmulatorColor[,] source, RaylibColor[] destination, bool blend, bool correctCgbColors = false)
+    public void Process(
+        EmulatorColor[,] source,
+        RaylibColor[] destination,
+        string persistenceId,
+        bool correctCgbColors = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(destination);
 
+        var previousWeight = ResolvePreviousWeight(persistenceId);
         var pixelCount = Display.HORIZONTAL_RESOLUTION * Display.VERTICAL_RESOLUTION;
         if (destination.Length < pixelCount)
         {
@@ -32,17 +37,17 @@ internal sealed class FrameBlender
             for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
             {
                 var index = y * Display.HORIZONTAL_RESOLUTION + x;
-                var current = source[x, y];
-                if (correctCgbColors)
+                var currentRaw = source[x, y];
+                var current = Correct(currentRaw, correctCgbColors);
+                var output = current;
+                if (previousWeight > 0 && _hasPreviousFrame)
                 {
-                    current = CgbColorCorrection.ApplyModernBalanced(current);
+                    var previous = Correct(_previousRawFrame[index], correctCgbColors);
+                    output = Blend(previous, current, previousWeight);
                 }
 
-                var output = blend && _hasPreviousFrame
-                    ? Blend(_previousFrame[index], current)
-                    : current;
                 destination[index] = new RaylibColor(output.R, output.G, output.B, byte.MaxValue);
-                _previousFrame[index] = current;
+                _previousRawFrame[index] = currentRaw;
             }
         }
 
@@ -50,18 +55,49 @@ internal sealed class FrameBlender
     }
 
     /// <summary>
-    /// Clears frame history so the next frame is presented without blending stale pixels.
+    /// Invalidates frame history so the next frame is presented without stale pixels.
     /// </summary>
     public void Reset()
     {
         _hasPreviousFrame = false;
     }
 
-    private static EmulatorColor Blend(EmulatorColor previous, EmulatorColor current)
+    private static double ResolvePreviousWeight(string persistenceId)
     {
+        return persistenceId switch
+        {
+            VideoFilterPresetCatalog.OffPersistenceId => 0,
+            VideoFilterPresetCatalog.SubtlePersistenceId => 0.25,
+            VideoFilterPresetCatalog.ClassicPersistenceId => 0.50,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(persistenceId),
+                persistenceId,
+                "Unknown persistence level.")
+        };
+    }
+
+    private static EmulatorColor Correct(EmulatorColor color, bool correctCgbColors)
+    {
+        return correctCgbColors ? CgbColorCorrection.ApplyModernBalanced(color) : color;
+    }
+
+    private static EmulatorColor Blend(EmulatorColor previous, EmulatorColor current, double previousWeight)
+    {
+        var currentWeight = 1 - previousWeight;
         return new EmulatorColor(
-            (byte)((previous.R + current.R + 1) / 2),
-            (byte)((previous.G + current.G + 1) / 2),
-            (byte)((previous.B + current.B + 1) / 2));
+            BlendComponent(previous.R, current.R, previousWeight, currentWeight),
+            BlendComponent(previous.G, current.G, previousWeight, currentWeight),
+            BlendComponent(previous.B, current.B, previousWeight, currentWeight));
+    }
+
+    private static byte BlendComponent(
+        byte previous,
+        byte current,
+        double previousWeight,
+        double currentWeight)
+    {
+        return (byte)Math.Round(
+            (previous * previousWeight) + (current * currentWeight),
+            MidpointRounding.AwayFromZero);
     }
 }

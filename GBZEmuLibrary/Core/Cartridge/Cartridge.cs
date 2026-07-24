@@ -88,44 +88,54 @@ namespace GBZEmuLibrary
         }
 
         /// <summary>
-        /// Loads cartridge bytes, parses controller metadata, and opens the cartridge's persistent RAM store.
+        /// Loads cartridge bytes from a file and uses its full filename as the persistent cartridge identity.
         /// </summary>
         public bool LoadFile(string file, string saveLocation)
         {
-            ResetRumbleOutput();
-
-            if (File.Exists(file))
+            if (!File.Exists(file))
             {
-                try
-                {
-                    var cart = File.ReadAllBytes(Path.Combine(Directory.GetCurrentDirectory(), file));
-                    _header = new CartridgeHeader(cart, _bootROM);
-                    _cartMemory = cart;
-                    _mbc1Multicart = IsMBC1Multicart(cart);
-                    _mbc3RTC = _header.HasRTC ? new MBC3RTC() : null;
-
-                    var ramSize = _header.BankingMode == CartridgeSchema.MBCMode.MBC2
-                        ? MBC2RamSize
-                        : CartridgeSchema.RAM_BANK_SIZE * _header.RAMBanks;
-                    _externalRAM = new ExternalRAM(saveLocation, Path.GetFileName(file), ramSize);
-                    if (_mbc3RTC != null)
-                    {
-                        var rtcData = _externalRAM.ReadRTCTrailer();
-                        if (rtcData != null)
-                        {
-                            _mbc3RTC.Load(rtcData, _getUnixTimestamp());
-                        }
-                    }
-
-                    return true;
-                }
-                catch (Exception e)
-                {
-                    Console.Error.WriteLine(e);
-                }
+                return false;
             }
 
-            return false;
+            var cart = File.ReadAllBytes(file);
+            CartridgeInspection.Inspect(cart);
+            LoadBytes(cart, Path.GetFileName(file), saveLocation, true);
+            return true;
+        }
+
+        /// <summary>
+        /// Loads one privately owned cartridge image and opens persistent RAM under the supplied logical identity.
+        /// </summary>
+        internal void LoadBytes(byte[] cart, string romIdentity, string saveLocation, bool structureValidated)
+        {
+            if (cart == null)
+            {
+                throw new ArgumentNullException(nameof(cart));
+            }
+
+            ResetRumbleOutput();
+            _header = new CartridgeHeader(cart, _bootROM, structureValidated);
+            _cartMemory = cart;
+            _mbc1Multicart = IsMBC1Multicart(cart);
+            _mbc3RTC = _header.HasRTC ? new MBC3RTC() : null;
+
+            var ramSize = _header.BankingMode == CartridgeSchema.MBCMode.MBC2
+                ? MBC2RamSize
+                : CartridgeSchema.RAM_BANK_SIZE * _header.RAMBanks;
+            _externalRAM = new ExternalRAM(saveLocation, romIdentity, ramSize);
+            if (_header.BankingMode == CartridgeSchema.MBCMode.NoMBC && _header.RAMBanks > 0)
+            {
+                _externalRAM.Enabled = true;
+            }
+
+            if (_mbc3RTC != null)
+            {
+                var rtcData = _externalRAM.ReadRTCTrailer();
+                if (rtcData != null)
+                {
+                    _mbc3RTC.Load(rtcData, _getUnixTimestamp());
+                }
+            }
         }
 
         /// <summary>

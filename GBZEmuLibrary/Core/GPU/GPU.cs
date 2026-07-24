@@ -136,6 +136,8 @@ namespace GBZEmuLibrary
 
         private readonly Color[,] _screenData = new Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
         private readonly Color[,] _renderData = new Color[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
+        [SaveStateIgnore]
+        private readonly byte[,] _dmgShadeData = new byte[Display.HORIZONTAL_RESOLUTION, Display.VERTICAL_RESOLUTION];
 
         private readonly byte[] _videoRAM = new byte[MemorySchema.MAX_VRAM_SIZE];
         private readonly byte[] _spriteAttributeTable = new byte[MemorySchema.SPRITE_ATTRIBUTE_TABLE_END - MemorySchema.SPRITE_ATTRIBUTE_TABLE_START];
@@ -654,6 +656,26 @@ namespace GBZEmuLibrary
         public Color[,] GetScreenData()
         {
             return _screenData;
+        }
+
+        /// <summary>
+        /// Returns the reusable palette-mapped DMG shade framebuffer when the current output uses monochrome rendering.
+        /// </summary>
+        public bool TryGetDmgShadeData(out byte[,] shadeData)
+        {
+            shadeData = _dmgShadeData;
+            return !_gbcMode && !_dmgCompatibilityMode;
+        }
+
+        /// <summary>
+        /// Rebuilds derived host shade output after restoring the authoritative RGB framebuffer from a save state.
+        /// </summary>
+        public void RefreshDmgShadeData()
+        {
+            if (!_gbcMode && !_dmgCompatibilityMode)
+            {
+                CopyDmgShadeDataFromScreen();
+            }
         }
 
         /// <summary>
@@ -1522,6 +1544,7 @@ namespace GBZEmuLibrary
                 {
                     _screenData[x, y] = color;
                     _renderData[x, y] = color;
+                    _dmgShadeData[x, y] = 0;
                 }
             }
         }
@@ -1531,11 +1554,28 @@ namespace GBZEmuLibrary
         /// </summary>
         private void PublishFrame()
         {
+            var publishDmgShades = !_gbcMode && !_dmgCompatibilityMode;
             for (var y = 0; y < Display.VERTICAL_RESOLUTION; y++)
             {
                 for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
                 {
-                    _screenData[x, y] = _renderData[x, y];
+                    var color = _renderData[x, y];
+                    _screenData[x, y] = color;
+                    if (publishDmgShades)
+                    {
+                        _dmgShadeData[x, y] = color.SgbIndex;
+                    }
+                }
+            }
+        }
+
+        private void CopyDmgShadeDataFromScreen()
+        {
+            for (var y = 0; y < Display.VERTICAL_RESOLUTION; y++)
+            {
+                for (var x = 0; x < Display.HORIZONTAL_RESOLUTION; x++)
+                {
+                    _dmgShadeData[x, y] = _screenData[x, y].SgbIndex;
                 }
             }
         }

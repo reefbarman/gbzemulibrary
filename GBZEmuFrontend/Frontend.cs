@@ -1,4 +1,6 @@
 using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using GBZEmuLibrary;
 using Raylib_cs;
 using EmulatorSound = GBZEmuLibrary.Sound;
@@ -29,7 +31,6 @@ internal sealed class Frontend : IDisposable
     private readonly RaylibColor[] _pixels = new RaylibColor[Display.HORIZONTAL_RESOLUTION * Display.VERTICAL_RESOLUTION];
     private readonly RaylibColor[] _sgbPixels = new RaylibColor[
         SuperGameBoyDisplay.HORIZONTAL_RESOLUTION * SuperGameBoyDisplay.VERTICAL_RESOLUTION];
-    private readonly short[] _audioSamples = new short[AudioFramesPerBuffer * 2];
     private readonly FrontendAudioQueue _audioQueue = new(AudioQueueCapacityFrames, AudioStartupFrames);
     private readonly bool[] _logicalButtonStates = new bool[(int)JoypadButtons.Count];
     private readonly bool[] _desiredButtonStates = new bool[(int)JoypadButtons.Count];
@@ -58,6 +59,9 @@ internal sealed class Frontend : IDisposable
         [GamepadButton.MiddleRight] = JoypadButtons.Start
     };
 
+    // Raylib exposes no callback context pointer; the test frontend supports one live audio stream at a time.
+    private static volatile FrontendAudioQueue? s_audioQueue;
+
     private Texture2D _texture;
     private AudioStream _audioStream;
     private string _windowTitle = string.Empty;
@@ -71,7 +75,7 @@ internal sealed class Frontend : IDisposable
     private bool _waitingForInputRelease;
     private bool _frameStepRepeatArmed;
     private bool _audioSuspended;
-    private bool _rawFrames;
+    private string _persistenceId = VideoFilterPresetCatalog.ClassicPersistenceId;
     private bool _correctCgbColors;
     private bool _videoFrameReady;
     private bool _fastForwarding;
@@ -89,28 +93,55 @@ internal sealed class Frontend : IDisposable
     private double _frameAccumulator;
     private double _statusUntil;
     private QuickSaveStateStore? _quickState;
+    private FrontendSpatialFilterOverlays? _spatialFilterOverlays;
 
-    public void Run(FrontendOptions options)
+    public void Run(
+        FrontendOptions options,
+        FrontendSettingsStore settingsStore,
+        FrontendSettingsLoadResult loadedSettings)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(settingsStore);
+        ArgumentNullException.ThrowIfNull(loadedSettings);
+
+        var resolvedVideo = options.ResolveVideoSettings(loadedSettings.Settings);
+        var resolvedRom = options.ROMPath == null
+            ? null
+            : RomLaunchResolver.Resolve(options.ROMPath);
+        var pickerScale = Math.Max(4, resolvedVideo.Effective.IntegerScale);
+        var initialScale = resolvedRom == null ? pickerScale : resolvedVideo.Effective.IntegerScale;
+
         Raylib.SetConfigFlags(ConfigFlags.VSyncHint | ConfigFlags.HighDpiWindow);
         Raylib.InitWindow(
-            Display.HORIZONTAL_RESOLUTION * options.Scale,
-            Display.VERTICAL_RESOLUTION * options.Scale,
+            Display.HORIZONTAL_RESOLUTION * initialScale,
+            Display.VERTICAL_RESOLUTION * initialScale,
             "GBZEmuFrontend - Select ROM");
+        Raylib.SetExitKey(KeyboardKey.Null);
         _windowReady = true;
         Raylib.SetTargetFPS(PresentationFramesPerSecond);
 
-        var romPath = options.ROMPath ?? SelectROM(options.ROMDirectory!);
-        if (romPath == null)
+        if (resolvedRom == null)
+        {
+            (resolvedRom, resolvedVideo) = SelectROM(
+                options.ROMDirectory!,
+                options,
+                settingsStore,
+                resolvedVideo);
+        }
+
+        if (resolvedRom == null)
         {
             return;
         }
 
+        ReportResolvedRom(resolvedRom);
+        var videoSettings = resolvedVideo.Effective;
+        var scale = videoSettings.IntegerScale;
         _waitingForInputRelease = options.ROMPath == null;
-        _rawFrames = options.RawFrames;
+        _persistenceId = videoSettings.Persistence;
         _frameBlender.Reset();
 
-        var compatibility = CartridgeMetadata.Read(romPath).Compatibility;
+        var compatibility = resolvedRom.CartridgeInspection.Compatibility;
         var hardwareModel = options.HardwareModel ?? ResolveAutomaticHardwareModel(compatibility);
         if (HardwareModelMetadata.IsImplemented(hardwareModel) &&
             !HardwareModelMetadata.SupportsCartridge(hardwareModel, compatibility))
@@ -120,7 +151,10 @@ internal sealed class Frontend : IDisposable
         }
 
         var cgbAudioFilter = ShouldUseCgbAudioFilter(hardwareModel);
-        _correctCgbColors = ShouldCorrectCgbColors(hardwareModel, compatibility, options.RawColors);
+        _correctCgbColors = ShouldCorrectCgbColors(
+            hardwareModel,
+            compatibility,
+            videoSettings.CgbColorProfile == VideoFilterPresetCatalog.RawColorProfileId);
         var bootRom = options.SkipBootROM
             ? BootRomConfig.Skip()
             : options.BootROMPath == null
@@ -129,33 +163,35 @@ internal sealed class Frontend : IDisposable
 
         _started = _emulator.Start(new Emulator.Config(hardwareModel)
         {
-            ROMPath = romPath,
+            ROMBytes = resolvedRom.EffectiveBytes,
+            ROMIdentity = resolvedRom.PersistenceIdentity,
             SaveLocation = options.SaveDirectory,
             BootRom = bootRom
         });
 
         if (!_started)
         {
-            throw new InvalidOperationException($"Failed to load ROM: {romPath}");
+            throw new InvalidOperationException($"Failed to load ROM: {resolvedRom.BaseRomPath}");
         }
 
         _frameDuration = 1.0 / _emulator.FrameRate;
 
-        _quickState = new QuickSaveStateStore(options.SaveDirectory, romPath);
+        _quickState = new QuickSaveStateStore(options.SaveDirectory, resolvedRom.PersistenceIdentity);
         _rewind.Reset(_emulator);
         _pendingRumbleStrength = _emulator.RumbleStrength;
         _rumbleDirty = true;
         _emulator.RumbleStrengthUpdated += HandleRumbleStrengthUpdated;
 
-        _windowTitle = $"GBZEmuFrontend - {Path.GetFileName(romPath)}";
+        _windowTitle = $"GBZEmuFrontend - {resolvedRom.DisplayName}";
         Raylib.SetWindowTitle(_windowTitle);
 
         if (_emulator.IsSuperGameBoy)
         {
             _videoWidth = SuperGameBoyDisplay.HORIZONTAL_RESOLUTION;
             _videoHeight = SuperGameBoyDisplay.VERTICAL_RESOLUTION;
-            Raylib.SetWindowSize(_videoWidth * options.Scale, _videoHeight * options.Scale);
         }
+
+        Raylib.SetWindowSize(_videoWidth * scale, _videoHeight * scale);
 
         var image = Raylib.GenImageColor(_videoWidth, _videoHeight, RaylibColor.Black);
         _texture = Raylib.LoadTextureFromImage(image);
@@ -163,13 +199,28 @@ internal sealed class Frontend : IDisposable
         Raylib.SetTextureFilter(_texture, TextureFilter.Point);
         _textureReady = true;
 
+        if (!_emulator.IsSuperGameBoy)
+        {
+            _spatialFilterOverlays = new FrontendSpatialFilterOverlays(
+                _videoWidth,
+                _videoHeight,
+                scale,
+                videoSettings.PixelGrid,
+                videoSettings.Glare);
+        }
+
         Raylib.InitAudioDevice();
         _audioReady = Raylib.IsAudioDeviceReady();
         if (_audioReady)
         {
             _audioQueue.SetHardwareModel(cgbAudioFilter);
             Raylib.SetAudioStreamBufferSizeDefault(AudioFramesPerBuffer);
-            _audioStream = Raylib.LoadAudioStream(EmulatorSound.SAMPLE_RATE, 16, 2);
+            _audioStream = Raylib.LoadAudioStream(EmulatorSound.SAMPLE_RATE, 32, 2);
+            s_audioQueue = _audioQueue;
+            unsafe
+            {
+                Raylib.SetAudioStreamCallback(_audioStream, &FillAudioStream);
+            }
         }
         else
         {
@@ -185,6 +236,11 @@ internal sealed class Frontend : IDisposable
 
         while (!Raylib.WindowShouldClose())
         {
+            if (Raylib.IsKeyPressed(KeyboardKey.Escape))
+            {
+                break;
+            }
+
             UpdateInput();
 
             var stateRestored = HandleQuickStateControls();
@@ -206,7 +262,7 @@ internal sealed class Frontend : IDisposable
             UpdateAudio();
             UpdateRumble();
             UpdateWindowTitle();
-            Draw(options.Scale);
+            Draw(scale);
         }
     }
 
@@ -217,6 +273,7 @@ internal sealed class Frontend : IDisposable
         if (_audioReady)
         {
             Raylib.StopAudioStream(_audioStream);
+            s_audioQueue = null;
             Raylib.UnloadAudioStream(_audioStream);
             Raylib.CloseAudioDevice();
             _audioReady = false;
@@ -224,6 +281,9 @@ internal sealed class Frontend : IDisposable
 
         if (_windowReady)
         {
+            _spatialFilterOverlays?.Dispose();
+            _spatialFilterOverlays = null;
+
             if (_textureReady)
             {
                 Raylib.UnloadTexture(_texture);
@@ -285,7 +345,30 @@ internal sealed class Frontend : IDisposable
             !rawColors;
     }
 
-    private static string? SelectROM(string romDirectory)
+    private static void ReportResolvedRom(ResolvedRomImage resolvedRom)
+    {
+        Console.WriteLine($"ROM source: {Path.GetFileName(resolvedRom.BaseRomPath)}");
+        Console.WriteLine($"Base SHA-256: {resolvedRom.BaseSha256}");
+        Console.WriteLine($"Effective SHA-256: {resolvedRom.EffectiveSha256}");
+        Console.WriteLine($"Persistence identity: {resolvedRom.PersistenceIdentity}");
+        for (var index = 0; index < resolvedRom.AppliedPatches.Count; index++)
+        {
+            var patch = resolvedRom.AppliedPatches[index];
+            Console.WriteLine(
+                $"Patch {index + 1}: {patch.FileName} ({patch.Format.ToString().ToUpperInvariant()}, SHA-256 {patch.Sha256})");
+        }
+
+        foreach (var diagnostic in resolvedRom.CartridgeInspection.Diagnostics)
+        {
+            Console.Error.WriteLine($"ROM warning: {diagnostic.Message}");
+        }
+    }
+
+    private static (ResolvedRomImage? Rom, ResolvedVideoFilterSettings VideoSettings) SelectROM(
+        string romDirectory,
+        FrontendOptions options,
+        FrontendSettingsStore settingsStore,
+        ResolvedVideoFilterSettings resolvedVideo)
     {
         var romPaths = Directory.GetFiles(romDirectory)
             .Where(path => path.EndsWith(".gb", StringComparison.OrdinalIgnoreCase)
@@ -293,38 +376,143 @@ internal sealed class Frontend : IDisposable
             .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         var selectedIndex = 0;
+        FrontendSettingsMenu? settingsMenu = null;
+        string? settingsDiagnostic = null;
+        string? launchDiagnostic = null;
 
         while (!Raylib.WindowShouldClose())
         {
             var gamepad = FindAvailableGamepad();
-            if (romPaths.Length > 0)
+            if (settingsMenu == null)
             {
-                if (Raylib.IsKeyPressed(KeyboardKey.Up) ||
-                    IsGamepadButtonPressed(gamepad, GamepadButton.LeftFaceUp))
+                if (Raylib.IsKeyPressed(KeyboardKey.Escape)
+                    || IsGamepadButtonPressed(gamepad, GamepadButton.RightFaceRight))
                 {
-                    selectedIndex = (selectedIndex + romPaths.Length - 1) % romPaths.Length;
+                    return (null, resolvedVideo);
                 }
 
-                if (Raylib.IsKeyPressed(KeyboardKey.Down) ||
-                    IsGamepadButtonPressed(gamepad, GamepadButton.LeftFaceDown))
+                if (Raylib.IsKeyPressed(KeyboardKey.S)
+                    || IsGamepadButtonPressed(gamepad, GamepadButton.RightFaceUp))
                 {
-                    selectedIndex = (selectedIndex + 1) % romPaths.Length;
+                    settingsMenu = new FrontendSettingsMenu(options, resolvedVideo);
+                    settingsDiagnostic = null;
+                    continue;
                 }
 
-                if (Raylib.IsKeyPressed(KeyboardKey.Enter) ||
-                    IsGamepadButtonPressed(gamepad, GamepadButton.RightFaceDown))
+                if (romPaths.Length > 0)
                 {
-                    return romPaths[selectedIndex];
+                    if (Raylib.IsKeyPressed(KeyboardKey.Up)
+                        || IsGamepadButtonPressed(gamepad, GamepadButton.LeftFaceUp))
+                    {
+                        selectedIndex = (selectedIndex + romPaths.Length - 1) % romPaths.Length;
+                        launchDiagnostic = null;
+                    }
+
+                    if (Raylib.IsKeyPressed(KeyboardKey.Down)
+                        || IsGamepadButtonPressed(gamepad, GamepadButton.LeftFaceDown))
+                    {
+                        selectedIndex = (selectedIndex + 1) % romPaths.Length;
+                        launchDiagnostic = null;
+                    }
+
+                    if (Raylib.IsKeyPressed(KeyboardKey.Enter)
+                        || IsGamepadButtonPressed(gamepad, GamepadButton.RightFaceDown))
+                    {
+                        try
+                        {
+                            return (RomLaunchResolver.Resolve(romPaths[selectedIndex]), resolvedVideo);
+                        }
+                        catch (Exception exception) when (exception is IOException
+                            or UnauthorizedAccessException
+                            or NotSupportedException
+                            or ArgumentException)
+                        {
+                            launchDiagnostic = exception.Message;
+                        }
+                    }
+                }
+
+                DrawROMPicker(romDirectory, romPaths, selectedIndex, launchDiagnostic);
+                continue;
+            }
+
+            if (Raylib.IsKeyPressed(KeyboardKey.Escape)
+                || IsGamepadButtonPressed(gamepad, GamepadButton.RightFaceRight))
+            {
+                settingsMenu = null;
+                settingsDiagnostic = null;
+                continue;
+            }
+
+            if (Raylib.IsKeyPressed(KeyboardKey.Up)
+                || IsGamepadButtonPressed(gamepad, GamepadButton.LeftFaceUp))
+            {
+                settingsMenu.MoveSelection(-1);
+            }
+
+            if (Raylib.IsKeyPressed(KeyboardKey.Down)
+                || IsGamepadButtonPressed(gamepad, GamepadButton.LeftFaceDown))
+            {
+                settingsMenu.MoveSelection(1);
+            }
+
+            if (Raylib.IsKeyPressed(KeyboardKey.Left)
+                || IsGamepadButtonPressed(gamepad, GamepadButton.LeftFaceLeft))
+            {
+                settingsMenu.AdjustSelected(-1);
+            }
+
+            if (Raylib.IsKeyPressed(KeyboardKey.Right)
+                || IsGamepadButtonPressed(gamepad, GamepadButton.LeftFaceRight))
+            {
+                settingsMenu.AdjustSelected(1);
+            }
+
+            if (Raylib.IsKeyPressed(KeyboardKey.Enter)
+                || IsGamepadButtonPressed(gamepad, GamepadButton.RightFaceDown))
+            {
+                var action = settingsMenu.ActivateSelected();
+                if (action == FrontendSettingsMenuAction.Back)
+                {
+                    settingsMenu = null;
+                    settingsDiagnostic = null;
+                    continue;
+                }
+
+                if (action == FrontendSettingsMenuAction.Apply)
+                {
+                    try
+                    {
+                        settingsStore.Save(settingsMenu.WorkingSettings);
+                        resolvedVideo = options.ResolveVideoSettings(settingsMenu.WorkingSettings);
+                        settingsMenu = null;
+                        settingsDiagnostic = null;
+                        var pickerScale = Math.Max(4, resolvedVideo.Effective.IntegerScale);
+                        Raylib.SetWindowSize(
+                            Display.HORIZONTAL_RESOLUTION * pickerScale,
+                            Display.VERTICAL_RESOLUTION * pickerScale);
+                        continue;
+                    }
+                    catch (Exception exception) when (exception is IOException
+                        or UnauthorizedAccessException
+                        or NotSupportedException)
+                    {
+                        settingsDiagnostic = $"Could not save settings: {exception.Message}";
+                    }
                 }
             }
 
-            DrawROMPicker(romDirectory, romPaths, selectedIndex);
+            DrawSettingsMenu(settingsMenu!, settingsDiagnostic);
         }
 
-        return null;
+        return (null, resolvedVideo);
     }
 
-    private static void DrawROMPicker(string romDirectory, string[] romPaths, int selectedIndex)
+    private static void DrawROMPicker(
+        string romDirectory,
+        string[] romPaths,
+        int selectedIndex,
+        string? diagnostic)
     {
         const int padding = 24;
         const int titleFontSize = 24;
@@ -332,7 +520,7 @@ internal sealed class Frontend : IDisposable
         const int itemHeight = 26;
         const int listTop = 84;
 
-        var visibleItems = Math.Max(1, (Raylib.GetScreenHeight() - listTop - padding) / itemHeight);
+        var visibleItems = Math.Max(1, (Raylib.GetScreenHeight() - listTop - 44) / itemHeight);
         var firstVisible = Math.Max(0, selectedIndex - visibleItems + 1);
         var lastVisible = Math.Min(romPaths.Length, firstVisible + visibleItems);
 
@@ -340,11 +528,20 @@ internal sealed class Frontend : IDisposable
         Raylib.ClearBackground(RaylibColor.Black);
         Raylib.DrawText("Select a ROM", padding, 20, titleFontSize, RaylibColor.RayWhite);
         Raylib.DrawText(romDirectory, padding, 52, 14, RaylibColor.Gray);
-        Raylib.DrawText("Keyboard: Up/Down + Enter    Controller: D-pad + south face button", padding, Raylib.GetScreenHeight() - 20, 12, RaylibColor.Gray);
+        Raylib.DrawText(
+            "Up/Down: Select   Enter/A: Play   S/Y: Settings   Escape/B: Quit",
+            padding,
+            Raylib.GetScreenHeight() - 20,
+            12,
+            RaylibColor.Gray);
 
-        if (romPaths.Length == 0)
+        if (!string.IsNullOrWhiteSpace(diagnostic))
         {
-            Raylib.DrawText("No .gb or .gbc files found. Press Escape to quit.", padding, listTop, itemFontSize, RaylibColor.Gray);
+            Raylib.DrawText(diagnostic, padding, listTop, 14, RaylibColor.Red);
+        }
+        else if (romPaths.Length == 0)
+        {
+            Raylib.DrawText("No .gb or .gbc files found.", padding, listTop, itemFontSize, RaylibColor.Gray);
         }
         else
         {
@@ -352,11 +549,80 @@ internal sealed class Frontend : IDisposable
             {
                 var color = i == selectedIndex ? RaylibColor.Yellow : RaylibColor.RayWhite;
                 var prefix = i == selectedIndex ? "> " : "  ";
-                Raylib.DrawText($"{prefix}{Path.GetFileName(romPaths[i])}", padding, listTop + ((i - firstVisible) * itemHeight), itemFontSize, color);
+                Raylib.DrawText(
+                    $"{prefix}{Path.GetFileName(romPaths[i])}",
+                    padding,
+                    listTop + ((i - firstVisible) * itemHeight),
+                    itemFontSize,
+                    color);
             }
         }
 
         Raylib.EndDrawing();
+    }
+
+    private static void DrawSettingsMenu(FrontendSettingsMenu menu, string? diagnostic)
+    {
+        const int padding = 24;
+        const int titleFontSize = 24;
+        const int rowFontSize = 18;
+        const int rowHeight = 34;
+        const int rowsTop = 76;
+        const int valueColumn = 248;
+
+        Raylib.BeginDrawing();
+        Raylib.ClearBackground(RaylibColor.Black);
+        Raylib.DrawText("Video Settings", padding, 20, titleFontSize, RaylibColor.RayWhite);
+        Raylib.DrawText("Applied before launch; CLI-owned rows are read-only.", padding, 50, 14, RaylibColor.Gray);
+
+        for (var index = 0; index < (int)FrontendSettingsMenuRow.Count; index++)
+        {
+            var row = (FrontendSettingsMenuRow)index;
+            var selected = row == menu.SelectedRow;
+            var overridden = menu.IsRowOverridden(row);
+            var color = selected ? RaylibColor.Yellow : overridden ? RaylibColor.Gray : RaylibColor.RayWhite;
+            var prefix = selected ? "> " : "  ";
+            var label = GetSettingsRowLabel(row);
+            var y = rowsTop + (index * rowHeight);
+            Raylib.DrawText($"{prefix}{label}", padding, y, rowFontSize, color);
+
+            var value = menu.GetVisibleValue(row);
+            if (!string.IsNullOrEmpty(value))
+            {
+                var suffix = overridden ? "  [CLI override]" : string.Empty;
+                Raylib.DrawText($"{value}{suffix}", valueColumn, y, rowFontSize, color);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(diagnostic))
+        {
+            Raylib.DrawText(diagnostic, padding, Raylib.GetScreenHeight() - 44, 14, RaylibColor.Red);
+        }
+
+        Raylib.DrawText(
+            "Up/Down: Row   Left/Right: Value   Enter/A: Activate   Escape/B: Cancel",
+            padding,
+            Raylib.GetScreenHeight() - 20,
+            12,
+            RaylibColor.Gray);
+        Raylib.EndDrawing();
+    }
+
+    private static string GetSettingsRowLabel(FrontendSettingsMenuRow row)
+    {
+        return row switch
+        {
+            FrontendSettingsMenuRow.Preset => "Preset",
+            FrontendSettingsMenuRow.CgbColor => "CGB color",
+            FrontendSettingsMenuRow.Persistence => "Persistence / ghosting",
+            FrontendSettingsMenuRow.PixelGrid => "Pixel grid",
+            FrontendSettingsMenuRow.Glare => "Glare",
+            FrontendSettingsMenuRow.IntegerScale => "Integer scale",
+            FrontendSettingsMenuRow.Apply => "Apply",
+            FrontendSettingsMenuRow.ResetDefaults => "Reset defaults",
+            FrontendSettingsMenuRow.Back => "Back",
+            _ => throw new ArgumentOutOfRangeException(nameof(row), row, null)
+        };
     }
 
     private void UpdateInput()
@@ -814,7 +1080,7 @@ internal sealed class Frontend : IDisposable
     {
         if (!_emulator.IsSuperGameBoy)
         {
-            _frameBlender.Process(_emulator.GetScreenData(), _pixels, !_rawFrames, _correctCgbColors);
+            _frameBlender.Process(_emulator.GetScreenData(), _pixels, _persistenceId, _correctCgbColors);
             return;
         }
 
@@ -842,33 +1108,32 @@ internal sealed class Frontend : IDisposable
             return;
         }
 
-        if (_audioPlaybackStarted &&
-            Raylib.IsAudioStreamProcessed(_audioStream) &&
-            _audioQueue.QueuedFrames < AudioFramesPerBuffer)
+        if (_audioPlaybackStarted)
         {
-            Raylib.StopAudioStream(_audioStream);
-            _audioPlaybackStarted = false;
-            _audioQueue.RequirePreroll();
+            if (!_audioQueue.IsPrimed)
+            {
+                Raylib.StopAudioStream(_audioStream);
+                _audioPlaybackStarted = false;
+            }
+
             return;
         }
 
-        if (!_audioQueue.IsPrimed)
-        {
-            return;
-        }
-
-        var submittedBuffer = false;
-        while (Raylib.IsAudioStreamProcessed(_audioStream) &&
-               _audioQueue.TryDequeue(_audioSamples, AudioFramesPerBuffer))
-        {
-            Raylib.UpdateAudioStream(_audioStream, _audioSamples, AudioFramesPerBuffer);
-            submittedBuffer = true;
-        }
-
-        if (!_audioPlaybackStarted && submittedBuffer)
+        if (_audioQueue.IsPrimed)
         {
             Raylib.PlayAudioStream(_audioStream);
             _audioPlaybackStarted = true;
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe void FillAudioStream(void* bufferData, uint frameCount)
+    {
+        var destination = new Span<float>(bufferData, (int)frameCount * 2);
+        var queue = s_audioQueue;
+        if (queue == null || !queue.TryDequeue(destination, (int)frameCount))
+        {
+            destination.Clear();
         }
     }
 
@@ -1050,6 +1315,7 @@ internal sealed class Frontend : IDisposable
             Vector2.Zero,
             0,
             RaylibColor.White);
+        _spatialFilterOverlays?.Draw();
         Raylib.EndDrawing();
     }
 }

@@ -9,6 +9,52 @@ namespace GBZEmuTests;
 public sealed class CartridgeTests
 {
     /// <summary>
+    /// Verifies ROM+RAM and ROM+RAM+BATTERY cartridges expose external RAM directly because NoMBC hardware has no
+    /// RAM-enable register.
+    /// </summary>
+    [Theory]
+    [InlineData(0x08)]
+    [InlineData(0x09)]
+    public void NoMbcRamIsAlwaysAccessible(byte cartridgeType)
+    {
+        using var rom = CreateCartridge(cartridgeType, 0x00, 0x02);
+        var emulator = EmulatorFactory.Start(rom);
+
+        emulator.Debug.PokeByte(0x5A, 0xA000);
+        emulator.Debug.PokeByte(0xA5, 0xBFFF);
+
+        Assert.Equal(0x5A, emulator.Debug.PeekByte(0xA000));
+        Assert.Equal(0xA5, emulator.Debug.PeekByte(0xBFFF));
+        emulator.Terminate();
+    }
+
+    /// <summary>
+    /// Verifies NoMBC battery-backed RAM remains directly accessible after the save file is reopened.
+    /// </summary>
+    [Fact]
+    public void NoMbcBatteryRamPersistsWithoutEnableWrites()
+    {
+        using var rom = CreateCartridge(0x09, 0x00, 0x02);
+        var saveDirectory = Path.Combine(Path.GetTempPath(), $"gbzemu-nombc-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(saveDirectory);
+
+        try
+        {
+            var first = StartWithSaveDirectory(rom, saveDirectory);
+            first.Debug.PokeByte(0x3C, 0xA123);
+            first.Terminate();
+
+            var second = StartWithSaveDirectory(rom, saveDirectory);
+            Assert.Equal(0x3C, second.Debug.PeekByte(0xA123));
+            second.Terminate();
+        }
+        finally
+        {
+            Directory.Delete(saveDirectory, true);
+        }
+    }
+
+    /// <summary>
     /// Verifies that MBC2 exposes its built-in 512 x 4-bit RAM with upper read bits set and mirrors it
     /// throughout the external-RAM window. This protects save compatibility and the MBC2 nibble-width contract.
     /// </summary>
@@ -440,7 +486,7 @@ public sealed class CartridgeTests
     [Fact]
     public void Mbc5RumbleReservesBitThreeFromRamBankSelection()
     {
-        using var rumbleRom = CreateCartridge(0x1E, 0x00, 0x04);
+        using var rumbleRom = CreateCartridge(0x1E, 0x00, 0x05);
         var rumble = EmulatorFactory.Start(rumbleRom);
         rumble.Debug.PokeByte(0x0A, 0x0000);
         rumble.Debug.PokeByte(0x08, 0x4000);

@@ -3,25 +3,35 @@ using GBZEmuLibrary;
 namespace GBZEmuFrontend;
 
 /// <summary>
-/// Persists one atomic quick-save state per ROM beneath the frontend save directory.
+/// Persists one atomic quick-save state per resolved ROM identity beneath the frontend save directory.
 /// </summary>
 internal sealed class QuickSaveStateStore
 {
     public string StatePath { get; }
 
-    public QuickSaveStateStore(string saveDirectory, string romPath)
+    public QuickSaveStateStore(string saveDirectory, string persistenceIdentity)
     {
         if (string.IsNullOrWhiteSpace(saveDirectory))
         {
             throw new ArgumentException("A save directory is required.", nameof(saveDirectory));
         }
 
-        if (string.IsNullOrWhiteSpace(romPath))
+        if (string.IsNullOrWhiteSpace(persistenceIdentity))
         {
-            throw new ArgumentException("A ROM path is required.", nameof(romPath));
+            throw new ArgumentException("A ROM persistence identity is required.", nameof(persistenceIdentity));
         }
 
-        StatePath = Path.Combine(saveDirectory, "States", $"{Path.GetFileName(romPath)}.state");
+        if (persistenceIdentity is "." or ".." ||
+            Path.IsPathRooted(persistenceIdentity) ||
+            persistenceIdentity.Contains('/') ||
+            persistenceIdentity.Contains('\\') ||
+            persistenceIdentity.IndexOfAny("<>:\"|?*".ToCharArray()) >= 0 ||
+            !string.Equals(Path.GetFileName(persistenceIdentity), persistenceIdentity, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("The ROM persistence identity must be a portable leaf filename.", nameof(persistenceIdentity));
+        }
+
+        StatePath = Path.Combine(saveDirectory, "States", $"{persistenceIdentity}.state");
     }
 
     /// <summary>

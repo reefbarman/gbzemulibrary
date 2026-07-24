@@ -13,8 +13,16 @@ internal static class Program
         try
         {
             var options = FrontendOptions.Parse(args);
+            var applicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var settingsStore = new FrontendSettingsStore(applicationData);
+            var loadedSettings = settingsStore.Load();
+            if (!string.IsNullOrWhiteSpace(loadedSettings.Diagnostic))
+            {
+                Console.Error.WriteLine(loadedSettings.Diagnostic);
+            }
+
             using var frontend = new Frontend();
-            frontend.Run(options);
+            frontend.Run(options, settingsStore, loadedSettings);
             return 0;
         }
         catch (ArgumentException exception)

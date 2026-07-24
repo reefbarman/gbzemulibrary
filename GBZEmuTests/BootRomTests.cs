@@ -166,6 +166,48 @@ public sealed class BootRomTests
         emulator.Terminate();
     }
 
+    [Fact]
+    public void DmgShadeOutputIsUnavailableOutsideARunningSession()
+    {
+        var emulator = new Emulator();
+
+        Assert.False(emulator.TryGetDmgShadeData(out var beforeStart));
+        Assert.Equal(Display.HORIZONTAL_RESOLUTION, beforeStart.GetLength(0));
+        Assert.Equal(Display.VERTICAL_RESOLUTION, beforeStart.GetLength(1));
+
+        using var rom = CreateRom(CartridgeCompatibility.DmgOnly);
+        Assert.True(emulator.Start(CreateConfig(rom, HardwareModel.DmgB, BootRomConfig.Skip())));
+        Assert.True(emulator.TryGetDmgShadeData(out var whileRunning));
+        Assert.Same(beforeStart, whileRunning);
+
+        emulator.Terminate();
+        Assert.False(emulator.TryGetDmgShadeData(out var afterTerminate));
+        Assert.Same(beforeStart, afterTerminate);
+    }
+
+    [Theory]
+    [InlineData(HardwareModel.DmgB, CartridgeCompatibility.DmgOnly, true)]
+    [InlineData(HardwareModel.Mgb, CartridgeCompatibility.DmgOnly, true)]
+    [InlineData(HardwareModel.Sgb2, CartridgeCompatibility.DmgOnly, true)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.DmgOnly, false)]
+    [InlineData(HardwareModel.CgbE, CartridgeCompatibility.CgbCompatible, false)]
+    [InlineData(HardwareModel.AgbA, CartridgeCompatibility.DmgOnly, false)]
+    public void DmgShadeOutputAvailabilityMatchesHardwareRenderingMode(
+        HardwareModel model,
+        CartridgeCompatibility compatibility,
+        bool expectedAvailable)
+    {
+        using var rom = CreateRom(compatibility);
+        var emulator = Start(rom, model, BootRomConfig.Skip());
+
+        Assert.Equal(expectedAvailable, emulator.TryGetDmgShadeData(out var shades));
+        Assert.Equal(Display.HORIZONTAL_RESOLUTION, shades.GetLength(0));
+        Assert.Equal(Display.VERTICAL_RESOLUTION, shades.GetLength(1));
+        Assert.All(shades.Cast<byte>(), shade => Assert.InRange(shade, (byte)0, (byte)3));
+
+        emulator.Terminate();
+    }
+
     [Theory]
     [InlineData(HardwareModel.DmgB, CartridgeCompatibility.DmgOnly, false)]
     [InlineData(HardwareModel.DmgB, CartridgeCompatibility.DmgOnly, true)]
